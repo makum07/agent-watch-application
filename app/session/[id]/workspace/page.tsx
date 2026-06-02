@@ -172,13 +172,13 @@ export default function WorkspacePage({ params }: Props) {
           <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
             <Link
               href={`/session/${id}/timeline`}
-              className="text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+              className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
             >
               Timeline
             </Link>
             <Link
               href={`/session/${id}/analytics`}
-              className="text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+              className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
             >
               Analytics
             </Link>
@@ -266,8 +266,8 @@ function LayoutPresets({ session, setLayout }: {
   ];
 
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-[10px] text-[#484f58] mr-1">Layout:</span>
+    <div className="flex items-center gap-0.5 bg-[#21262d]/60 rounded-md px-1 py-0.5">
+      <span className="text-[10px] text-[#8b949e] mr-1 pl-1">Layout:</span>
       {presets.map(p => {
         const l = p.layout();
         return (
@@ -276,7 +276,7 @@ function LayoutPresets({ session, setLayout }: {
             onClick={() => l && setLayout(l)}
             disabled={!l}
             title={p.label}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
           >
             {p.icon}
             <span className="hidden sm:inline">{p.label}</span>

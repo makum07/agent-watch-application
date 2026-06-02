@@ -11,6 +11,7 @@ import type { ParsedMessage } from '@/lib/parser/jsonl-parser';
 import type { ContentBlock } from '@/types/session';
 import { ToolCallWithResult } from './tool-call-with-result';
 import { useSessionStore } from '@/store/session-store';
+import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay } from '@/lib/agent-display';
 
 interface ConversationTabProps {
@@ -214,21 +215,29 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
             </span>
           )}
 
-          {/* Spawned agent badges */}
+          {/* Spawned agent badges — click to open that agent in the current pane */}
           {spawnedAgents.length > 0 && (
             <div className="flex items-center gap-1.5 shrink-0">
               <Users className="h-3 w-3 text-[#484f58]" />
               {spawnedAgents.slice(0, 5).map(agent => {
                 const { color: ac, initials, name } = getAgentDisplay(agent);
                 return (
-                  <span
+                  <button
                     key={agent.id}
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-pointer hover:opacity-80 transition-opacity"
                     style={{ color: ac.text, backgroundColor: ac.bg, borderColor: ac.border }}
-                    title={name}
+                    title={`Open ${name}`}
+                    onClick={e => {
+                      e.stopPropagation();
+                      useWorkspaceStore.getState().addTabToPane(paneId, {
+                        type: 'agent',
+                        agentId: agent.id,
+                        label: name.slice(0, 20),
+                      });
+                    }}
                   >
                     {initials}
-                  </span>
+                  </button>
                 );
               })}
               {spawnedAgents.length > 5 && (
@@ -327,10 +336,17 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
   const roleLabel = isPrompt ? 'USER MESSAGE' : isResponse ? 'RESPONSE' : isUser ? 'USER' : 'ASSISTANT';
   const roleLabelColor = isPrompt ? '#f0883e' : isResponse ? '#3fb950' : isUser ? '#58a6ff' : '#8b949e';
 
+  // Left-border accent + background tint per role
+  const accentColor = isPrompt ? '#f0883e' : isResponse ? '#3fb950' : isUser ? '#58a6ff' : undefined;
+  const bgTint = isPrompt ? 'bg-[#f0883e]/[0.04]' : isResponse ? 'bg-[#3fb950]/[0.04]' : isUser ? 'bg-[#161b22]/50' : '';
+
   return (
-    <div className={cn('border-b border-[#21262d] last:border-0', isUser && 'bg-[#161b22]/30')}>
-      <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: roleLabelColor }}>
+    <div
+      className={cn('border-b border-[#21262d] last:border-0', bgTint, accentColor && 'border-l-2 pl-[2px]')}
+      style={accentColor ? { borderLeftColor: accentColor } : undefined}
+    >
+      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: roleLabelColor }}>
           {roleLabel}
         </span>
         <span className="text-[11px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
@@ -340,7 +356,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
           </span>
         )}
       </div>
-      <div className="px-4 pb-3">
+      <div className="px-4 pb-4">
         {cleanedText && <MarkdownRenderer content={cleanedText} />}
         {toolUses.length > 0 && (
           <div className={cn('space-y-1.5', cleanedText && 'mt-3')}>

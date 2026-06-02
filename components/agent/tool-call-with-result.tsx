@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronRight, Terminal, FileText, Search, Globe, Code2, Wrench, Database } from 'lucide-react';
+import { ChevronRight, Terminal, FileText, Search, Globe, Code2, Wrench, Pencil, FilePlus, FileSearch, Zap, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ContentBlock } from '@/types/session';
 import { ArtifactCard } from './artifact-card';
@@ -12,17 +12,17 @@ const ARTIFACT_EDIT_TOOLS = new Set(['Edit']);
 
 const TOOL_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Bash: Terminal,
-  Read: FileText,
-  Write: FileText,
-  Edit: FileText,
-  NotebookEdit: FileText,
+  Read: FileSearch,
+  Write: FilePlus,
+  Edit: Pencil,
+  NotebookEdit: Pencil,
   Grep: Search,
   Glob: Search,
   WebSearch: Globe,
   WebFetch: Globe,
-  Agent: Code2,
-  Task: Code2,
-  Workflow: Code2,
+  Agent: Users,
+  Task: Users,
+  Workflow: Zap,
   AskUserQuestion: Code2,
 };
 
@@ -92,17 +92,18 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
   const hasResult = result && result.length > 0;
   const resultText = extractResultText(result);
   const summary = getToolSummary(name, input);
+  const resultBadge = getResultBadge(name, resultText, isError ?? false, hasResult ?? false);
 
   // Color coding by tool type
   const borderColor = isError ? '#f85149'
     : isAgentSpawn ? '#58a6ff'
-    : name === 'Write' || name === 'Edit' ? '#f0883e'
+    : name === 'Bash' ? '#39d353'
     : '#30363d';
 
   const iconColor = isError ? '#f85149'
     : isAgentSpawn ? '#58a6ff'
-    : name === 'Write' || name === 'Edit' ? '#f0883e'
     : name === 'Bash' ? '#39d353'
+    : name === 'Read' ? '#79c0ff'
     : '#8b949e';
 
   return (
@@ -122,10 +123,18 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
         {summary && (
           <span className="text-[#8b949e] font-mono truncate flex-1 text-[11px]">{summary}</span>
         )}
-        {isError && <span className="text-[#f85149] text-[10px] font-medium shrink-0">ERROR</span>}
-        {hasResult && !isError && (
-          <span className="text-[#484f58] text-[10px] shrink-0">
-            {resultText.length > 0 ? `${resultText.split('\n').length} lines` : '✓'}
+        {resultBadge && (
+          <span
+            className="text-[10px] font-medium shrink-0 px-1.5 py-0.5 rounded"
+            style={
+              isError
+                ? { color: '#f85149', backgroundColor: '#f8514914' }
+                : isAgentSpawn
+                ? { color: '#58a6ff', backgroundColor: '#58a6ff14' }
+                : { color: '#484f58' }
+            }
+          >
+            {resultBadge}
           </span>
         )}
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-[#484f58] transition-transform', expanded && 'rotate-90')} />
@@ -163,6 +172,19 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
       )}
     </div>
   );
+}
+
+function getResultBadge(name: string, resultText: string, isError: boolean, hasResult: boolean): string | null {
+  if (isError) return 'error';
+  if (name === 'Agent' || name === 'Task') return '→ spawned';
+  if (name === 'Workflow') return '→ launched';
+  if (!hasResult) return null;
+  const nonEmptyLines = resultText.split('\n').filter(l => l.trim()).length;
+  if (name === 'Grep' || name === 'Glob') return `${nonEmptyLines} match${nonEmptyLines !== 1 ? 'es' : ''}`;
+  if (name === 'Bash') return nonEmptyLines > 0 ? `${nonEmptyLines} lines` : '✓ ran';
+  if (name === 'Read') return `${nonEmptyLines} lines`;
+  if (name === 'WebSearch' || name === 'WebFetch') return nonEmptyLines > 0 ? `${nonEmptyLines} lines` : '✓';
+  return nonEmptyLines > 0 ? `${nonEmptyLines} lines` : '✓';
 }
 
 function formatInput(name: string, input: Record<string, unknown>): string {
