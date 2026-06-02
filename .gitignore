@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# runtime logs
+*.log
+dev.log
+server.log
+
+# playwright mcp artifacts
+.playwright-mcp/
+
+# sqlite database (runtime data)
+data/*.db
+data/*.db-shm
+data/*.db-wal

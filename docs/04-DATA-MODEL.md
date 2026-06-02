@@ -12,75 +12,122 @@
 
 ```
 ~/.claude/projects/
-  {base64-encoded-project-path}/
-    {conversation-uuid}.jsonl
+  {encoded-project-path}/                         # See path encoding below
+    {session-uuid}.jsonl                           # Root orchestrator conversation
+    {session-uuid}/
+      subagents/
+        agent-{hex16}.jsonl                        # Named Agent/Task subagent
+        agent-{hex16}.meta.json                    # { agentType, toolUseId, description }
+        workflows/
+          {wf-run-id}/
+            journal.jsonl                          # { agentId, key } mappings
+            agent-{hex16}.jsonl                    # Workflow subagent transcript
+            agent-{hex16}.meta.json                # { agentType: "workflow-subagent" }
+      workflows/
+        {wf-run-id}.json                           # Has workflowProgress[].{ agentId, label }
+      tool-results/
+        {toolUseId}.txt                            # Large tool results stored externally
 ```
 
-Each conversation (including subagent conversations) is a separate `.jsonl` file. Agent conversations spawned by `Agent` or `Task` tool calls live in the same project directory as their parent.
+**Path encoding:** Project directory names use a custom encoding (NOT base64). Special characters in the path are replaced with `-`:
+- `:` → `-`
+- `\` → `-`
+- `/` → `-`
+
+Example: `C:\Users\makum\MyProject` → `C--Users-makum-MyProject`
+
+The parser detects Windows-encoded paths by matching the pattern `^[A-Z]--` and produces a human-readable display form.
+
+**Subagent discovery:** `lib/parser/agent-correlator.ts` finds all subagents by scanning:
+1. `{sessionDir}/subagents/agent-*.jsonl` for named Agent/Task subagents
+2. `{sessionDir}/subagents/workflows/{wf-id}/agent-*.jsonl` for workflow subagents
+3. `{sessionDir}/workflows/{wf-id}.json` → `workflowProgress[].{agentId, label}` for workflow agent labels
+
+The `agentId` in `workflowProgress` is the hex portion only (without `agent-` prefix). The `jsonl_path` for each agent is stored in the database so messages can be read directly from the correct file.
 
 ### 1.2 JSONL Line Types
 
-Each line in a `.jsonl` file is a self-contained JSON object representing either a message or metadata.
+Each line in a `.jsonl` file is a self-contained JSON object. **Critical:** the actual Claude Code format wraps all messages in an outer envelope. The `role` and `content` are inside a nested `message` field — not at the top level.
 
-**User Message:**
+**Outer envelope (all lines):**
 ```json
 {
-  "type": "human",
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "Find all payment-related files" }
-  ],
+  "type": "user" | "assistant" | "queue-operation" | "mode" | ...,
+  "message": { /* inner message object */ },
+  "uuid": "...",
   "timestamp": "2026-05-30T10:00:00.000Z"
 }
 ```
 
-**Assistant Message:**
+Only lines with `type === "user"` or `type === "assistant"` contain parseable conversation content. All other `type` values (queue-operation, mode, etc.) are metadata and should be skipped.
+
+**User Message (outer + inner):**
 ```json
 {
-  "type": "assistant",
-  "role": "assistant",
-  "content": [
-    { "type": "text", "text": "I'll search for payment files." },
-    {
-      "type": "tool_use",
-      "id": "toolu_01XYZ",
-      "name": "Grep",
-      "input": {
-        "pattern": "PaymentService",
-        "type": "ts"
-      }
-    }
-  ],
-  "model": "claude-opus-4-6",
-  "stop_reason": "tool_use",
-  "usage": {
-    "input_tokens": 5230,
-    "output_tokens": 342,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 4100,
-    "service_tier": "standard"
-  },
-  "timestamp": "2026-05-30T10:00:02.000Z"
+  "type": "user",
+  "uuid": "msg-abc123",
+  "timestamp": "2026-05-30T10:00:00.000Z",
+  "message": {
+    "role": "user",
+    "content": [
+      { "type": "text", "text": "Find all payment-related files" }
+    ]
+  }
 }
 ```
 
-**Tool Result:**
+**Assistant Message (outer + inner):**
 ```json
 {
-  "type": "tool_result",
-  "role": "tool",
-  "content": [
-    {
-      "type": "tool_result",
-      "tool_use_id": "toolu_01XYZ",
-      "content": [
-        { "type": "text", "text": "src/payment/PaymentService.ts\nsrc/api/PaymentController.ts" }
-      ]
+  "type": "assistant",
+  "uuid": "msg-def456",
+  "timestamp": "2026-05-30T10:00:02.000Z",
+  "message": {
+    "role": "assistant",
+    "content": [
+      { "type": "text", "text": "I'll search for payment files." },
+      {
+        "type": "tool_use",
+        "id": "toolu_01XYZ",
+        "name": "Grep",
+        "input": { "pattern": "PaymentService", "type": "ts" }
+      }
+    ],
+    "model": "claude-opus-4-6",
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 5230,
+      "output_tokens": 342,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 4100
     }
-  ],
-  "timestamp": "2026-05-30T10:00:03.000Z"
+  }
 }
 ```
+
+**Tool Result** arrives as a `type: "user"` line whose `message.content` contains tool_result blocks:
+```json
+{
+  "type": "user",
+  "uuid": "msg-ghi789",
+  "timestamp": "2026-05-30T10:00:03.000Z",
+  "message": {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_01XYZ",
+        "content": [
+          { "type": "text", "text": "src/payment/PaymentService.ts\nsrc/api/PaymentController.ts" }
+        ],
+        "is_error": false
+      }
+    ]
+  }
+}
+```
+
+**Thinking blocks** appear as `type: "thinking"` inside `message.content` for extended thinking models. The parser filters these out (they are never shown to the user).
 
 ### 1.3 Agent Invocation Patterns
 
@@ -600,21 +647,21 @@ Browser: GET /api/v2/sessions/:id
 ### 3.3 Agent Message Lazy Loading
 
 ```
-Browser: GET /api/v2/sessions/:id/agents/:agentId/messages?page=0&limit=50
+Browser: GET /api/v2/sessions/:id/agent-messages?agentId=...&page=0&limit=50
+         |                  ↑ flat route — see Turbopack limitation in 09-NEXTJS-ARCHITECTURE.md
+         v
+    Look up agent's jsonl_path from agents table
+    (fall back to conversations table if jsonl_path is null)
          |
          v
-    Look up agent's conversation_id
+    Read JSONL file at jsonl_path, parse from start to offset
+    (file-based pagination — no seek; parse sequentially per page)
          |
          v
-    Read JSONL file, seek to offset for page
-    (or use cached parsed messages)
+    Parse 50 messages, correlate tool_use with tool_result
          |
          v
-    Parse 50 messages
-    Correlate tool_use with tool_result
-         |
-         v
-    Return paginated messages
+    Return { messages, total, hasMore }
 ```
 
 ---
@@ -661,9 +708,33 @@ session.estimatedCost = sum(agent costs)
 
 ---
 
-## 5. Extended SQL Schema (v3)
+## 5. Implemented SQL Schema
 
-### 5.1 Session History
+### 5.0 Schema Versioning and Migrations
+
+Migrations run automatically on startup via `lib/db/database.ts`. The current version is **v2**.
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  applied_at INTEGER NOT NULL
+);
+```
+
+**v1 (initial):** Creates `conversations`, `agents` (without `jsonl_path`), `session_history`, `workspace_snapshots`, `user_preferences` tables.
+
+**v2 (additive):** Adds `jsonl_path TEXT` column to `agents` table. This column stores the absolute path to the JSONL file for each agent, enabling direct file access for subagents deep in the directory hierarchy (e.g. `~/.claude/projects/X/session-id/subagents/workflows/wf-id/agent-hex.jsonl`).
+
+```sql
+-- Added in v2 migration
+ALTER TABLE agents ADD COLUMN jsonl_path TEXT;
+```
+
+`getAgentMessages()` in `session-ingester.ts` uses `jsonl_path` directly when available, falling back to the `conversations` table lookup only for legacy records.
+
+### 5.A Core Tables (v1)
+
+### 5.B Session History
 
 ```sql
 CREATE TABLE session_history (
@@ -700,7 +771,7 @@ CREATE VIRTUAL TABLE session_history_fts USING fts5(
 );
 ```
 
-### 5.2 Workspace Snapshots
+### 5.C Workspace Snapshots
 
 ```sql
 CREATE TABLE workspace_snapshots (
@@ -717,7 +788,7 @@ CREATE TABLE workspace_snapshots (
 CREATE INDEX idx_workspace_session ON workspace_snapshots(session_id, saved_at DESC);
 ```
 
-### 5.3 User Preferences
+### 5.D User Preferences
 
 ```sql
 CREATE TABLE user_preferences (
@@ -727,7 +798,7 @@ CREATE TABLE user_preferences (
 );
 ```
 
-### 5.4 Agent Artifact Cross-Reference
+### 5.E Agent Artifact Cross-Reference
 
 ```sql
 -- Track which agents consumed (read) which files

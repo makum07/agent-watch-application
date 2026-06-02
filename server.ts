@@ -1,0 +1,61 @@
+import { createServer } from 'http';
+import { parse } from 'url';
+import next from 'next';
+import { WebSocketServer } from 'ws';
+import { initServices } from './lib/services/index';
+
+const dev = process.env.NODE_ENV !== 'production';
+const port = parseInt(process.env.PORT || '3456', 10);
+
+const app = next({ dev, port });
+const handle = app.getRequestHandler();
+
+app.prepare().then(async () => {
+  const server = createServer((req, res) => {
+    const parsedUrl = parse(req.url!, true);
+    handle(req, res, parsedUrl);
+  });
+
+  // Use noServer mode so we control which upgrades we handle
+  // This prevents the ws library from rejecting Next.js HMR upgrades (/_next/webpack-hmr)
+  const wss = new WebSocketServer({ noServer: true });
+
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({ type: 'ping' }));
+    ws.on('error', () => {});
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    const pathname = req.url?.split('?')[0] ?? '';
+
+    if (pathname === '/ws') {
+      // Handle our app WebSocket
+      wss.handleUpgrade(req, socket, head, (client) => {
+        wss.emit('connection', client, req);
+      });
+    }
+    // All other upgrades (/_next/webpack-hmr, etc.) are handled by Next.js
+    // Next.js registers its own upgrade handler via the 'upgrade' event on the same server
+  });
+
+  // Let Next.js register its own upgrade handler for HMR
+  if ((app as unknown as { getUpgradeHandler?: () => Promise<(req: unknown, socket: unknown, head: unknown) => void> }).getUpgradeHandler) {
+    const upgradeHandler = await (app as unknown as { getUpgradeHandler: () => Promise<(req: unknown, socket: unknown, head: unknown) => void> }).getUpgradeHandler();
+    server.on('upgrade', (req, socket, head) => {
+      const pathname = req.url?.split('?')[0] ?? '';
+      if (pathname !== '/ws') {
+        upgradeHandler(req, socket, head);
+      }
+    });
+  }
+
+  // Expose wss globally for services to broadcast events
+  (globalThis as Record<string, unknown>).__wss = wss;
+
+  initServices();
+
+  server.listen(port, () => {
+    console.log(`> AgentWatch ready on http://localhost:${port}`);
+    console.log(`> Mode: ${dev ? 'development' : 'production'}`);
+  });
+});

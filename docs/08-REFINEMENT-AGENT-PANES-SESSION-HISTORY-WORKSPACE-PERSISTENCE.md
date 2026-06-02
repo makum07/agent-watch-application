@@ -2,9 +2,9 @@
 
 ## AgentWatch v2.0 - Addendum
 
-**Document Version:** 1.1
-**Date:** 2026-05-31
-**Status:** Draft
+**Document Version:** 1.2
+**Date:** 2026-06-02
+**Status:** Phase 1 implemented. See `07-IMPLEMENTATION-ROADMAP.md` for delivery status.
 **Supersedes:** Sections in docs 01-07 where noted
 
 ---

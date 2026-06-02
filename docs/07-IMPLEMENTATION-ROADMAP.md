@@ -3,6 +3,7 @@
 ## AgentWatch v2.0
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
+**Status:** Phase 1 MVP complete as of 2026-06-01
 
 ---
 
@@ -33,7 +34,7 @@ Phase 1: MVP                     Phase 2: Advanced Viz           Phase 3: Multi-
 
 ---
 
-## Phase 1: MVP (8-12 weeks)
+## Phase 1: MVP ✅ COMPLETE (2026-06-01)
 
 ### Goal
 
@@ -89,24 +90,34 @@ A user can open the application, see a home dashboard of recent and pinned sessi
 
 ### Deliverables
 
-- [ ] Session ingester with parent-child correlation
-- [ ] Agent graph engine
-- [ ] v2 REST API (sessions, agents, history, workspaces, preferences)
-- [ ] Multi-pane workspace with splits and resize
-- [ ] Agent pane with 5-tab rail
-- [ ] Conversation tab with inline artifact cards (collapsed, preview, full)
-- [ ] Context tab showing prompt/response
-- [ ] Summary tab with metadata
-- [ ] Agent sidebar with hierarchy and drag handles
-- [ ] Drag-and-drop agent placement
-- [ ] 5 layout presets
-- [ ] Home dashboard with recent/pinned sessions
-- [ ] Session history tracking with auto-title
-- [ ] Workspace auto-save and restore
-- [ ] Resume dialog on session reopen
-- [ ] Session search
-- [ ] Database migration to v3 schema
-- [ ] Updated Docker configuration
+- [x] Session ingester with parent-child correlation (via `agent-correlator.ts`, full directory structure scan)
+- [x] v2 REST API (sessions, agents, agent-messages, history, workspaces, preferences)
+- [x] Multi-pane workspace with horizontal/vertical splits and resize (`react-resizable-panels` v4)
+- [x] Agent pane with 5-tab rail (custom button tabs with per-agent colors)
+- [x] Conversation tab with round-grouped turns (orchestration rounds + EXCHANGE separators)
+- [x] Inline artifact cards for Write/Edit tool calls (collapsed → preview → full pane)
+- [x] Full-pane document viewer for artifacts (markdown Preview/Source toggle)
+- [x] Context tab showing prompt/response
+- [x] Summary tab with metadata and token usage
+- [x] Tools tab with grouped tool call log
+- [x] Agent sidebar — round-grouped collapsible (rounds match conversation display)
+- [x] Agent display system (`lib/agent-display.ts`) — name, color, initials per agent type
+- [x] Home dashboard with recent sessions and search
+- [x] Session history tracking (open/reopen tracking)
+- [x] Workspace auto-save and restore
+- [x] Database migrations v1 and v2 (including `jsonl_path` column)
+- [ ] Drag-and-drop agent placement *(split via sidebar click, not drag-and-drop)*
+- [ ] Named layout saves *(Phase 2)*
+- [ ] Resume dialog on session reopen *(basic resume — no dialog)*
+- [ ] Docker configuration *(native `npm run dev` is primary)*
+
+> **Implementation notes:**
+> - Agent sidebar uses round-based grouping (15-min gap) rather than a recursive parent-child tree
+> - "Drag to pane" is implemented as click-to-split from the sidebar
+> - Workflow subagents discovered via `{sessionDir}/subagents/workflows/{wf-id}/agent-*.jsonl`
+> - Named agents discovered via `{sessionDir}/subagents/agent-*.jsonl`
+> - DB path: `data/agentwatch.db` (relative to project root; gitignored)
+> - `better-sqlite3` requires `npm run rebuild-native` after Node.js version changes
 
 ### Definition of Done
 
@@ -374,15 +385,16 @@ See `09-NEXTJS-ARCHITECTURE.md` for full details.
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 15 (App Router, Server Components, Server Actions) |
+| Framework | Next.js 16.2.6 (App Router, Turbopack default, Server Components, Server Actions) |
 | Language | TypeScript 5 |
-| UI Components | shadcn/ui (Radix UI) + Tailwind CSS 4 |
-| State Management | Zustand |
-| Database | SQLite (better-sqlite3) with FTS5 |
-| WebSocket | ws (custom server.ts wrapping Next.js) |
-| Visualization | Canvas 2D (timeline) + SVG (graph) + recharts (charts) |
-| Syntax Highlighting | shiki |
-| Testing | Vitest + @testing-library/react + Playwright |
+| UI Components | Radix UI primitives (installed individually) + Tailwind CSS 4 (CSS-first `@theme`) |
+| Workspace Layout | react-resizable-panels v4 (`Group`/`Panel`/`Separator`, `orientation` prop) |
+| State Management | Zustand v5 |
+| Database | SQLite (better-sqlite3 v12) with FTS5 |
+| WebSocket | ws v8 (custom `server.ts`, production only — dev uses `next dev` directly) |
+| Visualization | Canvas 2D (timeline) + SVG (graph) + recharts v3 (charts) |
+| Syntax Highlighting | shiki v4 |
+| Testing | Vitest v4 + @testing-library/react |
 
 ---
 
@@ -401,26 +413,21 @@ docker compose >= 2.0
 git
 ```
 
-### Local Development (without Docker)
+### Local Development
 
 ```bash
-# Install dependencies
+# Install dependencies (postinstall auto-rebuilds better-sqlite3)
 npm install
 
-# Initialize shadcn/ui components
-npx shadcn@latest init
-
-# Start development server (custom server with WebSocket + Next.js HMR)
+# Start development server (next dev -p 3456, no custom server in dev)
 npm run dev
+# → http://localhost:3456
+
+# If you switch Node.js versions, rebuild the native module:
+npm run rebuild-native
 
 # Run tests
 npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run E2E tests
-npm run test:e2e
 ```
 
 ### Development with Docker

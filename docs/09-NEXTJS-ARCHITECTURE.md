@@ -2,8 +2,8 @@
 
 ## AgentWatch v2.0
 
-**Date:** 2026-06-01
-**Status:** Draft
+**Date:** 2026-06-02
+**Status:** Phase 1 MVP — Implemented
 **Supersedes:** Frontend sections of `03-TECHNICAL-ARCHITECTURE.md`, Dockerfile/Compose in `06-DEPLOYMENT-ARCHITECTURE.md`
 
 ---
@@ -14,18 +14,18 @@
 
 | Layer | Technology | Version | Purpose |
 |-------|-----------|---------|---------|
-| Framework | Next.js | 15.x | Full-stack React framework (App Router) |
-| Runtime | Node.js | 20 LTS | Server runtime |
+| Framework | Next.js | 16.2.6 | Full-stack React framework (App Router, Turbopack default) |
+| Runtime | Node.js | 22 LTS | Server runtime (22 used in primary dev environment) |
 | Language | TypeScript | 5.x | Type safety across client and server |
-| UI Library | React | 19.x | Component model |
-| Components | shadcn/ui | latest | Accessible primitives (Radix UI based) |
-| Styling | Tailwind CSS | 4.x | Utility-first CSS |
+| UI Library | React | 19.2.4 | Component model |
+| Components | Radix UI primitives | latest | Accessible primitives (installed individually, not via shadcn CLI) |
+| Styling | Tailwind CSS | 4.x | CSS-first config via `@theme` in globals.css (no tailwind.config.ts) |
 | Database | better-sqlite3 | 12.x | SQLite with FTS5 |
-| WebSocket | ws | 8.x | Real-time updates |
-| File Watching | chokidar | 3.x | JSONL file monitoring |
+| WebSocket | ws | 8.x | Real-time updates (production only) |
+| File Watching | chokidar | 5.x | JSONL file monitoring |
 | Markdown | react-markdown + remark-gfm | latest | Message rendering |
-| Syntax Highlighting | shiki | latest | Code block highlighting (same engine as VS Code) |
-| Charts | recharts | 2.x | Analytics charts (built on D3) |
+| Syntax Highlighting | shiki | 4.x | Code block highlighting (same engine as VS Code) |
+| Charts | recharts | 3.x | Analytics charts (built on D3) |
 | Canvas | @use-gesture/react + custom | latest | Timeline zoom/pan |
 
 ### 1.2 Dev Dependencies
@@ -47,25 +47,19 @@
 - Built-in file-based routing matches the application's page structure naturally
 - Parallel routes for potential future modal patterns
 
-**shadcn/ui over building from scratch:**
-- `ResizablePanelGroup` (react-resizable-panels): Near-exact match for the multi-pane workspace. Handles horizontal/vertical splits, resize handles, minimum sizes, keyboard accessibility — all requirements from the PRD.
-- `Tabs`: Agent pane tab rail (Conversation, Artifacts, Context, Tools, Summary)
-- `Command` (cmdk): Session search with fuzzy matching, keyboard navigation
-- `Dialog`: Resume dialog, save layout dialog
-- `Collapsible`: Tool call expansion, agent hierarchy tree
-- `DropdownMenu`: Layout picker, session card actions
-- `Tooltip`: Timeline bar tooltips, agent badges
-- `Badge`: Agent status, artifact operation type
-- `Card`: Session cards, artifact cards, inline artifact cards
-- `ScrollArea`: Virtual scrolling wrapper for long lists
-- `Sheet`: Mobile sidebar drawer
-- All components are copy-pasted (not npm-installed), fully customizable, and accessible by default.
+**Radix UI primitives over shadcn CLI approach:**
+- `react-resizable-panels` v4: Used directly (not via shadcn wrapper). v4 exports `Group`/`Panel`/`Separator` with `orientation` prop (not `direction`). Handles horizontal/vertical splits, drag-to-resize, min-size enforcement, keyboard accessibility.
+- `@radix-ui/react-collapsible`: Tool call expansion, agent sidebar round groups
+- `@radix-ui/react-scroll-area`: Scrollable pane content
+- `@radix-ui/react-tabs`, `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-tooltip`, `@radix-ui/react-separator`: Used individually as needed
+- `cmdk`: Session search (Command palette pattern)
+- Agent tab rails and pane headers use **custom button implementations** (not shadcn Tabs) to support colored active-tab indicators per-agent
 
-**Tailwind over CSS Modules:**
-- Design token consistency via `tailwind.config.ts` (matches the color palette from the design spec)
-- Rapid iteration on layout-heavy UI (the workspace is 90% layout)
+**Tailwind v4 over CSS Modules:**
+- Tailwind v4 uses CSS-first configuration: design tokens declared via `@theme` in `app/globals.css` — there is **no `tailwind.config.ts`**
+- Plugin registration uses `@plugin "tailwindcss-animate"` in CSS (not `plugins: [require(...)]`)
 - `cn()` utility for conditional classes (cleaner than CSS Module composition)
-- Dark mode built-in via `dark:` variant
+- Dark mode always active (no `dark:` variant needed — background is dark by design)
 
 **TypeScript over JavaScript:**
 - The data model has 15+ entity types with complex relationships — TypeScript catches shape mismatches at build time
@@ -118,10 +112,19 @@
 
 ### 2.2 Custom Server
 
-Next.js doesn't natively support WebSocket in API routes. A custom `server.ts` wraps the Next.js request handler and attaches a `ws` WebSocket server to the same HTTP server:
+Next.js doesn't natively support WebSocket in API routes. A custom `server.ts` wraps the Next.js request handler and attaches a `ws` WebSocket server to the same HTTP server. This is used **in production only**.
+
+**Critical dev vs production distinction:**
+
+| Mode | Command | Server |
+|------|---------|--------|
+| Development | `npm run dev` → `next dev -p 3456` | Next.js built-in dev server (Turbopack HMR) |
+| Production | `npm start` → `node server.js` | Custom `server.ts` with WebSocket |
+
+In development, the custom server is **not used**. Running `server.ts` in dev caused the WebSocketServer to reject all non-`/ws` WebSocket upgrades including `/_next/webpack-hmr`, which broke HMR and caused constant page reloads. Using `next dev` directly avoids this entirely.
 
 ```typescript
-// server.ts
+// server.ts (production only)
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
@@ -177,200 +180,121 @@ The key architectural decision is which components render on the server vs. clie
 
 ### 3.1 Directory Layout
 
+The layout below shows the **actual implemented state** (Phase 1 MVP). Items marked `(Phase 2+)` exist in the plan but are not yet implemented.
+
 ```
 agentwatch/
 ├── app/                                    # Next.js App Router
-│   ├── layout.tsx                          # Root layout (AppShell, providers)
-│   ├── page.tsx                            # Home dashboard (Server Component)
-│   ├── loading.tsx                         # Home loading skeleton
+│   ├── layout.tsx                          # Root layout (providers, font)
+│   ├── page.tsx                            # Home dashboard
+│   ├── globals.css                         # Tailwind v4 @theme tokens + @plugin
 │   ├── session/
 │   │   └── [id]/
-│   │       ├── layout.tsx                  # Session layout (sidebar + content)
-│   │       ├── page.tsx                    # Resume dialog / entry point
-│   │       ├── loading.tsx                 # Session loading skeleton
+│   │       ├── page.tsx                    # Session entry / resume
 │   │       ├── workspace/
-│   │       │   └── page.tsx                # Workspace view (Client Component)
+│   │       │   └── page.tsx                # Multi-pane workspace (Client)
 │   │       ├── timeline/
-│   │       │   └── page.tsx                # Full-page timeline
-│   │       ├── artifacts/
-│   │       │   └── page.tsx                # Session artifact explorer
+│   │       │   └── page.tsx                # Full-page timeline (Phase 2+)
 │   │       └── analytics/
-│   │           └── page.tsx                # Session analytics
-│   ├── api/
-│   │   └── v2/
-│   │       ├── sessions/
-│   │       │   ├── route.ts                # GET /api/v2/sessions
-│   │       │   └── [id]/
-│   │       │       ├── route.ts            # GET /api/v2/sessions/:id
-│   │       │       ├── agents/
-│   │       │       │   ├── route.ts        # GET /api/v2/sessions/:id/agents
-│   │       │       │   └── [agentId]/
-│   │       │       │       ├── route.ts    # GET agents/:agentId
-│   │       │       │       ├── messages/
-│   │       │       │       │   └── route.ts
-│   │       │       │       └── artifacts/
-│   │       │       │           └── route.ts
-│   │       │       ├── timeline/
-│   │       │       │   └── route.ts
-│   │       │       ├── artifacts/
-│   │       │       │   └── route.ts
-│   │       │       ├── analytics/
-│   │       │       │   └── route.ts
-│   │       │       └── search/
-│   │       │           └── route.ts
-│   │       ├── history/
-│   │       │   ├── route.ts                # GET/POST /api/v2/history
-│   │       │   ├── search/
-│   │       │   │   └── route.ts            # POST /api/v2/history/search
-│   │       │   └── [sessionId]/
-│   │       │       └── route.ts            # GET/PUT/DELETE
-│   │       ├── workspaces/
-│   │       │   └── [sessionId]/
-│   │       │       ├── route.ts            # GET/POST
-│   │       │       ├── latest/
-│   │       │       │   └── route.ts        # GET latest auto-save
-│   │       │       └── [snapshotId]/
-│   │       │           └── route.ts        # PUT/DELETE
-│   │       └── preferences/
-│   │           ├── route.ts                # GET all
-│   │           └── [key]/
-│   │               └── route.ts            # PUT
-│   └── globals.css                         # Tailwind directives + CSS variables
+│   │           └── page.tsx                # Analytics dashboard (Phase 2+)
+│   └── api/
+│       └── v2/
+│           ├── sessions/
+│           │   ├── route.ts                # GET /api/v2/sessions
+│           │   └── [id]/
+│           │       ├── route.ts            # GET /api/v2/sessions/:id
+│           │       ├── agents/
+│           │       │   └── route.ts        # GET /api/v2/sessions/:id/agents
+│           │       └── agent-messages/     # ⚠ FLAT ROUTE — see note below
+│           │           └── route.ts        # GET ?agentId=&page=&limit=
+│           ├── history/
+│           │   ├── route.ts                # GET/POST /api/v2/history
+│           │   └── [sessionId]/
+│           │       └── route.ts            # PUT/DELETE
+│           ├── workspaces/
+│           │   └── [sessionId]/
+│           │       ├── route.ts            # GET/POST
+│           │       └── latest/
+│           │           └── route.ts        # GET latest auto-save
+│           ├── preferences/
+│           │   ├── route.ts                # GET all
+│           │   └── [key]/
+│           │       └── route.ts            # PUT
+│           └── health/
+│               └── route.ts               # GET /api/health
 │
-├── components/                             # React components
-│   ├── ui/                                 # shadcn/ui primitives (auto-generated)
-│   │   ├── badge.tsx
-│   │   ├── button.tsx
-│   │   ├── card.tsx
+│   ⚠ Turbopack nested dynamic route limitation:
+│     Routes with 2+ dynamic segments in the same path (e.g. /[id]/agents/[agentId]/messages)
+│     fail to compile under Turbopack. Agent messages use a FLAT route with query params:
+│       GET /api/v2/sessions/:id/agent-messages?agentId=...&page=0&limit=50
+│
+├── components/
+│   ├── ui/                                 # Radix UI wrappers
 │   │   ├── collapsible.tsx
-│   │   ├── command.tsx
-│   │   ├── dialog.tsx
-│   │   ├── dropdown-menu.tsx
-│   │   ├── resizable.tsx                   # ResizablePanelGroup
 │   │   ├── scroll-area.tsx
 │   │   ├── separator.tsx
-│   │   ├── sheet.tsx
-│   │   ├── tabs.tsx
-│   │   ├── tooltip.tsx
 │   │   └── ...
-│   ├── home/                               # Home dashboard components
+│   ├── home/                               # Home dashboard
 │   │   ├── session-card.tsx
-│   │   ├── pinned-sessions.tsx
-│   │   ├── recent-sessions.tsx
-│   │   ├── session-search.tsx              # Uses Command (cmdk)
-│   │   ├── session-filters.tsx
-│   │   ├── tag-manager.tsx
 │   │   └── open-by-id.tsx
-│   ├── session/                            # Session-level components
-│   │   ├── resume-dialog.tsx
-│   │   ├── session-header.tsx
-│   │   ├── agent-sidebar.tsx
-│   │   ├── agent-tree.tsx                  # Recursive tree with Collapsible
-│   │   └── agent-tree-node.tsx
+│   ├── session/                            # Session-level UI
+│   │   ├── agent-sidebar.tsx               # Round-grouped collapsible sidebar
+│   │   └── session-providers.tsx
 │   ├── workspace/                          # Multi-pane workspace
-│   │   ├── workspace-provider.tsx          # Context provider for workspace state
-│   │   ├── workspace-shell.tsx             # ResizablePanelGroup orchestrator
-│   │   ├── pane.tsx                        # Single pane wrapper
-│   │   ├── pane-header.tsx                 # Title bar with controls
-│   │   ├── pane-tab-bar.tsx                # Tab bar for stacked views
-│   │   ├── layout-dropdown.tsx             # Layout picker (presets + saved)
-│   │   ├── drop-zone-overlay.tsx           # Drag-and-drop target zones
-│   │   └── workspace-persistence.tsx       # Auto-save hook
+│   │   ├── workspace-shell.tsx             # react-resizable-panels Group/Panel/Separator
+│   │   ├── pane.tsx                        # Single pane (routes to correct content)
+│   │   └── workspace-page.tsx
 │   ├── agent/                              # Agent pane content
-│   │   ├── agent-view.tsx                  # Tab container (uses shadcn Tabs)
-│   │   ├── conversation-tab.tsx            # Message thread
-│   │   ├── artifacts-tab.tsx               # Produced/consumed list
-│   │   ├── context-tab.tsx                 # Prompt/response
+│   │   ├── agent-view.tsx                  # Pane header + custom tab rail
+│   │   ├── conversation-tab.tsx            # Message thread with round grouping
+│   │   ├── artifacts-tab.tsx               # Produced artifacts list
+│   │   ├── context-tab.tsx                 # Prompt/response viewer
 │   │   ├── tools-tab.tsx                   # Tool call log
-│   │   ├── summary-tab.tsx                 # Metadata
-│   │   ├── agent-message.tsx               # Single message card
-│   │   ├── tool-call-card.tsx              # Expandable tool call
-│   │   ├── inline-artifact-card.tsx        # Artifact in message flow
-│   │   ├── artifact-lineage.tsx            # Horizontal lineage strip
-│   │   └── agent-badge.tsx                 # Status/type badge
-│   ├── visualization/                      # Data visualizations
-│   │   ├── timeline-view.tsx               # Canvas timeline
-│   │   ├── timeline-canvas.tsx             # Canvas rendering logic
-│   │   ├── agent-graph-view.tsx            # SVG hierarchy graph
-│   │   ├── context-flow-view.tsx           # Context DAG
-│   │   └── token-chart.tsx                 # Token usage (recharts)
-│   ├── artifacts/                          # Session-wide artifact views
-│   │   ├── artifact-explorer.tsx           # File tree + preview
-│   │   ├── artifact-viewer.tsx             # Content viewer
-│   │   ├── artifact-diff.tsx               # Diff view
-│   │   └── artifact-content-pane.tsx       # Dedicated pane view
-│   ├── analytics/                          # Analytics components
-│   │   ├── session-analytics.tsx           # Summary dashboard
-│   │   ├── debug-alerts.tsx                # Issue detection
-│   │   └── cost-breakdown.tsx              # Cost analysis
-│   └── shared/                             # Shared utilities
-│       ├── code-block.tsx                  # Shiki syntax highlighting
-│       ├── markdown-renderer.tsx           # react-markdown wrapper
-│       ├── virtual-list.tsx                # Virtual scrolling
-│       ├── drag-drop-context.tsx           # DnD provider
-│       └── websocket-provider.tsx          # WebSocket context
+│   │   ├── summary-tab.tsx                 # Metadata, tokens, duration
+│   │   ├── tool-call-with-result.tsx       # Expandable tool call + result
+│   │   ├── artifact-card.tsx               # Inline artifact card (Write/Edit tools)
+│   │   └── artifact-pane-view.tsx          # Full-pane document viewer
+│   └── shared/
+│       └── markdown-renderer.tsx           # react-markdown wrapper
 │
-├── lib/                                    # Server-side logic
-│   ├── services/                           # Business logic (runs on server only)
-│   │   ├── index.ts                        # Service initialization + singleton
-│   │   ├── session-ingester.ts
-│   │   ├── agent-graph-engine.ts
-│   │   ├── artifact-tracker.ts
-│   │   ├── context-analyzer.ts
-│   │   ├── debug-analyzer.ts
-│   │   ├── session-history.ts
-│   │   ├── workspace-snapshots.ts
-│   │   ├── preferences.ts
-│   │   └── file-watcher.ts
-│   ├── db/                                 # Database layer
-│   │   ├── database.ts                     # SQLite connection + schema
-│   │   ├── migrations.ts                   # Schema migrations
-│   │   ├── queries/                        # Prepared statements
-│   │   │   ├── sessions.ts
-│   │   │   ├── agents.ts
-│   │   │   ├── artifacts.ts
-│   │   │   ├── history.ts
-│   │   │   ├── workspaces.ts
-│   │   │   └── search.ts
-│   │   └── cache.ts                        # LRU cache
-│   ├── parser/                             # JSONL parsing
-│   │   ├── jsonl-parser.ts                 # Stream parser
-│   │   ├── agent-correlator.ts             # Parent-child matching
-│   │   └── artifact-extractor.ts           # File write/edit detection
-│   └── websocket/                          # WebSocket server
-│       ├── ws-server.ts                    # WebSocket setup
-│       └── events.ts                       # Event types and handlers
+├── lib/
+│   ├── services/
+│   │   ├── index.ts                        # Service init + singleton
+│   │   ├── session-ingester.ts             # JSONL parsing, DB ingestion, agent correlation
+│   │   ├── session-history.ts              # Session history tracking
+│   │   ├── workspace-snapshots.ts          # Workspace auto-save/restore
+│   │   └── preferences.ts                 # User preferences
+│   ├── db/
+│   │   └── database.ts                     # SQLite connection + inline migrations (v1, v2)
+│   ├── parser/
+│   │   ├── jsonl-parser.ts                 # JSONL line parser (handles outer wrapper format)
+│   │   ├── agent-correlator.ts             # Subagent file discovery + labelling
+│   │   └── artifact-extractor.ts           # Write/Edit tool detection
+│   ├── websocket/
+│   │   └── ws-server.ts                    # WebSocket server (production)
+│   ├── agent-display.ts                    # Agent name/color/initials resolver
+│   └── utils.ts                            # cn(), formatTokens(), formatDuration(), etc.
 │
-├── hooks/                                  # React hooks
-│   ├── use-session.ts                      # Session data fetching
-│   ├── use-agent-messages.ts               # Paginated agent messages
-│   ├── use-workspace.ts                    # Workspace layout state
-│   ├── use-workspace-persistence.ts        # Auto-save/restore
-│   ├── use-websocket.ts                    # WebSocket connection
-│   ├── use-search.ts                       # Search state
-│   └── use-preferences.ts                  # User preferences
+├── hooks/
+│   ├── use-session.ts                      # Session + agent data
+│   ├── use-agent-messages.ts               # Paginated messages (useRef stale-closure fix)
+│   └── use-workspace-persistence.ts        # Auto-save to SQLite
 │
-├── types/                                  # TypeScript types
-│   ├── session.ts                          # Session, Agent, Message, Artifact
-│   ├── workspace.ts                        # LayoutNode, PaneTab, WorkspaceSnapshot
-│   ├── history.ts                          # SessionHistory
-│   ├── api.ts                              # API request/response types
-│   └── events.ts                           # WebSocket event types
+├── store/
+│   ├── workspace-store.ts                  # Zustand: layout tree, pane state, focus
+│   └── session-store.ts                    # Zustand: session, agentMap, filters
 │
-├── store/                                  # Client-side state management
-│   ├── workspace-store.ts                  # Zustand store for workspace
-│   ├── session-store.ts                    # Current session state
-│   └── search-store.ts                     # Search state
+├── types/
+│   ├── session.ts                          # Session, Agent, ParsedMessage, Artifact
+│   └── workspace.ts                        # LayoutNode, PaneTab, AgentSubTab
 │
-├── server.ts                               # Custom server (Next.js + WebSocket)
-├── next.config.ts                          # Next.js configuration
-├── tailwind.config.ts                      # Tailwind + design tokens
-├── tsconfig.json                           # TypeScript config
-├── components.json                         # shadcn/ui config
-├── package.json
-├── Dockerfile
-├── docker-compose.yml
-└── ...
+├── data/                                   # SQLite database (gitignored)
+│   └── agentwatch.db
+│
+├── server.ts                               # Custom server (production WebSocket)
+├── next.config.ts                          # Next.js config
+├── tsconfig.json
+└── package.json
 ```
 
 ### 3.2 Key Architectural Boundaries
@@ -450,7 +374,11 @@ export default async function SessionLayout({
 
 ### 4.3 API Routes
 
-All API routes live under `app/api/v2/` and follow Next.js Route Handler conventions:
+All API routes live under `app/api/v2/` and follow Next.js Route Handler conventions. Note the Turbopack limitation:
+
+> **Turbopack nested dynamic route limitation:** Routes with two or more dynamic segments in the same path (e.g. `/sessions/[id]/agents/[agentId]/messages`) fail to compile under Turbopack in Next.js 16. Work around by using a **flat route with query params** for agent messages:
+>
+> `GET /api/v2/sessions/:id/agent-messages?agentId=...&page=0&limit=50`
 
 ```typescript
 // app/api/v2/sessions/[id]/route.ts
@@ -459,10 +387,11 @@ import { getServices } from '@/lib/services';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }  // Note: params is a Promise in Next.js 16
 ) {
+  const { id } = await params;  // Must await params
   const { sessionIngester } = getServices();
-  const session = await sessionIngester.ingestSession(params.id);
+  const session = await sessionIngester.ingestSession(id);
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -472,130 +401,140 @@ export async function GET(
 }
 ```
 
+> **Next.js 16 breaking change:** Route handler `params` is now a `Promise`. Always `await params` before accessing properties.
+
 ---
 
 ## 5. Component Architecture
 
-### 5.1 Workspace — shadcn ResizablePanelGroup
+### 5.1 Workspace — react-resizable-panels v4
 
-The multi-pane workspace maps directly to shadcn's `ResizablePanelGroup`:
+The multi-pane workspace uses `react-resizable-panels` v4 **directly** (not via a shadcn wrapper).
+
+**v4 API breaking changes vs v2/v3:**
+- Exports: `Group` / `Panel` / `Separator` (NOT `ResizablePanelGroup` / `ResizablePanel` / `ResizableHandle`)
+- Split direction: `orientation="horizontal"` / `orientation="vertical"` (NOT `direction`)
+
+**Single-pane vs split layout:** A single pane must NOT be wrapped in `<Panel>` without a `<Group>` parent — this causes a "Group Context not found" runtime error. The implementation uses two helpers:
 
 ```tsx
 // components/workspace/workspace-shell.tsx
 'use client';
 
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from '@/components/ui/resizable';
-import { useWorkspace } from '@/hooks/use-workspace';
+import { Group, Panel, Separator } from 'react-resizable-panels';
+import { useWorkspaceStore } from '@/store/workspace-store';
 import { Pane } from './pane';
 
-export function WorkspaceShell() {
-  const { layout, updateRatio } = useWorkspace();
+export function WorkspaceShell({ sessionId }: { sessionId: string }) {
+  const { layout } = useWorkspaceStore();
 
-  function renderNode(node: LayoutNode): React.ReactNode {
+  // Root: single pane → plain div (no Panel/Group); split → Group
+  function renderRoot(node: LayoutNode): React.ReactNode {
+    if (node.type === 'pane') {
+      return <div className="h-full"><Pane paneId={node.id} sessionId={sessionId} /></div>;
+    }
+    return (
+      <Group orientation={node.direction === 'horizontal' ? 'horizontal' : 'vertical'}>
+        {renderChild(node.children[0])}
+        <Separator />
+        {renderChild(node.children[1])}
+      </Group>
+    );
+  }
+
+  // Child: always wrapped in Panel (safe because parent Group exists)
+  function renderChild(node: LayoutNode): React.ReactNode {
     if (node.type === 'pane') {
       return (
-        <ResizablePanel key={node.id} minSize={15}>
-          <Pane paneId={node.id} tabs={node.tabs} activeTab={node.activeTab} />
-        </ResizablePanel>
+        <Panel key={node.id} id={node.id} minSize={15}>
+          <Pane paneId={node.id} sessionId={sessionId} />
+        </Panel>
       );
     }
-
     return (
-      <ResizablePanelGroup
-        key={`split-${node.children[0].id}`}
-        direction={node.direction}
-        onLayout={(sizes) => updateRatio(node, sizes)}
-      >
-        {renderNode(node.children[0])}
-        <ResizableHandle withHandle />
-        {renderNode(node.children[1])}
-      </ResizablePanelGroup>
+      <Panel key={node.id} id={node.id} minSize={15}>
+        <Group orientation={node.direction === 'horizontal' ? 'horizontal' : 'vertical'}>
+          {renderChild(node.children[0])}
+          <Separator />
+          {renderChild(node.children[1])}
+        </Group>
+      </Panel>
     );
   }
 
   return (
-    <div className="flex-1 overflow-hidden">
-      {layout ? renderNode(layout) : <EmptyWorkspace />}
+    <div className="flex-1 overflow-hidden h-full">
+      {layout ? renderRoot(layout) : <EmptyWorkspace />}
     </div>
   );
 }
 ```
 
-This replaces the custom workspace engine from the vanilla JS architecture. `react-resizable-panels` (which powers shadcn's `Resizable`) handles:
-- Horizontal and vertical splits
-- Drag-to-resize handles
-- Minimum size enforcement
-- Keyboard accessibility
-- Nested panel groups (recursive splits)
+### 5.2 Agent Pane — Custom Tab Rail
 
-### 5.2 Agent Pane — shadcn Tabs
+The agent pane uses a **custom button-based tab rail** (not shadcn Tabs) so the active indicator color can be driven by the agent's type color from `getAgentDisplay()`.
+
+The pane has two rows in its header:
+1. **Identity row**: colored swatch + agent name + split/close controls
+2. **Metadata strip**: type badge + model + token count + duration + status
+3. **Tab rail**: custom `<button>` elements with `borderColor: color.text` on active tab
 
 ```tsx
 // components/agent/agent-view.tsx
 'use client';
+import { getAgentDisplay } from '@/lib/agent-display';
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { ConversationTab } from './conversation-tab';
-import { ArtifactsTab } from './artifacts-tab';
-import { ContextTab } from './context-tab';
-import { ToolsTab } from './tools-tab';
-import { SummaryTab } from './summary-tab';
+const TABS: { id: AgentSubTab; label: string }[] = [
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'artifacts',    label: 'Artifacts' },
+  { id: 'context',      label: 'Context' },
+  { id: 'tools',        label: 'Tools' },
+  { id: 'summary',      label: 'Summary' },
+];
 
-interface AgentViewProps {
-  sessionId: string;
-  agentId: string;
-  activeSubTab?: string;
-  onSubTabChange?: (tab: string) => void;
-}
-
-export function AgentView({ sessionId, agentId, activeSubTab = 'conversation', onSubTabChange }: AgentViewProps) {
-  const { agent } = useAgent(sessionId, agentId);
+export function AgentView({ sessionId, agentId, paneId, activeSubTab = 'conversation', onSubTabChange }) {
+  const agent = useSessionStore(s => s.agentMap.get(agentId));
+  const { name, typeLabel, color } = getAgentDisplay(agent);
 
   return (
-    <Tabs value={activeSubTab} onValueChange={onSubTabChange} className="flex flex-col h-full">
-      <TabsList className="border-b rounded-none bg-transparent px-2">
-        <TabsTrigger value="conversation">Conversation</TabsTrigger>
-        <TabsTrigger value="artifacts">
-          Artifacts
-          {agent?.artifacts.produced.length > 0 && (
-            <Badge variant="secondary" className="ml-1.5 text-xs">
-              {agent.artifacts.produced.length}
-            </Badge>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="context">Context</TabsTrigger>
-        <TabsTrigger value="tools">
-          Tools
-          {agent?.toolCallCount > 0 && (
-            <Badge variant="secondary" className="ml-1.5 text-xs">
-              {agent.toolCallCount}
-            </Badge>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="summary">Summary</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="conversation" className="flex-1 overflow-hidden mt-0">
-        <ConversationTab sessionId={sessionId} agentId={agentId} />
-      </TabsContent>
-      <TabsContent value="artifacts" className="flex-1 overflow-hidden mt-0">
-        <ArtifactsTab sessionId={sessionId} agentId={agentId} />
-      </TabsContent>
-      <TabsContent value="context" className="flex-1 overflow-hidden mt-0">
-        <ContextTab sessionId={sessionId} agentId={agentId} />
-      </TabsContent>
-      <TabsContent value="tools" className="flex-1 overflow-hidden mt-0">
-        <ToolsTab sessionId={sessionId} agentId={agentId} />
-      </TabsContent>
-      <TabsContent value="summary" className="flex-1 overflow-hidden mt-0">
-        <SummaryTab sessionId={sessionId} agentId={agentId} />
-      </TabsContent>
-    </Tabs>
+    <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
+      <div className="shrink-0 border-b border-[#21262d]">
+        {/* Identity row */}
+        <div className="flex items-center gap-2.5 px-3 py-2 bg-[#161b22]">
+          <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color.text }} />
+          <span className="text-sm font-bold flex-1" style={{ color: color.text }}>{name}</span>
+          {/* split / close buttons */}
+        </div>
+        {/* Metadata strip */}
+        <div className="flex items-center gap-3 px-3 py-1" style={{ backgroundColor: `${color.bg}60` }}>
+          <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: color.bg, color: color.text, border: `1px solid ${color.border}` }}>
+            {typeLabel}
+          </span>
+          <span className="text-[#8b949e] font-mono">{agent.model?.replace('claude-', '')}</span>
+        </div>
+        {/* Custom tab rail */}
+        <div className="flex items-center px-1 bg-[#0d1117] border-t border-[#21262d]">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => onSubTabChange?.(tab.id)}
+              className="px-3 py-2 text-xs border-b-2"
+              style={activeSubTab === tab.id
+                ? { color: color.text, borderColor: color.text }
+                : { color: '#8b949e', borderColor: 'transparent' }
+              }
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Tab content */}
+      <div className="flex-1 overflow-hidden">
+        {activeSubTab === 'conversation' && <ConversationTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
+        {/* ... other tabs */}
+      </div>
+    </div>
   );
 }
 ```
@@ -653,56 +592,77 @@ export function SessionSearch() {
 }
 ```
 
-### 5.4 Agent Hierarchy — shadcn Collapsible
+### 5.4 Agent Sidebar — Round-Grouped Collapsible
+
+The sidebar does NOT use a recursive tree per-agent. Instead it groups subagents by **orchestration round** (15-minute time-gap clustering). The orchestrator always appears at the top; subagents are grouped under collapsible round sections.
 
 ```tsx
-// components/session/agent-tree-node.tsx
+// components/session/agent-sidebar.tsx
 'use client';
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Badge } from '@/components/ui/badge';
-import { ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-export function AgentTreeNode({ agent, depth, onDragStart, onClick }) {
-  const [isOpen, setIsOpen] = useState(depth < 2);
-  const hasChildren = agent.children.length > 0;
-
-  return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div
-        className={cn(
-          'flex items-center gap-2 px-2 py-1.5 rounded-md cursor-grab hover:bg-accent',
-          'text-sm'
-        )}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        draggable
-        onDragStart={(e) => onDragStart(e, agent)}
-        onClick={() => onClick(agent)}
-      >
-        {hasChildren && (
-          <CollapsibleTrigger asChild>
-            <ChevronRight className={cn('h-4 w-4 transition-transform', isOpen && 'rotate-90')} />
-          </CollapsibleTrigger>
-        )}
-        <Badge variant="outline" className={agentTypeColor(agent.subagentType)}>
-          {agent.subagentType || 'Main'}
-        </Badge>
-        <span className="truncate flex-1">{agent.description || agent.subagentType || 'Orchestrator'}</span>
-        <span className="text-muted-foreground text-xs">{formatTokens(agent.tokenUsage.total)}</span>
-      </div>
-
-      {hasChildren && (
-        <CollapsibleContent>
-          {agent.children.map(child => (
-            <AgentTreeNode key={child.id} agent={child} depth={depth + 1} onDragStart={onDragStart} onClick={onClick} />
-          ))}
-        </CollapsibleContent>
-      )}
-    </Collapsible>
+function groupAgentsByRound(agents: Agent[], GAP_MS = 15 * 60 * 1000): Agent[][] {
+  // Sort subagents by startTime, then split into rounds on gaps > GAP_MS
+  const sorted = [...agents].sort((a, b) =>
+    new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime()
   );
+  const rounds: Agent[][] = [];
+  let current: Agent[] = [];
+  for (const agent of sorted) {
+    if (current.length === 0) { current.push(agent); continue; }
+    const gap = new Date(agent.startTime!).getTime() - new Date(current.at(-1)!.startTime!).getTime();
+    if (gap > GAP_MS) { rounds.push(current); current = [agent]; }
+    else current.push(agent);
+  }
+  if (current.length) rounds.push(current);
+  return rounds;
 }
 ```
+
+Round numbers in the sidebar match round numbers in the conversation tab. A "round" only counts turns where the orchestrator spawned Workflow/Agent/Task tool calls — plain user↔assistant exchanges are labeled "EXCHANGE" and do not receive a round number.
+
+### 5.5 Agent Display System — lib/agent-display.ts
+
+All agent name/color/initials logic is centralized in `lib/agent-display.ts`:
+
+```typescript
+// lib/agent-display.ts
+export interface AgentDisplay {
+  name: string;       // Full display name, e.g. "Explore: Investigate person-selection..."
+  shortName: string;  // Truncated for badges
+  typeLabel: string;  // "Orchestrator" | "Explore" | "Plan" | "Workflow Subagent" | etc.
+  color: { text: string; bg: string; border: string };
+  initials: string;   // 2-char badge, e.g. "EX"
+}
+
+// Named types get fixed colors:
+//   Orchestrator → #58a6ff (blue)
+//   Explore      → #3fb950 (green)
+//   Plan         → #f0883e (orange)
+//   general-purpose → #bc8cff (purple)
+//   code-reviewer → #f85149 (red)
+// Workflow subagents get stable palette colors derived from hash of their label
+```
+
+`formatAgentLabel(raw: string)` converts kebab-case labels from workflow `workflowProgress` into Title Case with acronym uppercasing (API, UI, DB, etc.).
+
+### 5.6 Artifact System
+
+Write and Edit tool calls in the conversation are rendered as `ArtifactCard` components rather than generic tool-call blocks.
+
+**Inline card** (`components/agent/artifact-card.tsx`):
+- `+ Create` / `✎ Edit` operation badge
+- File emoji + filename + language chip + line count
+- Collapsed by default; expands to show content preview (max 320px)
+- Markdown files: Preview/Source toggle with `InlineMarkdown` renderer
+- Non-markdown: `InlineCode` with line numbers
+- "Open in pane" button: stores content in `window.__artifactCache[toolId]` then calls `splitPane` or `addTabToPane`
+
+**Full pane view** (`components/agent/artifact-pane-view.tsx`):
+- Activated via pane tab type `artifact-content` with `artifactId`
+- Reads content from `window.__artifactCache[artifactId]`
+- Toolbar: file icon + name + path + language chip + Preview/Source toggle + Copy
+- Preview: centered paper card (`max-width: 780px`) with custom markdown parser (`parseMarkdownSections`)
+- Source: line-numbered code viewer with word-wrap
 
 ---
 
@@ -849,104 +809,46 @@ export async function saveWorkspaceSnapshot(sessionId: string, snapshot: Workspa
 
 ## 7. Tailwind Configuration
 
-### 7.1 Design Tokens
+### 7.1 Tailwind v4 CSS-First Configuration
 
-```typescript
-// tailwind.config.ts
-import type { Config } from 'tailwindcss';
-
-const config: Config = {
-  darkMode: 'class',
-  content: [
-    './app/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-  ],
-  theme: {
-    extend: {
-      colors: {
-        // shadcn/ui semantic colors (CSS variables set in globals.css)
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
-        },
-        secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
-        },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
-        },
-        destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-
-        // Agent type colors
-        agent: {
-          orchestrator: '#58a6ff',
-          explore: '#3fb950',
-          plan: '#f0883e',
-          general: '#bc8cff',
-          'code-reviewer': '#f85149',
-          workflow: '#39d353',
-          default: '#8b949e',
-        },
-      },
-      fontFamily: {
-        mono: ['var(--font-mono)', 'SF Mono', 'Cascadia Code', 'monospace'],
-        sans: ['var(--font-sans)', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-      },
-    },
-  },
-  plugins: [require('tailwindcss-animate')],
-};
-
-export default config;
-```
-
-### 7.2 CSS Variables (Dark Theme)
+> **There is no `tailwind.config.ts`**. Tailwind v4 uses CSS-first configuration. All design tokens are declared in `app/globals.css` using `@theme`, and plugins are registered with `@plugin`.
 
 ```css
 /* app/globals.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
 
-@layer base {
-  :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 92%;
-    --card: 222.2 84% 6.5%;
-    --card-foreground: 210 40% 92%;
-    --popover: 222.2 84% 6.5%;
-    --popover-foreground: 210 40% 92%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 92%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 55.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 92%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 92%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --radius: 0.5rem;
-  }
+@theme {
+  /* Base surfaces */
+  --color-background: #0d1117;
+  --color-card: #161b22;
+  --color-secondary: #21262d;
+  --color-accent: #30363d;
+
+  /* Text */
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-text-muted: #484f58;
+
+  /* Accent */
+  --color-primary: #58a6ff;
+  --color-success: #3fb950;
+  --color-warning: #f0883e;
+  --color-error: #f85149;
+  --color-purple: #bc8cff;
+
+  /* Agent type colors */
+  --color-agent-orchestrator: #58a6ff;
+  --color-agent-explore: #3fb950;
+  --color-agent-plan: #f0883e;
+  --color-agent-general: #bc8cff;
+  --color-agent-code-reviewer: #f85149;
+  --color-agent-workflow: #39d353;
+  --color-agent-default: #8b949e;
 }
 ```
+
+Most colors are used inline via `style={{ color: '...' }}` in components rather than Tailwind utility classes, because agent colors are dynamic and Tailwind cannot generate classes for runtime values.
 
 ---
 
@@ -1019,29 +921,17 @@ CMD ["node", "server.js"]
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  output: 'standalone',  // Required for Docker (self-contained output)
+  output: 'standalone',
 
-  // Custom server port
-  env: {
-    PORT: '3456',
-  },
+  // better-sqlite3 is a native Node.js add-on — must stay server-side only.
+  // serverExternalPackages replaces the old webpack.externals approach for App Router.
+  serverExternalPackages: ['better-sqlite3'],
 
-  // Disable image optimization (no external image service needed)
-  images: {
-    unoptimized: true,
-  },
+  // Turbopack is the default bundler in Next.js 16.
+  // Empty object opts into default Turbopack settings.
+  turbopack: {},
 
-  // Webpack configuration for better-sqlite3 (native module)
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      config.externals.push('better-sqlite3');
-    }
-    return config;
-  },
-
-  // Experimental features
   experimental: {
-    // Server Actions for mutations
     serverActions: {
       bodySizeLimit: '2mb',
     },
@@ -1050,6 +940,8 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 ```
+
+> **Note on `serverExternalPackages`:** This is the correct way to exclude native modules in Next.js App Router. The old `webpack: (config) => { config.externals.push(...) }` approach still works for Pages Router but is not needed here.
 
 ### 8.3 Docker Compose
 
@@ -1226,76 +1118,75 @@ The legacy Express server (`src/chats-mobile.js`) and vanilla JS frontend (`src/
 
 ## 11. Package Dependencies
 
-### 11.1 package.json (Production)
+### 11.1 package.json (Actual)
 
 ```json
 {
-  "name": "agentwatch",
-  "version": "2.0.0",
+  "name": "agent-watch",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node server.ts",
+    "dev": "next dev -p 3456",
+    "dev:server": "tsx server.ts",
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
-    "lint": "next lint",
+    "lint": "eslint",
     "test": "vitest",
-    "test:e2e": "playwright test"
+    "rebuild-native": "npm rebuild better-sqlite3",
+    "postinstall": "npm rebuild better-sqlite3"
   },
   "dependencies": {
-    "next": "^15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
 
-    "better-sqlite3": "^12.0.0",
-    "ws": "^8.18.0",
-    "chokidar": "^3.5.0",
+    "better-sqlite3": "^12.10.0",
+    "ws": "^8.21.0",
+    "chokidar": "^5.0.0",
 
-    "zustand": "^5.0.0",
-    "react-resizable-panels": "^2.0.0",
-    "cmdk": "^1.0.0",
-    "@radix-ui/react-collapsible": "^1.0.0",
-    "@radix-ui/react-dialog": "^1.0.0",
-    "@radix-ui/react-dropdown-menu": "^2.0.0",
-    "@radix-ui/react-tabs": "^1.0.0",
-    "@radix-ui/react-tooltip": "^1.0.0",
-    "@radix-ui/react-scroll-area": "^1.0.0",
+    "zustand": "^5.0.14",
+    "react-resizable-panels": "^4.11.2",
+    "cmdk": "^1.1.1",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
 
-    "react-markdown": "^9.0.0",
-    "remark-gfm": "^4.0.0",
-    "shiki": "^1.0.0",
-    "recharts": "^2.12.0",
-    "@use-gesture/react": "^10.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.1.0",
+    "recharts": "^3.8.1",
+    "@use-gesture/react": "^10.3.1",
 
-    "lucide-react": "^0.400.0",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.0"
+    "lucide-react": "^1.17.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "@types/node": "^20.0.0",
-    "@types/react": "^19.0.0",
-    "@types/better-sqlite3": "^7.0.0",
-    "@types/ws": "^8.0.0",
-
-    "tailwindcss": "^4.0.0",
-    "postcss": "^8.0.0",
-    "autoprefixer": "^10.0.0",
-
-    "eslint": "^9.0.0",
-    "eslint-config-next": "^15.0.0",
-    "prettier": "^3.0.0",
-    "prettier-plugin-tailwindcss": "^0.6.0",
-
-    "vitest": "^2.1.0",
-    "@testing-library/react": "^16.0.0",
-    "@playwright/test": "^1.45.0",
-
-    "tsx": "^4.0.0"
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.22.4",
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }
 ```
+
+> **`postinstall` script:** `better-sqlite3` is a native Node.js add-on compiled against a specific Node.js ABI version. After any Node.js version change or fresh `npm install`, the add-on must be recompiled. The `postinstall` script (`npm rebuild better-sqlite3`) runs automatically on every `npm install`. If you switch Node.js versions with nvm or encounter a 500 error with `"NODE_MODULE_VERSION mismatch"`, run `npm run rebuild-native` manually.
 
 ### 11.2 Dependency Count
 

@@ -2,10 +2,10 @@
 
 ## AgentWatch v2.0
 
-**Document Version:** 1.1
-**Date:** 2026-05-31
-**Status:** Draft
-**Amendment:** See `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md` for v1.1 additions
+**Document Version:** 1.2
+**Date:** 2026-06-02
+**Status:** Phase 1 MVP complete. Phase 2 not yet started.
+**Amendment:** See `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md` for v1.1 additions. See `07-IMPLEMENTATION-ROADMAP.md` for Phase 1 completion status.
 
 ---
 
@@ -262,15 +262,17 @@ Make multi-agent AI workflows as inspectable as single-threaded code in a debugg
 
 ### 5.1 Distribution
 
-| ID | Requirement | Priority |
-|----|------------|----------|
-| DP-01 | Ship as source code (zip or git clone) | P0 |
-| DP-02 | Single `docker compose up` to start | P0 |
-| DP-03 | No external service dependencies | P0 |
-| DP-04 | No user accounts or authentication required | P0 |
-| DP-05 | Works on macOS, Linux, and Windows (Docker Desktop) | P0 |
-| DP-06 | Persist data across container restarts (Docker volumes) | P0 |
-| DP-07 | Upgrade by pulling new source and rebuilding | P0 |
+| ID | Requirement | Priority | Status |
+|----|------------|----------|--------|
+| DP-01 | Ship as source code (zip or git clone) | P0 | ✅ |
+| DP-02 | Single `docker compose up` to start | P0 | Not yet (native `npm run dev` is current mode) |
+| DP-03 | No external service dependencies | P0 | ✅ |
+| DP-04 | No user accounts or authentication required | P0 | ✅ |
+| DP-05 | Works on macOS, Linux, and Windows | P0 | ✅ (Windows primary dev env) |
+| DP-06 | Persist data across restarts (SQLite in `data/`) | P0 | ✅ |
+| DP-07 | Upgrade by pulling new source and rebuilding | P0 | ✅ |
+
+> **Current deployment mode:** `npm install && npm run dev` on Node.js 22 LTS. Docker packaging is planned but not yet implemented. The `output: 'standalone'` flag is set in `next.config.ts` in preparation for Docker.
 
 ### 5.2 Performance Requirements
 

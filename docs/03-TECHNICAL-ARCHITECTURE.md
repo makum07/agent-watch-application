@@ -5,6 +5,13 @@
 **Amendment:** Sections 2.1, 3.1, 4.1 updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
 **Superseded:** Frontend architecture (Section 3), Docker architecture (Section 5), and technology choices replaced by `09-NEXTJS-ARCHITECTURE.md`. The Next.js monolith replaces Express + vanilla JS. Backend services (Section 2.2-2.7) remain conceptually identical but are ported to TypeScript under `lib/services/`. API endpoints (Section 2.7) become Next.js API Route Handlers under `app/api/v2/`.
 
+**Phase 1 implementation notes:**
+- Agent hierarchy is stored as a flat list with parent references in SQLite, not a recursive file structure
+- Subagent JSONL files are in `{session-id}/subagents/` and `{session-id}/subagents/workflows/` subdirectories, NOT in the same project directory as the root session
+- Agent message file paths are stored in the `jsonl_path` column of the `agents` table
+- Agent orchestration rounds are computed client-side: any turn containing a Workflow/Agent/Task tool call gets a round number; plain exchanges are labeled "EXCHANGE"
+- Subagent labels come from `{session-id}/workflows/{wf-id}.json` → `workflowProgress[].{agentId, label}`
+
 ---
 
 ## 1. Architecture Overview

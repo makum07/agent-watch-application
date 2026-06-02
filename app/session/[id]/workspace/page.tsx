@@ -1,0 +1,288 @@
+'use client';
+
+import { use, useEffect, useState } from 'react';
+import { useSession } from '@/hooks/use-session';
+import { useWorkspaceStore } from '@/store/workspace-store';
+import { useWorkspacePersistence } from '@/hooks/use-workspace-persistence';
+import { AgentSidebar } from '@/components/session/agent-sidebar';
+import { WorkspaceShell } from '@/components/workspace/workspace-shell';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import type { LayoutNode } from '@/types/workspace';
+import type { Session } from '@/types/session';
+
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+export default function WorkspacePage({ params }: Props) {
+  const { id } = use(params);
+  const router = useRouter();
+  const { session, isLoading, error } = useSession(id);
+  const { setSessionId, layout, setLayout, sidebarCollapsed } = useWorkspaceStore();
+  const { restoreSnapshot } = useWorkspacePersistence(id);
+  const [initialized, setInitialized] = useState(false);
+  const [showResumeChoice, setShowResumeChoice] = useState(false);
+
+  useEffect(() => {
+    setSessionId(id);
+  }, [id]);
+
+  useEffect(() => {
+    if (!session || initialized) return;
+
+    restoreSnapshot().then(snapshot => {
+      setInitialized(true);
+      const rootAgent = session.agents?.find(a => a.parentId === null) ?? session.agents?.[0];
+
+      if (snapshot?.layout) {
+        // Restored saved workspace — show resume choice if there's a meaningful layout
+        setShowResumeChoice(true);
+        // But also set the restored layout so it's ready
+        setLayout(snapshot.layout);
+      } else if (rootAgent) {
+        // No saved layout — open with root agent
+        setLayout({
+          type: 'pane',
+          id: 'main',
+          tabs: [{
+            type: 'agent',
+            agentId: rootAgent.id,
+            label: rootAgent.description?.slice(0, 30) || rootAgent.subagentType || 'Orchestrator',
+          }],
+          activeTab: 0,
+        });
+      }
+    });
+  }, [session?.id]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span className="text-sm">Loading session…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-center text-muted-foreground">
+          <Layers className="h-8 w-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">{error || 'Session not found'}</p>
+          <Link href="/" className="text-xs text-primary mt-2 block hover:underline">← Back to dashboard</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const projectName = session.project.split(/[/\\]/).filter(Boolean).pop() || 'Session';
+
+  return (
+    <div className="flex h-screen bg-background overflow-hidden">
+      {/* Inline resume choice overlay — simple, no external dialog dependency */}
+      {showResumeChoice && (
+        <div className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <h2 className="text-base font-semibold mb-1">Resume Session</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              {projectName} — {session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => setShowResumeChoice(false)}
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 hover:bg-primary/20 text-left transition-colors"
+              >
+                <Layers className="h-4 w-4 text-primary shrink-0" />
+                <div>
+                  <div className="text-sm font-medium">Resume Last Workspace</div>
+                  <div className="text-xs text-muted-foreground">Continue where you left off</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowResumeChoice(false); router.push(`/session/${id}/timeline`); }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent text-left transition-colors"
+              >
+                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div>
+                  <div className="text-sm font-medium">Timeline View</div>
+                  <div className="text-xs text-muted-foreground">Visualize agent execution</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowResumeChoice(false); router.push(`/session/${id}/analytics`); }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent text-left transition-colors"
+              >
+                <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div>
+                  <div className="text-sm font-medium">Analytics</div>
+                  <div className="text-xs text-muted-foreground">Tokens, cost, and metrics</div>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  const rootAgent = session.agents?.find(a => a.parentId === null) ?? session.agents?.[0];
+                  if (rootAgent) {
+                    setLayout({
+                      type: 'pane',
+                      id: 'main-fresh',
+                      tabs: [{ type: 'agent', agentId: rootAgent.id, label: rootAgent.subagentType || 'Orchestrator' }],
+                      activeTab: 0,
+                    });
+                  }
+                  setShowResumeChoice(false);
+                }}
+                className="w-full text-xs text-muted-foreground hover:text-foreground text-left px-3 py-2 transition-colors"
+              >
+                Start fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AgentSidebar sessionId={id} />
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Workspace header — PRD: breadcrumb + session info + layout controls */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#21262d] bg-[#161b22] shrink-0">
+          <Link href="/" className="text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+            <Layers className="h-4 w-4" />
+          </Link>
+          <span className="text-[#484f58]">/</span>
+          <span className="text-sm font-semibold text-[#e6edf3] truncate">{projectName}</span>
+          <div className="flex items-center gap-1 ml-2 text-[11px] text-[#484f58]">
+            <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
+            <span>·</span>
+            <span className="font-mono">{id.slice(0, 8)}…</span>
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Layout presets */}
+          <LayoutPresets sessionId={id} session={session} setLayout={setLayout} />
+
+          {/* Nav links */}
+          <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
+            <Link
+              href={`/session/${id}/timeline`}
+              className="text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+            >
+              Timeline
+            </Link>
+            <Link
+              href={`/session/${id}/analytics`}
+              className="text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+            >
+              Analytics
+            </Link>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <WorkspaceShell sessionId={id} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Layout preset buttons — quickly arrange agents into common layouts
+function LayoutPresets({ sessionId, session, setLayout }: {
+  sessionId: string;
+  session: Session;
+  setLayout: (l: LayoutNode) => void;
+}) {
+  const agents = session.agents.slice(0, 4);
+  const makeTab = (a: (typeof agents)[0]) => ({
+    type: 'agent' as const,
+    agentId: a.id,
+    label: a.subagentType || (a.depth === 0 ? 'Main' : 'Agent'),
+  });
+
+  const presets = [
+    {
+      id: 'single',
+      icon: <Square className="h-3 w-3" />,
+      label: 'Single',
+      layout: (): LayoutNode => ({
+        type: 'pane', id: 'p1',
+        tabs: agents[0] ? [makeTab(agents[0])] : [],
+        activeTab: 0,
+      }),
+    },
+    {
+      id: '2col',
+      icon: <Columns2 className="h-3 w-3" />,
+      label: '2 Cols',
+      layout: (): LayoutNode | null => agents.length < 2 ? null : ({
+        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.5,
+        children: [
+          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
+          { type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 },
+        ],
+      }),
+    },
+    {
+      id: '3col',
+      icon: <Grid2x2 className="h-3 w-3" />,
+      label: '3 Cols',
+      layout: (): LayoutNode | null => agents.length < 3 ? null : ({
+        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.33,
+        children: [
+          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
+          {
+            type: 'split', id: 's2', direction: 'horizontal', ratio: 0.5,
+            children: [
+              { type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 },
+              { type: 'pane', id: 'p3', tabs: [makeTab(agents[2])], activeTab: 0 },
+            ],
+          },
+        ],
+      }),
+    },
+    {
+      id: 'orch',
+      icon: <Rows2 className="h-3 w-3" />,
+      label: 'Orch+',
+      layout: (): LayoutNode | null => agents.length < 2 ? null : ({
+        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.4,
+        children: [
+          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
+          {
+            type: 'split', id: 's2', direction: 'vertical', ratio: 0.5,
+            children: [
+              { type: 'pane', id: 'p2', tabs: agents.slice(1).map(makeTab), activeTab: 0 },
+              { type: 'pane', id: 'p3', tabs: [], activeTab: 0 },
+            ],
+          },
+        ],
+      }),
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-[#484f58] mr-1">Layout:</span>
+      {presets.map(p => {
+        const l = p.layout();
+        return (
+          <button
+            key={p.id}
+            onClick={() => l && setLayout(l)}
+            disabled={!l}
+            title={p.label}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            {p.icon}
+            <span className="hidden sm:inline">{p.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

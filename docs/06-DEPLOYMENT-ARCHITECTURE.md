@@ -4,6 +4,21 @@
 
 **Superseded:** Dockerfile and Docker Compose now use Next.js standalone output. See `09-NEXTJS-ARCHITECTURE.md` Section 8 for the updated Dockerfile, docker-compose.yml, and image size budget. The security hardening (Section 3), persistence strategy (Section 4), and platform-specific notes (Section 7) in this document remain current.
 
+**Current deployment mode (Phase 1):** Docker packaging is not yet implemented. The application runs directly with Node.js:
+
+```powershell
+# One-time setup
+npm install            # auto-rebuilds better-sqlite3 via postinstall
+
+# Start dev server on http://localhost:3456
+npm run dev
+
+# If Node.js version changes (e.g. nvm switch), rebuild native module:
+npm run rebuild-native
+```
+
+Data is persisted to `data/agentwatch.db` in the project directory (gitignored). Claude sessions are read from `~/.claude/projects/` on the host machine.
+
 ---
 
 ## 1. Deployment Overview

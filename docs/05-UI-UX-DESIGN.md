@@ -3,7 +3,14 @@
 ## AgentWatch v2.0
 
 **Amendment:** Sections 2, 3.3, and new sections 13-17 updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
-**Implementation:** UI implemented with Next.js App Router + shadcn/ui + Tailwind CSS per `09-NEXTJS-ARCHITECTURE.md`. Wireframes in this document remain the design spec; shadcn components map: `ResizablePanelGroup` for workspace panes, `Tabs` for agent tab rail, `Command` for session search, `Collapsible` for tool calls and agent tree, `Dialog` for resume dialog, `Card` for session/artifact cards.
+**Implementation:** UI implemented with Next.js 16.2.6 App Router + Radix UI primitives + Tailwind CSS v4. Wireframes in this document remain the design spec. Actual component mapping:
+- Workspace panes → `react-resizable-panels` v4 (`Group`/`Panel`/`Separator` with `orientation` prop)
+- Agent tab rail → **custom button tabs** (colored per agent type, not shadcn Tabs)
+- Session search → `cmdk` Command palette
+- Tool call expansion + sidebar rounds → `@radix-ui/react-collapsible`
+- Scroll areas → `@radix-ui/react-scroll-area`
+- Artifact cards inline in conversation → custom `ArtifactCard` component
+- Artifact full pane → `ArtifactPaneView` with custom markdown parser
 
 ---
 
