@@ -1,4 +1,4 @@
-export type AgentSubTab = 'conversation' | 'artifacts' | 'context' | 'tools' | 'summary';
+export type AgentSubTab = 'conversation' | 'artifacts' | 'context' | 'tools' | 'summary' | 'feedback';
 
 export type PaneTab =
   | { type: 'agent'; agentId: string; label: string; activeSubTab?: AgentSubTab }

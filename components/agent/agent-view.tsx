@@ -6,6 +6,8 @@ import { ArtifactsTab } from './artifacts-tab';
 import { ContextTab } from './context-tab';
 import { ToolsTab } from './tools-tab';
 import { SummaryTab } from './summary-tab';
+import { FeedbackTab } from './feedback-tab';
+import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
@@ -27,11 +29,13 @@ const TABS: { id: AgentSubTab; label: string }[] = [
   { id: 'context', label: 'Context' },
   { id: 'tools', label: 'Tools' },
   { id: 'summary', label: 'Summary' },
+  { id: 'feedback', label: 'Feedback' },
 ];
 
 export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTab = 'conversation', onSubTabChange }: AgentViewProps) {
   const agent = useSessionStore(s => s.agentMap.get(agentId));
   const { closePane, splitPane } = useWorkspaceStore();
+  const feedbackCount = useFeedbackStore(s => s.items.filter(i => i.agentId === agentId).length);
 
   if (!agent) {
     return (
@@ -139,6 +143,11 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
                     {count}
                   </span>
                 )}
+                {tab.id === 'feedback' && feedbackCount > 0 && count === 0 && (
+                  <span className="text-[10px] px-1 rounded-full font-medium bg-[#58a6ff]/15 text-[#58a6ff]">
+                    {feedbackCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -152,6 +161,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
         {activeSubTab === 'context'      && <ContextTab agent={agent} />}
         {activeSubTab === 'tools'        && <ToolsTab sessionId={sessionId} agentId={agentId} />}
         {activeSubTab === 'summary'      && <SummaryTab agent={agent} />}
+        {activeSubTab === 'feedback'     && <FeedbackTab sessionId={sessionId} agentId={agentId} />}
       </div>
 
       {/* Persistent stats footer */}

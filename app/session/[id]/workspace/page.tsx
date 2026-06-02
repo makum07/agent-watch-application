@@ -4,9 +4,11 @@ import { use, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useWorkspacePersistence } from '@/hooks/use-workspace-persistence';
+import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square } from 'lucide-react';
+import { FeedbackPanel } from '@/components/session/feedback-panel';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -28,10 +30,63 @@ export default function WorkspacePage({ params }: Props) {
   const { restoreSnapshot } = useWorkspacePersistence(id);
   const [initialized, setInitialized] = useState(false);
   const [showResumeChoice, setShowResumeChoice] = useState(false);
+  const { isPanelOpen, setPanelOpen, items, loadFeedback, reset: resetFeedback } = useFeedbackStore();
+
+  // Feedback panel resize state
+  const [feedbackWidth, setFeedbackWidth] = useState(288);
+  const feedbackWidthRef = useRef(288);   // kept in sync for use inside event listeners
+  const resizingRef = useRef(false);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWRef = useRef(288);
+
+  // Restore persisted width on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('feedback-panel-width');
+    if (stored) {
+      const w = Math.min(600, Math.max(200, Number(stored)));
+      setFeedbackWidth(w);
+      feedbackWidthRef.current = w;
+    }
+  }, []);
+
+  // Keep ref in sync with state so the mouseup handler can persist the final value
+  useEffect(() => { feedbackWidthRef.current = feedbackWidth; }, [feedbackWidth]);
+
+  // Global mouse tracking for drag resize
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!resizingRef.current) return;
+      const dx = resizeStartXRef.current - e.clientX;
+      const w = Math.min(600, Math.max(200, resizeStartWRef.current + dx));
+      setFeedbackWidth(w);
+      feedbackWidthRef.current = w;
+    }
+    function onUp() {
+      if (!resizingRef.current) return;
+      resizingRef.current = false;
+      localStorage.setItem('feedback-panel-width', String(feedbackWidthRef.current));
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  function startFeedbackResize(e: React.MouseEvent) {
+    resizingRef.current = true;
+    resizeStartXRef.current = e.clientX;
+    resizeStartWRef.current = feedbackWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  }
 
   useEffect(() => {
     setSessionId(id);
     setLayout(null);
+    resetFeedback();
+    loadFeedback(id);
   }, [id]);
 
   useEffect(() => {
@@ -198,9 +253,42 @@ export default function WorkspacePage({ params }: Props) {
                   Analytics
                 </Link>
               </div>
+              <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
+                <button
+                  onClick={() => setPanelOpen(!isPanelOpen)}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                    isPanelOpen
+                      ? 'bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30'
+                      : 'text-[#c9d1d9] hover:text-white hover:bg-[#21262d]'
+                  }`}
+                  title="Feedback Review"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Review</span>
+                  {items.length > 0 && (
+                    <span className={`text-[10px] px-1 rounded-full font-medium ${isPanelOpen ? 'bg-[#58a6ff]/30 text-[#58a6ff]' : 'bg-[#21262d] text-[#8b949e]'}`}>
+                      {items.length}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
-            <div className="flex-1 overflow-hidden">
-              <WorkspaceShell sessionId={id} />
+            <div className="flex-1 overflow-hidden relative flex">
+              <div className="flex-1 overflow-hidden">
+                <WorkspaceShell sessionId={id} />
+              </div>
+              {isPanelOpen && (
+                <div className="flex shrink-0 overflow-hidden" style={{ width: feedbackWidth }}>
+                  {/* Drag handle */}
+                  <div
+                    onMouseDown={startFeedbackResize}
+                    className="w-1 shrink-0 bg-[#30363d] hover:bg-[#58a6ff]/50 cursor-col-resize transition-colors"
+                  />
+                  <div className="flex-1 overflow-hidden">
+                    <FeedbackPanel sessionId={id} onClose={() => setPanelOpen(false)} />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </Panel>
