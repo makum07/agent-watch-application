@@ -339,7 +339,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
   const bubbleCls = isUser
     ? 'bg-[#0a1c30] border border-[#1e4a73] rounded-2xl rounded-tr-sm shadow-[0_2px_8px_#00000030,0_0_0_1px_#58a6ff10]'
     : isResponse
-    ? 'bg-[#071a0e] border border-[#1a5228] rounded-2xl rounded-tl-sm shadow-[0_2px_8px_#00000030,0_0_0_1px_#3fb95010]'
+    ? 'bg-[#0c1929] border border-[#2d5a9e] rounded-2xl rounded-tl-sm shadow-[0_2px_12px_#1a3a6e25,0_0_0_1px_#2d5a9e20]'
     : 'bg-[#161b22] border border-[#30363d] rounded-xl rounded-tl-sm';
 
   const tokTotal = message.tokenUsage
@@ -355,8 +355,8 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
 
   return (
     <div className={cn(
-      'flex items-start px-3',
-      isUser ? 'flex-row-reverse pl-10' : '',
+      'flex items-start',
+      isUser ? 'flex-row-reverse pl-10 pr-3' : 'px-3',
       isToolOnly ? 'py-0.5 gap-1.5' : 'py-2 gap-2',
     )}>
       {/* Avatar — smaller and muted for tool-only rows */}
@@ -382,11 +382,10 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
         {hasText && (
           <div className={cn(isPrimary ? 'px-4 py-3.5' : 'px-3.5 py-3', bubbleCls)}>
 
-            {/* Response label strip */}
+            {/* Response timestamp strip */}
             {isResponse && (
-              <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-[#1a5228]">
-                <span className="text-[11px] font-semibold tracking-wide" style={{ color: '#3fb950' }}>✦ Final Response</span>
-                <span className="text-[10px] text-[#484f58] ml-auto">
+              <div className="flex items-center mb-3 pb-2.5 border-b border-[#2d5a9e]/50">
+                <span className="text-[10px] text-[#6e7681] ml-auto">
                   {fmtTime(message.timestamp)}{tokTotal ? ` · ${tokTotal} tok` : ''}
                 </span>
               </div>
