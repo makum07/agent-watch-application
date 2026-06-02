@@ -1,0 +1,30 @@
+# Dependencies (reinstalled during build)
+node_modules
+
+# Next.js build output (rebuilt during Docker build)
+.next
+
+# Local database (mounted via volume)
+data/
+
+# Screenshots and dev logs
+*.png
+*.log
+dev.log
+server.log
+
+# Git
+.git
+.gitignore
+
+# Environment files (never bake secrets into the image)
+.env
+.env.*
+
+# Documentation
+docs/
+README.md
+
+# Test files
+*.test.ts
+*.spec.ts

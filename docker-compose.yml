@@ -1,0 +1,32 @@
+services:
+  agentwatch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentwatch
+    ports:
+      - "${PORT:-3456}:3456"
+    volumes:
+      # Mount your local ~/.claude directory (read-only) so the app can
+      # discover and read your Claude session files.
+      #
+      # macOS / Linux:
+      #   The default below (~/.claude) works with no extra configuration.
+      #
+      # Windows (Docker Desktop):
+      #   Set CLAUDE_HOME in a .env file next to this file:
+      #     CLAUDE_HOME=C:/Users/YourName/.claude
+      - "${CLAUDE_HOME:-~/.claude}:/claude-data:ro"
+
+      # Named volume for the SQLite database (survives container restarts)
+      - agentwatch-data:/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3456
+      - CLAUDE_HOME=/claude-data
+      - CLAUDE_DB_PATH=/data/agentwatch.db
+    restart: unless-stopped
+
+volumes:
+  agentwatch-data:
+    name: agentwatch-db

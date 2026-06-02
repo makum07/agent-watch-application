@@ -1,36 +1,135 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AgentWatch
 
-## Getting Started
+A self-hosted web application for visualizing and debugging Claude Code multi-agent sessions. AgentWatch reads your local Claude session files and gives you an interactive workspace to understand what happened across all agents, tool calls, and artifacts in a session.
 
-First, run the development server:
+---
+
+## What problem does it solve?
+
+When you run a complex Claude Code session — one that spawns multiple subagents, runs workflows, generates files, and makes hundreds of tool calls — the only way to review it is scrolling through terminal output or raw JSONL files. There is no visual way to:
+
+- See which agents ran, in what order, and how long each took
+- Read one agent's conversation without losing track of the others
+- Compare what two agents produced side by side
+- Find which agent wrote a specific file
+- Understand the relationship between the orchestrator and its subagents
+
+AgentWatch solves this by turning your raw session data into a navigable, multi-pane workspace.
+
+---
+
+## What it looks like
+
+The UI has three areas:
+
+**Left sidebar** — lists all agents in the session, grouped by orchestration round. Each round is collapsible and shows the agents that were spawned in that exchange. Click any agent to open it in a pane.
+
+**Main workspace** — one or more resizable panes, each showing a different agent. You can split horizontally or vertically to compare agents side by side. Each pane has five tabs:
+
+| Tab | Shows |
+|-----|-------|
+| Conversation | The full message thread, grouped into rounds. Rounds that spawned agents get a colored banner. Write/Edit tool calls show inline artifact cards. |
+| Artifacts | Files created or modified by this agent |
+| Context | The prompt this agent received from its parent |
+| Tools | Every tool call this agent made, grouped by tool name |
+| Summary | Token usage, duration, model, status |
+
+**Artifact viewer** — clicking "Open in pane" on any artifact opens a document viewer in a new pane, with a markdown Preview mode and a line-numbered Source mode.
+
+---
+
+## How it works
+
+Claude Code writes session data to `~/.claude/projects/` on your machine. Each session is a folder containing:
+
+- A root `.jsonl` file — the orchestrator's conversation
+- A `subagents/` subdirectory — one `.jsonl` file per named subagent (Agent/Task tool calls)
+- A `subagents/workflows/` subdirectory — subagents spawned by Workflow tool calls
+- A `workflows/` directory — workflow run data including agent labels
+
+AgentWatch reads these files directly — no upload, no cloud, no account. It parses the JSONL format, correlates each subagent back to the root session, stores the indexed data in a local SQLite database, and serves it through a Next.js API.
+
+Sessions are only indexed when you open them. Subsequent opens are instant (served from SQLite) unless the source file has changed.
+
+---
+
+## Getting started
+
+There are two ways to run AgentWatch: directly with Node.js (fastest for development), or via Docker (no Node.js required on your machine).
+
+---
+
+### Option 1 — Node.js (recommended for development)
+
+**Prerequisites:** Node.js 20+ and npm.
 
 ```bash
+# Install dependencies
+# The postinstall hook automatically compiles the native SQLite module
+npm install
+
+# Start on http://localhost:3456
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If you update Node.js or switch versions with a version manager and see a 500 error on load, run:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run rebuild-native
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+### Option 2 — Docker
 
-To learn more about Next.js, take a look at the following resources:
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS, Windows, Linux).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Step 1 — Configure the Claude data path**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Create a `.env` file next to `docker-compose.yml`. This tells Docker where your Claude sessions live on your machine.
 
-## Deploy on Vercel
+**macOS / Linux** — the default works, no `.env` needed. Your `~/.claude` directory is mounted automatically.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Windows** — create `.env` with your actual username:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```env
+CLAUDE_HOME=C:/Users/YourName/.claude
+```
+
+**Step 2 — Build and start**
+
+```bash
+docker compose up --build
+```
+
+The first build takes a few minutes (compiles the native SQLite module inside the container). Subsequent starts are instant.
+
+Open [http://localhost:3456](http://localhost:3456).
+
+**Stop the container:**
+
+```bash
+docker compose down
+```
+
+**Upgrade to a new version:**
+
+```bash
+docker compose down
+docker compose up --build
+```
+
+**Change the port** — add to your `.env` file:
+
+```env
+PORT=8080
+```
+
+---
+
+### What happens on first open
+
+The home page auto-discovers all Claude sessions from your `~/.claude/projects/` directory and lists them sorted by most recent. Click any session to open it. The first open of a session parses and indexes it — subsequent opens are served from the local SQLite cache instantly.
+
+---
+
