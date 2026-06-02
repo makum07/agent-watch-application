@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useWorkspacePersistence } from '@/hooks/use-workspace-persistence';
@@ -9,6 +9,8 @@ import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { LayoutNode } from '@/types/workspace';
 import type { Session } from '@/types/session';
 
@@ -20,7 +22,9 @@ export default function WorkspacePage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
   const { session, isLoading, error } = useSession(id);
-  const { setSessionId, setLayout } = useWorkspaceStore();
+  const { setSessionId, setLayout, setSidebarCollapsed } = useWorkspaceStore();
+  const sidebarPanelRef = usePanelRef();
+  const sidebarCollapsedRef = useRef(false);
   const { restoreSnapshot } = useWorkspacePersistence(id);
   const [initialized, setInitialized] = useState(false);
   const [showResumeChoice, setShowResumeChoice] = useState(false);
@@ -84,7 +88,7 @@ export default function WorkspacePage({ params }: Props) {
   const projectName = session.project.split(/[/\\]/).filter(Boolean).pop() || 'Session';
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="relative h-screen bg-background overflow-hidden">
       {/* Inline resume choice overlay — simple, no external dialog dependency */}
       {showResumeChoice && (
         <div className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center">
@@ -146,48 +150,61 @@ export default function WorkspacePage({ params }: Props) {
         </div>
       )}
 
-      <AgentSidebar sessionId={id} />
+      <Group orientation="horizontal" className="h-full" style={{ display: 'flex', height: '100%' }}>
+        {/* Sidebar panel — resizable, collapsible to 40px icon strip */}
+        <Panel
+          id="sidebar-panel"
+          panelRef={sidebarPanelRef}
+          defaultSize={256}
+          minSize={160}
+          maxSize={400}
+          collapsible
+          collapsedSize={40}
+          onResize={(size) => {
+            const collapsed = size.inPixels <= 44;
+            if (collapsed !== sidebarCollapsedRef.current) {
+              sidebarCollapsedRef.current = collapsed;
+              setSidebarCollapsed(collapsed);
+            }
+          }}
+        >
+          <AgentSidebar sessionId={id} panelRef={sidebarPanelRef} />
+        </Panel>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Workspace header — PRD: breadcrumb + session info + layout controls */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#21262d] bg-[#161b22] shrink-0">
-          <Link href="/" className="text-[#8b949e] hover:text-[#e6edf3] transition-colors">
-            <Layers className="h-4 w-4" />
-          </Link>
-          <span className="text-[#484f58]">/</span>
-          <span className="text-sm font-semibold text-[#e6edf3] truncate">{projectName}</span>
-          <div className="flex items-center gap-1 ml-2 text-[11px] text-[#484f58]">
-            <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
-            <span>·</span>
-            <span className="font-mono">{id.slice(0, 8)}…</span>
+        <Separator className="shrink-0 bg-[#30363d] hover:bg-[#58a6ff]/50 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
+
+        {/* Main content panel */}
+        <Panel id="main-panel" minSize={300}>
+          <div className="flex flex-col h-full overflow-hidden">
+            {/* Workspace header */}
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#21262d] bg-[#161b22] shrink-0">
+              <Link href="/" className="text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+                <Layers className="h-4 w-4" />
+              </Link>
+              <span className="text-[#484f58]">/</span>
+              <span className="text-sm font-semibold text-[#e6edf3] truncate">{projectName}</span>
+              <div className="flex items-center gap-1 ml-2 text-[11px] text-[#484f58]">
+                <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
+                <span>·</span>
+                <span className="font-mono">{id.slice(0, 8)}…</span>
+              </div>
+              <div className="flex-1" />
+              <LayoutPresets session={session} setLayout={setLayout} />
+              <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
+                <Link href={`/session/${id}/timeline`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors">
+                  Timeline
+                </Link>
+                <Link href={`/session/${id}/analytics`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors">
+                  Analytics
+                </Link>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <WorkspaceShell sessionId={id} />
+            </div>
           </div>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Layout presets */}
-          <LayoutPresets session={session} setLayout={setLayout} />
-
-          {/* Nav links */}
-          <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
-            <Link
-              href={`/session/${id}/timeline`}
-              className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
-            >
-              Timeline
-            </Link>
-            <Link
-              href={`/session/${id}/analytics`}
-              className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
-            >
-              Analytics
-            </Link>
-          </div>
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <WorkspaceShell sessionId={id} />
-        </div>
-      </div>
+        </Panel>
+      </Group>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useAgentMessages } from '@/hooks/use-agent-messages';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Users } from 'lucide-react';
+import { Loader2, Users, User, Bot, Sparkles } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
 import { formatTime as fmtTime } from '@/lib/utils';
@@ -330,36 +330,57 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
   if (!cleanedText && toolUses.length === 0) return null;
 
   const isUser = message.role === 'user';
-  const isPrompt = isFirst && isUser;
   const isResponse = isLast && !isUser;
 
-  const roleLabel = isPrompt ? 'USER MESSAGE' : isResponse ? 'RESPONSE' : isUser ? 'USER' : 'ASSISTANT';
-  const roleLabelColor = isPrompt ? '#f0883e' : isResponse ? '#3fb950' : isUser ? '#58a6ff' : '#8b949e';
+  const avatarColor = isUser ? '#58a6ff' : isResponse ? '#3fb950' : '#8b949e';
+  const AvatarIcon = isUser ? User : isResponse ? Sparkles : Bot;
 
-  // Left-border accent + background tint per role
-  const accentColor = isPrompt ? '#f0883e' : isResponse ? '#3fb950' : isUser ? '#58a6ff' : undefined;
-  const bgTint = isPrompt ? 'bg-[#f0883e]/[0.04]' : isResponse ? 'bg-[#3fb950]/[0.04]' : isUser ? 'bg-[#161b22]/50' : '';
+  // Bubble appearance — distinct backgrounds per sender
+  const bubbleCls = isUser
+    ? 'bg-[#0d1f35] border border-[#1e3d5c] rounded-2xl rounded-tr-sm'
+    : isResponse
+    ? 'bg-[#0a1f10] border border-[#1c4a28] rounded-2xl rounded-tl-sm'
+    : 'bg-[#161b22] border border-[#30363d] rounded-2xl rounded-tl-sm';
+
+  const tokTotal = message.tokenUsage
+    ? (message.tokenUsage.input + message.tokenUsage.output).toLocaleString()
+    : null;
+
+  const hasText = cleanedText.length > 0;
+  const hasTools = toolUses.length > 0;
 
   return (
-    <div
-      className={cn('border-b border-[#21262d] last:border-0', bgTint, accentColor && 'border-l-2 pl-[2px]')}
-      style={accentColor ? { borderLeftColor: accentColor } : undefined}
-    >
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: roleLabelColor }}>
-          {roleLabel}
-        </span>
-        <span className="text-[11px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
-        {message.tokenUsage && (
-          <span className="ml-auto text-[11px] text-[#484f58]">
-            {(message.tokenUsage.input + message.tokenUsage.output).toLocaleString()} tok
-          </span>
-        )}
+    <div className={cn('flex items-start gap-2 px-3 py-1.5', isUser && 'flex-row-reverse')}>
+      {/* Avatar */}
+      <div className="shrink-0 mt-1">
+        <div
+          className="w-6 h-6 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `${avatarColor}18`, border: `1px solid ${avatarColor}35` }}
+        >
+          <AvatarIcon className="h-3 w-3" style={{ color: avatarColor }} />
+        </div>
       </div>
-      <div className="px-4 pb-4">
-        {cleanedText && <MarkdownRenderer content={cleanedText} />}
-        {toolUses.length > 0 && (
-          <div className={cn('space-y-1.5', cleanedText && 'mt-3')}>
+
+      {/* Content column — bubble + tool cards stacked */}
+      <div className="max-w-[calc(100%-2.5rem)] space-y-1.5">
+
+        {/* Text bubble — only rendered when there is actual text */}
+        {hasText && (
+          <div className={cn('px-3.5 py-2.5 text-[13px]', bubbleCls)}>
+            <MarkdownRenderer content={cleanedText} />
+            <div className="flex items-center gap-1.5 mt-2 justify-end">
+              {isResponse && (
+                <span className="text-[10px] font-medium mr-auto" style={{ color: '#3fb950' }}>✨ Response</span>
+              )}
+              <span className="text-[10px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
+              {tokTotal && <span className="text-[10px] text-[#484f58]">· {tokTotal} tok</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Tool action cards — visually separate from the text bubble */}
+        {hasTools && (
+          <div className="space-y-1">
             {toolUses.map(tu => (
               <ToolCallWithResult
                 key={tu.id}
@@ -371,8 +392,16 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
                 paneId={paneId}
               />
             ))}
+            {/* Timestamp below tool cards when there is no text bubble */}
+            {!hasText && (
+              <div className={cn('flex items-center gap-1.5 px-1', isUser ? 'justify-start' : 'justify-end')}>
+                <span className="text-[10px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
+                {tokTotal && <span className="text-[10px] text-[#484f58]">· {tokTotal} tok</span>}
+              </div>
+            )}
           </div>
         )}
+
       </div>
     </div>
   );

@@ -9,9 +9,11 @@ import { cn, formatTokens, formatDuration } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 
 interface AgentSidebarProps {
   sessionId: string;
+  panelRef?: React.RefObject<PanelImperativeHandle | null>;
 }
 
 /**
@@ -49,7 +51,7 @@ const ROUND_COLORS = [
   { border: '#6b3530', bg: '#3d1f1a', text: '#ff9a85', label: 'Round' },
 ];
 
-export function AgentSidebar({ sessionId }: AgentSidebarProps) {
+export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
   const { sidebarCollapsed, setSidebarCollapsed, addTabToPane, setLayout, focusedPaneId, layout } = useWorkspaceStore();
   const { session, agentMap } = useSessionStore();
   const [search, setSearch] = useState('');
@@ -87,8 +89,11 @@ export function AgentSidebar({ sessionId }: AgentSidebarProps) {
 
   if (sidebarCollapsed) {
     return (
-      <div className="flex flex-col items-center w-10 border-r border-[#30363d] bg-[#0d1117] shrink-0">
-        <button onClick={() => setSidebarCollapsed(false)} className="mt-3 p-1.5 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] rounded">
+      <div className="flex flex-col items-center w-full h-full border-r border-[#30363d] bg-[#0d1117]">
+        <button
+          onClick={() => panelRef?.current?.expand()}
+          className="mt-3 p-1.5 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] rounded"
+        >
           <ChevronRight className="h-4 w-4" />
         </button>
         <div className="mt-4 text-[10px] text-[#484f58]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
@@ -99,7 +104,7 @@ export function AgentSidebar({ sessionId }: AgentSidebarProps) {
   }
 
   return (
-    <div className="flex flex-col w-64 border-r border-[#30363d] bg-[#0d1117] shrink-0 overflow-hidden">
+    <div className="flex flex-col w-full h-full border-r border-[#30363d] bg-[#0d1117] overflow-hidden">
       {/* Session info header */}
       {session && (
         <div className="px-3 pt-3 pb-2 border-b border-[#21262d]">
@@ -107,7 +112,7 @@ export function AgentSidebar({ sessionId }: AgentSidebarProps) {
             <span className="text-xs font-semibold text-[#e6edf3] truncate">
               {session.project.split(/[/\\]/).filter(Boolean).slice(-2).join('/')}
             </span>
-            <button onClick={() => setSidebarCollapsed(true)} className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 rounded shrink-0">
+            <button onClick={() => panelRef?.current?.collapse()} className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 rounded shrink-0">
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           </div>
