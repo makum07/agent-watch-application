@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { LayoutNode, PaneTab, PaneState, TabViewState, FilterState } from '@/types/workspace';
-import crypto from 'crypto';
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
@@ -108,7 +107,7 @@ export interface WorkspaceStore {
   activeFilters: FilterState;
 
   setSessionId: (id: string) => void;
-  setLayout: (layout: LayoutNode) => void;
+  setLayout: (layout: LayoutNode | null) => void;
   splitPane: (paneId: string, direction: 'horizontal' | 'vertical', content: PaneTab) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;

@@ -20,13 +20,14 @@ export default function WorkspacePage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
   const { session, isLoading, error } = useSession(id);
-  const { setSessionId, layout, setLayout, sidebarCollapsed } = useWorkspaceStore();
+  const { setSessionId, setLayout } = useWorkspaceStore();
   const { restoreSnapshot } = useWorkspacePersistence(id);
   const [initialized, setInitialized] = useState(false);
   const [showResumeChoice, setShowResumeChoice] = useState(false);
 
   useEffect(() => {
     setSessionId(id);
+    setLayout(null);
   }, [id]);
 
   useEffect(() => {
@@ -165,7 +166,7 @@ export default function WorkspacePage({ params }: Props) {
           <div className="flex-1" />
 
           {/* Layout presets */}
-          <LayoutPresets sessionId={id} session={session} setLayout={setLayout} />
+          <LayoutPresets session={session} setLayout={setLayout} />
 
           {/* Nav links */}
           <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
@@ -192,10 +193,9 @@ export default function WorkspacePage({ params }: Props) {
 }
 
 // Layout preset buttons — quickly arrange agents into common layouts
-function LayoutPresets({ sessionId, session, setLayout }: {
-  sessionId: string;
+function LayoutPresets({ session, setLayout }: {
   session: Session;
-  setLayout: (l: LayoutNode) => void;
+  setLayout: (l: LayoutNode | null) => void;
 }) {
   const agents = session.agents.slice(0, 4);
   const makeTab = (a: (typeof agents)[0]) => ({
