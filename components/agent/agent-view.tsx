@@ -8,7 +8,7 @@ import { ToolsTab } from './tools-tab';
 import { SummaryTab } from './summary-tab';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { cn, formatTokens, formatDuration } from '@/lib/utils';
+import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
 import type { AgentSubTab } from '@/types/workspace';
 
@@ -35,7 +35,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
 
   if (!agent) {
     return (
-      <div className="flex items-center justify-center h-full text-[#484f58] text-sm">
+      <div className="flex items-center justify-center h-full text-[#8b949e] text-sm">
         Agent not found
       </div>
     );
@@ -67,21 +67,21 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
-              className="p-1.5 rounded text-[#484f58] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
               title="Split right"
             >
               <SplitSquareHorizontal className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => splitPane(paneId, 'vertical', { type: 'agent', agentId: '', label: '' })}
-              className="p-1.5 rounded text-[#484f58] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
               title="Split down"
             >
               <SplitSquareVertical className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => closePane(paneId)}
-              className="p-1.5 rounded text-[#484f58] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
               title="Close pane"
             >
               <X className="h-3.5 w-3.5" />
@@ -100,9 +100,9 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           >
             {typeLabel}
           </span>
-          <span className="text-[#8b949e] font-mono">{agent.model?.replace('claude-', '') || '—'}</span>
-          <span className="text-[#8b949e]">{formatTokens(agent.tokenUsage.total)}</span>
-          <span className="text-[#8b949e]">{formatDuration(agent.durationMs)}</span>
+          <span className="text-[#c9d1d9] font-mono">{agent.model?.replace('claude-', '') || '—'}</span>
+          <span className="text-[#c9d1d9]">{formatTokens(agent.tokenUsage.total)}</span>
+          <span className="text-[#c9d1d9]">{formatDuration(agent.durationMs)}</span>
           <span className={cn(
             'ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium',
             agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
@@ -126,7 +126,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
                   'flex items-center gap-1 px-3 py-2 text-xs transition-colors border-b-2',
                   isActive
                     ? 'border-b-2 font-medium'
-                    : 'text-[#8b949e] border-transparent hover:text-[#e6edf3] hover:border-[#484f58]'
+                    : 'text-[#8b949e] border-transparent hover:text-[#e6edf3] hover:border-[#8b949e]'
                 )}
                 style={isActive ? { color: color.text, borderColor: color.text } : {}}
               >
@@ -134,7 +134,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
                 {count > 0 && (
                   <span
                     className="text-[10px] px-1 rounded-full font-medium"
-                    style={isActive ? { backgroundColor: `${color.bg}`, color: color.text } : { backgroundColor: '#21262d', color: '#484f58' }}
+                    style={isActive ? { backgroundColor: `${color.bg}`, color: color.text } : { backgroundColor: '#21262d', color: '#8b949e' }}
                   >
                     {count}
                   </span>
@@ -153,6 +153,48 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
         {activeSubTab === 'tools'        && <ToolsTab sessionId={sessionId} agentId={agentId} />}
         {activeSubTab === 'summary'      && <SummaryTab agent={agent} />}
       </div>
+
+      {/* Persistent stats footer */}
+      <div className="shrink-0 border-t border-[#21262d] bg-[#0d1117] px-3 py-1.5 flex items-center gap-0 text-[11px] overflow-hidden">
+        <StatPill label="in" value={formatTokens(agent.tokenUsage.input)} />
+        <Dot />
+        <StatPill label="out" value={formatTokens(agent.tokenUsage.output)} />
+        {agent.tokenUsage.cacheRead > 0 && (
+          <>
+            <Dot />
+            <StatPill label="cache" value={formatTokens(agent.tokenUsage.cacheRead)} />
+          </>
+        )}
+        <Dot />
+        <StatPill label="dur" value={formatDuration(agent.durationMs)} />
+        <Dot />
+        <StatPill label="msgs" value={String(agent.messageCount)} />
+        {toolCount > 0 && (
+          <>
+            <Dot />
+            <StatPill label="tools" value={String(toolCount)} />
+          </>
+        )}
+        <Dot />
+        <StatPill
+          label="~cost"
+          value={formatCost(estimateAgentCost(agent.tokenUsage, agent.model ?? 'sonnet'))}
+          highlight
+        />
+      </div>
     </div>
   );
+}
+
+function StatPill({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <span className="flex items-center gap-1 px-1.5 py-0.5">
+      <span className="text-[#8b949e]">{label}</span>
+      <span className={cn('font-mono', highlight ? 'text-[#f0883e]' : 'text-[#c9d1d9]')}>{value}</span>
+    </span>
+  );
+}
+
+function Dot() {
+  return <span className="text-[#30363d] select-none">·</span>;
 }

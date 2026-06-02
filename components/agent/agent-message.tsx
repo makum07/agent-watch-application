@@ -93,9 +93,9 @@ export function AgentMessage({ message, isFirst, isLast }: AgentMessageProps) {
         <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: roleLabelColor }}>
           {roleLabel}
         </span>
-        <span className="text-[11px] text-[#484f58]">{formatTime(message.timestamp)}</span>
+        <span className="text-[11px] text-[#6e7681]">{formatTime(message.timestamp)}</span>
         {message.tokenUsage && (
-          <span className="ml-auto text-[11px] text-[#484f58]">
+          <span className="ml-auto text-[11px] text-[#6e7681]">
             {(message.tokenUsage.input + message.tokenUsage.output).toLocaleString()} tok
           </span>
         )}

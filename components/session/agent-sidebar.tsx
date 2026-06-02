@@ -92,11 +92,11 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
       <div className="flex flex-col items-center w-full h-full border-r border-[#30363d] bg-[#0d1117]">
         <button
           onClick={() => panelRef?.current?.expand()}
-          className="mt-3 p-1.5 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] rounded"
+          className="mt-3 p-1.5 text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] rounded"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <div className="mt-4 text-[10px] text-[#484f58]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
+        <div className="mt-4 text-[10px] text-[#6e7681]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
           {session?.totalAgents ?? 0} agents
         </div>
       </div>
@@ -112,11 +112,11 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
             <span className="text-xs font-semibold text-[#e6edf3] truncate">
               {session.project.split(/[/\\]/).filter(Boolean).slice(-2).join('/')}
             </span>
-            <button onClick={() => panelRef?.current?.collapse()} className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 rounded shrink-0">
+            <button onClick={() => panelRef?.current?.collapse()} className="text-[#c9d1d9] hover:text-[#e6edf3] p-0.5 rounded shrink-0">
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-[#8b949e]">
+          <div className="flex items-center gap-3 text-[11px] text-[#c9d1d9]">
             <span className="flex items-center gap-1"><Users className="h-3 w-3" />{session.totalAgents}</span>
             <span className="flex items-center gap-1"><Zap className="h-3 w-3" />{formatTokens(session.totalTokens)}</span>
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDuration(session.duration.wallClock)}</span>
@@ -148,7 +148,7 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
           {/* When searching, show flat filtered list */}
           {hasSearch ? (
             session?.agents.filter(a => a.type !== 'orchestrator' && matchSearch(a)).map(agent => (
-              <AgentRow key={agent.id} agent={agent} onOpen={openAgent} />
+              <AgentRow key={agent.id} agent={agent} onOpen={openAgent} depth={0} />
             ))
           ) : (
             /* Normal view: rounds with collapsible groups */
@@ -173,15 +173,15 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
                     </div>
 
                     {/* Count + tokens */}
-                    <span className="text-[10px] text-[#484f58]">
+                    <span className="text-[10px] text-[#6e7681]">
                       {roundAgents.length} agent{roundAgents.length !== 1 ? 's' : ''}
                     </span>
-                    <span className="text-[10px] text-[#484f58] ml-auto">
+                    <span className="text-[10px] text-[#c9d1d9] ml-auto font-mono">
                       {formatTokens(totalTokens)}
                     </span>
 
                     <ChevronDown
-                      className={cn('h-3 w-3 text-[#484f58] transition-transform shrink-0', isCollapsed && '-rotate-90')}
+                      className={cn('h-3 w-3 text-[#6e7681] transition-transform shrink-0', isCollapsed && '-rotate-90')}
                     />
                   </button>
 
@@ -192,7 +192,7 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
                       style={{ borderColor: color.border }}
                     >
                       {roundAgents.map(agent => (
-                        <AgentRow key={agent.id} agent={agent} onOpen={openAgent} indented />
+                        <AgentRow key={agent.id} agent={agent} onOpen={openAgent} depth={Math.max(1, agent.depth)} />
                       ))}
                     </div>
                   )}
@@ -209,7 +209,7 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
 
       {/* Drag hint */}
       <div className="px-3 py-2 border-t border-[#21262d]">
-        <div className="flex items-center gap-1.5 text-[10px] text-[#484f58]">
+        <div className="flex items-center gap-1.5 text-[10px] text-[#6e7681]">
           <GripVertical className="h-3 w-3" />
           Drag into panes · click to open
         </div>
@@ -222,12 +222,12 @@ function AgentRow({
   agent,
   onOpen,
   isOrchestrator = false,
-  indented = false,
+  depth = 0,
 }: {
   agent: Agent;
   onOpen: (a: Agent) => void;
   isOrchestrator?: boolean;
-  indented?: boolean;
+  depth?: number;
 }) {
   const { name, shortName, typeLabel, color, initials } = getAgentDisplay(agent);
 
@@ -237,17 +237,28 @@ function AgentRow({
     e.dataTransfer.effectAllowed = 'move';
   };
 
+  // Indent based on depth (orchestrator = 0, direct subagents = 1, nested = 2+)
+  const paddingLeft = isOrchestrator ? 8 : 8 + depth * 12;
+
   return (
     <div
       className={cn(
         'group flex items-center gap-2 py-2 pr-3 hover:bg-[#161b22] cursor-pointer transition-colors border-b border-[#0d1117]',
         isOrchestrator && 'border-b-2 border-b-[#21262d] mb-1',
       )}
-      style={{ paddingLeft: indented ? '12px' : '8px' }}
+      style={{ paddingLeft }}
       draggable
       onDragStart={handleDragStart}
       onClick={() => onOpen(agent)}
     >
+      {/* Depth connector line — visual tree cue for nested agents */}
+      {depth > 0 && (
+        <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
+          <div className="w-px h-full bg-[#30363d]" />
+          <div className="w-2 h-px bg-[#30363d]" />
+        </div>
+      )}
+
       {/* Color avatar */}
       <div
         className="w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 border"
@@ -270,15 +281,15 @@ function AgentRow({
             {agent.status}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-[#484f58]">
+        <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9]">
           <span className="font-mono">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
           <span>{formatTokens(agent.tokenUsage.total)}</span>
           <span>{formatDuration(agent.durationMs)}</span>
         </div>
       </div>
 
-      {/* Drag handle */}
-      <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-0 group-hover:opacity-100 cursor-grab" />
+      {/* Drag handle — faintly always visible, bright on hover */}
+      <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 cursor-grab transition-opacity" />
     </div>
   );
 }

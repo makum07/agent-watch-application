@@ -210,7 +210,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
 
           {/* User message excerpt */}
           {userText && (
-            <span className="text-[11px] text-[#8b949e] truncate flex-1 italic">
+            <span className="text-[11px] text-[#c9d1d9] truncate flex-1 italic">
               "{userText.slice(0, 70)}{userText.length > 70 ? '…' : ''}"
             </span>
           )}
@@ -218,7 +218,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
           {/* Spawned agent badges — click to open that agent in the current pane */}
           {spawnedAgents.length > 0 && (
             <div className="flex items-center gap-1.5 shrink-0">
-              <Users className="h-3 w-3 text-[#484f58]" />
+              <Users className="h-3 w-3 text-[#6e7681]" />
               {spawnedAgents.slice(0, 5).map(agent => {
                 const { color: ac, initials, name } = getAgentDisplay(agent);
                 return (
@@ -241,7 +241,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
                 );
               })}
               {spawnedAgents.length > 5 && (
-                <span className="text-[10px] text-[#484f58]">+{spawnedAgents.length - 5}</span>
+                <span className="text-[10px] text-[#6e7681]">+{spawnedAgents.length - 5}</span>
               )}
             </div>
           )}
@@ -270,9 +270,9 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
     <div className="relative mb-1">
       {isMultiRound && turn.userMessage && (
         <div className="flex items-center gap-2 px-4 py-1.5 bg-[#161b22] border-b border-[#21262d]">
-          <div className="text-[10px] font-medium text-[#484f58] uppercase tracking-wider">Exchange</div>
+          <div className="text-[10px] font-medium text-[#6e7681] uppercase tracking-wider">Exchange</div>
           <div className="flex-1 h-px bg-[#21262d]" />
-          <span className="text-[10px] text-[#484f58]">{fmtTime(turn.userMessage.timestamp)}</span>
+          <span className="text-[10px] text-[#6e7681]">{fmtTime(turn.userMessage.timestamp)}</span>
         </div>
       )}
       <div>
@@ -337,10 +337,10 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
 
   // Bubble appearance — distinct backgrounds per sender
   const bubbleCls = isUser
-    ? 'bg-[#0d1f35] border border-[#1e3d5c] rounded-2xl rounded-tr-sm'
+    ? 'bg-[#0a1c30] border border-[#1e4a73] rounded-2xl rounded-tr-sm shadow-[0_2px_8px_#00000030,0_0_0_1px_#58a6ff10]'
     : isResponse
-    ? 'bg-[#0a1f10] border border-[#1c4a28] rounded-2xl rounded-tl-sm'
-    : 'bg-[#161b22] border border-[#30363d] rounded-2xl rounded-tl-sm';
+    ? 'bg-[#071a0e] border border-[#1a5228] rounded-2xl rounded-tl-sm shadow-[0_2px_8px_#00000030,0_0_0_1px_#3fb95010]'
+    : 'bg-[#161b22] border border-[#30363d] rounded-xl rounded-tl-sm';
 
   const tokTotal = message.tokenUsage
     ? (message.tokenUsage.input + message.tokenUsage.output).toLocaleString()
@@ -349,38 +349,63 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
   const hasText = cleanedText.length > 0;
   const hasTools = toolUses.length > 0;
 
+  // Tool-only rows (intermediate steps) are visually de-emphasized
+  const isToolOnly = !hasText && hasTools;
+  const isPrimary = isUser || isResponse;
+
   return (
-    <div className={cn('flex items-start gap-2 px-3 py-1.5', isUser && 'flex-row-reverse')}>
-      {/* Avatar */}
-      <div className="shrink-0 mt-1">
+    <div className={cn(
+      'flex items-start px-3',
+      isUser ? 'flex-row-reverse pl-10' : '',
+      isToolOnly ? 'py-0.5 gap-1.5' : 'py-2 gap-2',
+    )}>
+      {/* Avatar — smaller and muted for tool-only rows */}
+      <div className={cn('shrink-0', isToolOnly ? 'mt-0.5' : 'mt-1')}>
         <div
-          className="w-6 h-6 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: `${avatarColor}18`, border: `1px solid ${avatarColor}35` }}
+          className={cn('rounded-full flex items-center justify-center', isToolOnly ? 'w-4 h-4' : 'w-6 h-6')}
+          style={{
+            backgroundColor: `${isToolOnly ? '#484f58' : avatarColor}18`,
+            border: `1px solid ${isToolOnly ? '#484f58' : avatarColor}35`,
+          }}
         >
-          <AvatarIcon className="h-3 w-3" style={{ color: avatarColor }} />
+          <AvatarIcon
+            className={isToolOnly ? 'h-2 w-2' : 'h-3 w-3'}
+            style={{ color: isToolOnly ? '#484f58' : avatarColor }}
+          />
         </div>
       </div>
 
       {/* Content column — bubble + tool cards stacked */}
-      <div className="max-w-[calc(100%-2.5rem)] space-y-1.5">
+      <div className={cn('max-w-[calc(100%-2rem)]', isToolOnly ? 'space-y-0.5' : 'space-y-2')}>
 
         {/* Text bubble — only rendered when there is actual text */}
         {hasText && (
-          <div className={cn('px-3.5 py-2.5 text-[13px]', bubbleCls)}>
-            <MarkdownRenderer content={cleanedText} />
-            <div className="flex items-center gap-1.5 mt-2 justify-end">
-              {isResponse && (
-                <span className="text-[10px] font-medium mr-auto" style={{ color: '#3fb950' }}>✨ Response</span>
-              )}
-              <span className="text-[10px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
-              {tokTotal && <span className="text-[10px] text-[#484f58]">· {tokTotal} tok</span>}
-            </div>
+          <div className={cn(isPrimary ? 'px-4 py-3.5' : 'px-3.5 py-3', bubbleCls)}>
+
+            {/* Response label strip */}
+            {isResponse && (
+              <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-[#1a5228]">
+                <span className="text-[11px] font-semibold tracking-wide" style={{ color: '#3fb950' }}>✦ Final Response</span>
+                <span className="text-[10px] text-[#484f58] ml-auto">
+                  {fmtTime(message.timestamp)}{tokTotal ? ` · ${tokTotal} tok` : ''}
+                </span>
+              </div>
+            )}
+
+            <MarkdownRenderer content={cleanedText} size={isPrimary ? 'base' : 'sm'} />
+
+            {!isResponse && (
+              <div className="flex items-center gap-1.5 mt-3 justify-end">
+                <span className="text-[10px] text-[#6e7681]">{fmtTime(message.timestamp)}</span>
+                {tokTotal && <span className="text-[10px] text-[#6e7681]">· {tokTotal} tok</span>}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Tool action cards — visually separate from the text bubble */}
+        {/* Tool action cards — compact when there is no accompanying text */}
         {hasTools && (
-          <div className="space-y-1">
+          <div className={isToolOnly ? 'space-y-0.5' : 'space-y-1.5'}>
             {toolUses.map(tu => (
               <ToolCallWithResult
                 key={tu.id}
@@ -390,6 +415,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
                 result={toolResultMap.get(tu.id)?.content}
                 isError={toolResultMap.get(tu.id)?.isError ?? false}
                 paneId={paneId}
+                compact={isToolOnly}
               />
             ))}
             {/* Timestamp below tool cards when there is no text bubble */}

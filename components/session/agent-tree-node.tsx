@@ -81,7 +81,7 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
           <CollapsibleTrigger asChild onClick={e => e.stopPropagation()}>
             <button className="shrink-0 p-0">
               <ChevronRight className={cn(
-                'h-3 w-3 text-[#484f58] transition-transform',
+                'h-3 w-3 text-[#6e7681] transition-transform',
                 isOpen && 'rotate-90'
               )} />
             </button>
@@ -102,16 +102,16 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
               {label}
             </span>
             {shortDesc && (
-              <span className="text-[11px] text-[#8b949e] truncate">{shortDesc}</span>
+              <span className="text-[11px] text-[#c9d1d9] truncate">{shortDesc}</span>
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {agent.model && (
-              <span className="text-[10px] text-[#484f58] font-mono truncate">
+              <span className="text-[10px] text-[#6e7681] font-mono truncate">
                 {agent.model.replace('claude-', '').slice(0, 12)}
               </span>
             )}
-            <span className="text-[10px] text-[#484f58]">{formatTokens(agent.tokenUsage.total)}</span>
+            <span className="text-[10px] text-[#6e7681]">{formatTokens(agent.tokenUsage.total)}</span>
           </div>
         </div>
       </div>

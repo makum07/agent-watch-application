@@ -46,7 +46,7 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
-        <div className="flex items-center justify-center h-full text-[#484f58] text-sm flex-col gap-3">
+        <div className="flex items-center justify-center h-full text-[#6e7681] text-sm flex-col gap-3">
           <Plus className="h-8 w-8 opacity-20" />
           <span className="text-xs opacity-50">Drop an agent here</span>
           <div className="flex gap-2">
@@ -106,7 +106,7 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
             <SplitButton paneId={paneId} tabs={tabs} activeTab={activeTab} />
             <button
               onClick={() => closePane(paneId)}
-              className="text-[#8b949e] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+              className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
               title="Close pane"
             >
               <X className="h-3.5 w-3.5" />
@@ -136,14 +136,14 @@ function SplitButton({ paneId, tabs, activeTab }: { paneId: string; tabs: PaneTa
     <>
       <button
         onClick={() => splitPane(paneId, 'horizontal', { type: 'agent' as const, agentId: '', label: '' })}
-        className="text-[#8b949e] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+        className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
         title="Split right"
       >
         <SplitSquareHorizontal className="h-3.5 w-3.5" />
       </button>
       <button
         onClick={() => splitPane(paneId, 'vertical', { type: 'agent' as const, agentId: '', label: '' })}
-        className="text-[#8b949e] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+        className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
         title="Split down"
       >
         <SplitSquareVertical className="h-3.5 w-3.5" />
@@ -156,7 +156,7 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
   if (tab.type === 'agent' && !tab.agentId) {
     // Empty agent slot — show drop zone
     return (
-      <div className="flex items-center justify-center h-full flex-col gap-3 text-[#484f58]">
+      <div className="flex items-center justify-center h-full flex-col gap-3 text-[#6e7681]">
         <div className="text-4xl opacity-20">⊞</div>
         <p className="text-xs">Drop an agent here from the sidebar</p>
       </div>
@@ -189,7 +189,7 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
   }
 
   return (
-    <div className="flex items-center justify-center h-full text-[#484f58] text-sm">
+    <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
       {tab.type} view
     </div>
   );

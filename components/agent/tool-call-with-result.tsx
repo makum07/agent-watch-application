@@ -61,9 +61,10 @@ interface ToolCallWithResultProps {
   input: Record<string, unknown>;
   result?: ContentBlock[];
   isError?: boolean;
+  compact?: boolean;
 }
 
-export function ToolCallWithResult({ id, name, input, result, isError, paneId = '' }: ToolCallWithResultProps & { paneId?: string }) {
+export function ToolCallWithResult({ id, name, input, result, isError, paneId = '', compact = false }: ToolCallWithResultProps & { paneId?: string }) {
   const [expanded, setExpanded] = useState(false);
   const isAgentSpawn = AGENT_SPAWN_TOOLS.has(name);
 
@@ -104,24 +105,27 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
     : isAgentSpawn ? '#58a6ff'
     : name === 'Bash' ? '#39d353'
     : name === 'Read' ? '#79c0ff'
-    : '#8b949e';
+    : '#c9d1d9';
 
   return (
     <div
-      className="rounded border text-xs overflow-hidden"
-      style={{ borderColor, backgroundColor: `${borderColor}08` }}
+      className={cn('rounded border overflow-hidden', compact ? 'text-[11px]' : 'text-xs')}
+      style={{ borderColor: compact ? `${borderColor}60` : borderColor, backgroundColor: `${borderColor}${compact ? '05' : '08'}` }}
     >
       {/* Header — always visible */}
       <button
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#161b22] transition-colors text-left"
+        className={cn(
+          'w-full flex items-center gap-2 hover:bg-[#161b22] transition-colors text-left',
+          compact ? 'px-2 py-1' : 'px-3 py-2',
+        )}
         onClick={() => setExpanded(!expanded)}
       >
-        <span style={{ color: iconColor }}>
+        <span style={{ color: compact ? `${iconColor}99` : iconColor }}>
           <ToolIcon name={name} />
         </span>
-        <span className="font-semibold text-[#e6edf3]">{name}</span>
+        <span className={cn('font-semibold', compact ? 'text-[#8b949e]' : 'text-[#e6edf3]')}>{name}</span>
         {summary && (
-          <span className="text-[#8b949e] font-mono truncate flex-1 text-[11px]">{summary}</span>
+          <span className={cn('font-mono truncate flex-1', compact ? 'text-[#6e7681] text-[10px]' : 'text-[#c9d1d9] text-[11px]')}>{summary}</span>
         )}
         {resultBadge && (
           <span
@@ -131,13 +135,13 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
                 ? { color: '#f85149', backgroundColor: '#f8514914' }
                 : isAgentSpawn
                 ? { color: '#58a6ff', backgroundColor: '#58a6ff14' }
-                : { color: '#484f58' }
+                : { color: compact ? '#484f58' : '#6e7681' }
             }
           >
             {resultBadge}
           </span>
         )}
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-[#484f58] transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 shrink-0 text-[#6e7681] transition-transform', expanded && 'rotate-90')} />
       </button>
 
       {/* Expanded: input + result */}
@@ -145,7 +149,7 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
         <div className="border-t px-3 py-2 space-y-2" style={{ borderColor: `${borderColor}30` }}>
           {/* Input */}
           <div>
-            <div className="text-[10px] text-[#484f58] font-semibold mb-1 uppercase tracking-wider">Input</div>
+            <div className="text-[10px] text-[#6e7681] font-semibold mb-1 uppercase tracking-wider">Input</div>
             <pre className="text-[11px] font-mono text-[#c9d1d9] bg-[#0d1117] rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap">
               {formatInput(name, input)}
             </pre>

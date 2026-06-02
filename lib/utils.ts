@@ -45,3 +45,29 @@ export function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch { return iso; }
 }
+
+// Pricing per million tokens (USD) — Anthropic list prices as of 2026-06
+const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  opus:   { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  sonnet: { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
+  haiku:  { input:  0.80, output:  4.00, cacheWrite:  1.00, cacheRead: 0.08 },
+};
+
+function modelTier(model: string): keyof typeof MODEL_PRICING {
+  const m = model.toLowerCase();
+  if (m.includes('opus'))   return 'opus';
+  if (m.includes('haiku'))  return 'haiku';
+  return 'sonnet';
+}
+
+export function estimateAgentCost(usage: {
+  input: number; output: number; cacheCreation: number; cacheRead: number;
+}, model: string): number {
+  const p = MODEL_PRICING[modelTier(model)];
+  return (
+    usage.input        * p.input      / 1_000_000 +
+    usage.output       * p.output     / 1_000_000 +
+    usage.cacheCreation * p.cacheWrite / 1_000_000 +
+    usage.cacheRead    * p.cacheRead  / 1_000_000
+  );
+}

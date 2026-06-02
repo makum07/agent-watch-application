@@ -34,7 +34,7 @@ export function SessionCard({ session }: SessionCardProps) {
             Completed
           </span>
         </div>
-        <div className="text-xs text-[#8b949e] font-mono truncate">{projectName}</div>
+        <div className="text-xs text-[#c9d1d9] font-mono truncate">{projectName}</div>
       </div>
 
       {/* Stats */}
@@ -68,7 +68,7 @@ export function SessionCard({ session }: SessionCardProps) {
         </Link>
       </div>
 
-      <div className="px-4 pb-2 text-[11px] text-[#484f58]">
+      <div className="px-4 pb-2 text-[11px] text-[#6e7681]">
         {formatRelativeTime(session.lastOpened)} · {session.sessionId.slice(0, 8)}
       </div>
     </div>
@@ -78,9 +78,9 @@ export function SessionCard({ session }: SessionCardProps) {
 function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5 py-1.5 rounded bg-[#0d1117]">
-      <div className="text-[#8b949e]">{icon}</div>
+      <div className="text-[#c9d1d9]">{icon}</div>
       <div className="text-[11px] font-semibold text-[#e6edf3] leading-none">{value}</div>
-      {label && <div className="text-[10px] text-[#484f58]">{label}</div>}
+      {label && <div className="text-[10px] text-[#6e7681]">{label}</div>}
     </div>
   );
 }

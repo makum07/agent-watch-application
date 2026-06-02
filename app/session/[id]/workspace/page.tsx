@@ -183,7 +183,7 @@ export default function WorkspacePage({ params }: Props) {
               </Link>
               <span className="text-[#484f58]">/</span>
               <span className="text-sm font-semibold text-[#e6edf3] truncate">{projectName}</span>
-              <div className="flex items-center gap-1 ml-2 text-[11px] text-[#484f58]">
+              <div className="flex items-center gap-1 ml-2 text-[11px] text-[#6e7681]">
                 <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
                 <span>·</span>
                 <span className="font-mono">{id.slice(0, 8)}…</span>
@@ -284,7 +284,7 @@ function LayoutPresets({ session, setLayout }: {
 
   return (
     <div className="flex items-center gap-0.5 bg-[#21262d]/60 rounded-md px-1 py-0.5">
-      <span className="text-[10px] text-[#8b949e] mr-1 pl-1">Layout:</span>
+      <span className="text-[10px] text-[#c9d1d9] mr-1 pl-1">Layout:</span>
       {presets.map(p => {
         const l = p.layout();
         return (
