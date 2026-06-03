@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
@@ -184,6 +184,14 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     // fall back to server cwd — resume may fail if project dir can't be found
   }
 
+  // Snapshot the working tree before Claude runs so rewind can restore it.
+  // Named by cycleId — no DB column needed; found on rewind via `git stash list`.
+  try {
+    execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
+      cwd: projectCwd, shell: true, stdio: 'pipe',
+    });
+  } catch { /* not a git repo, or nothing to stash — non-fatal */ }
+
   let stdout = '';
   let stderr = '';
 
@@ -286,10 +294,6 @@ export async function POST(
       return NextResponse.json({ error: 'No feedback items to apply' }, { status: 400 });
     }
 
-    // Handle rewind: delegate entirely to Claude Code's built-in /rewind command.
-    // Each improvement cycle adds exactly one turn (user prompt + assistant response).
-    // We run /rewind once per cycle being removed — Claude Code handles both the
-    // conversation cleanup and any git file reversion internally.
     const rewindCycleId = req.nextUrl.searchParams.get('rewind');
     if (rewindCycleId) {
       const targetCycle = db.prepare(
@@ -308,33 +312,53 @@ export async function POST(
         return NextResponse.json({ error: 'All cycles from this point are already rewound' }, { status: 400 });
       }
 
-      // Resolve the project working directory for claude --resume
-      let projectCwd = process.cwd();
+      // Truncate the JSONL file back to the byte offset recorded before this cycle ran.
+      // This is what Claude Code's /rewind does internally — it removes turns by
+      // truncating the file, not by spawning a new process.
+      if (targetCycle.jsonl_snapshot_size === null || targetCycle.jsonl_snapshot_size === undefined) {
+        return NextResponse.json(
+          { error: 'No JSONL snapshot recorded for this cycle — cannot rewind. This cycle was created before snapshot support was added.' },
+          { status: 400 }
+        );
+      }
+
+      let filePath: string | undefined;
       try {
         const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
-        if (conv?.file_path) {
-          const slug = path.basename(path.dirname(conv.file_path));
-          const found = findProjectDirBySlug(slug);
-          if (found) projectCwd = found;
+        filePath = conv?.file_path;
+      } catch { /* handled below */ }
+
+      if (!filePath) {
+        return NextResponse.json({ error: 'Session file path not found in database' }, { status: 404 });
+      }
+      if (!fs.existsSync(filePath)) {
+        return NextResponse.json({ error: 'Session JSONL file not found on disk' }, { status: 404 });
+      }
+
+      fs.truncateSync(filePath, targetCycle.jsonl_snapshot_size);
+
+      // Restore file changes made by this cycle (and any later ones already rewound).
+      // Resolve project cwd the same way the cycle did when it ran.
+      let projectCwd = process.cwd();
+      try {
+        const slug = path.basename(path.dirname(filePath));
+        const found = findProjectDirBySlug(slug);
+        if (found) projectCwd = found;
+      } catch { /* use default */ }
+
+      // Revert tracked edits + remove untracked files added by the cycle(s)
+      try { execSync('git restore .', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
+      try { execSync('git clean -fd', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
+
+      // Pop the stash that was saved before this cycle ran (named by cycleId)
+      try {
+        const stashList = execSync('git stash list', { cwd: projectCwd, shell: true, encoding: 'utf8' });
+        const line = stashList.split('\n').find(l => l.includes(`agentwatch-pre-${rewindCycleId}`));
+        if (line) {
+          const ref = line.split(':')[0].trim(); // e.g. "stash@{2}"
+          execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: true, stdio: 'pipe' });
         }
-      } catch { /* use default cwd */ }
-
-      // Build stdin: N /rewind commands (one per cycle), then EOF to exit
-      const rewindInput = Array(cyclesToRewind).fill('/rewind').join('\n') + '\n';
-
-      await new Promise<void>((resolve) => {
-        const child = spawn('claude', ['--resume', sessionId], {
-          shell: true,
-          cwd: projectCwd,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        child.stdin.write(rewindInput, 'utf8');
-        child.stdin.end(); // EOF signals end of input — claude exits after processing
-        const t = setTimeout(() => { child.kill(); resolve(); }, 60_000);
-        child.on('close', () => { clearTimeout(t); resolve(); });
-        child.on('error', () => { clearTimeout(t); resolve(); });
-      });
+      } catch { /* non-fatal — stash may not exist if working tree was clean */ }
 
       // Mark this cycle and all later ones as rewound in our DB
       db.prepare(`
@@ -378,6 +402,31 @@ export async function POST(
 
     const cycle = db.prepare(`SELECT * FROM improvement_cycles WHERE id = ?`).get(cycleId) as DbCycle;
     return NextResponse.json(mapCycle(cycle), { status: 201 });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: sessionId } = await params;
+    const db = getDatabase();
+
+    if (req.nextUrl.searchParams.get('clearRewound') === 'true') {
+      db.prepare(`DELETE FROM improvement_cycles WHERE session_id = ? AND status = 'rewound'`).run(sessionId);
+      return NextResponse.json({ ok: true });
+    }
+
+    const cycleId = req.nextUrl.searchParams.get('cycleId');
+    if (!cycleId) return NextResponse.json({ error: 'Missing cycleId' }, { status: 400 });
+
+    const result = db.prepare(`DELETE FROM improvement_cycles WHERE id = ? AND session_id = ?`).run(cycleId, sessionId);
+    if (result.changes === 0) return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

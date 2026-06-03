@@ -27,6 +27,8 @@ interface FeedbackStore {
   previewPrompt: (sessionId: string) => Promise<string | null>;
   applyImprovements: (sessionId: string, customPrompt?: string) => Promise<ImprovementCycle | null>;
   rewindCycle: (sessionId: string, cycleId: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteCycle: (sessionId: string, cycleId: string) => Promise<void>;
+  clearRewoundCycles: (sessionId: string) => Promise<void>;
   loadCycles: (sessionId: string) => Promise<void>;
   setPanelOpen: (open: boolean) => void;
   clearError: () => void;
@@ -136,6 +138,28 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
       return null;
     } finally {
       set({ isApplying: false });
+    }
+  },
+
+  deleteCycle: async (sessionId, cycleId) => {
+    set(s => ({ cycles: s.cycles.filter(c => c.id !== cycleId) }));
+    try {
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements?cycleId=${cycleId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      set({ lastError: String(e) });
+      await get().loadCycles(sessionId);
+    }
+  },
+
+  clearRewoundCycles: async (sessionId) => {
+    set(s => ({ cycles: s.cycles.filter(c => c.status !== 'rewound') }));
+    try {
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements?clearRewound=true`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      set({ lastError: String(e) });
+      await get().loadCycles(sessionId);
     }
   },
 
