@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useAgentMessages } from '@/hooks/use-agent-messages';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Loader2, Users, User, Bot, Sparkles } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
@@ -122,8 +122,8 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   const activePaneId = paneId;
 
   return (
-    <ScrollArea className="h-full">
-      <div className="min-h-full">
+    <div className="h-full overflow-y-auto overflow-x-hidden">
+      <div className="min-h-full w-full">
         {isLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-32">
             <Loader2 className="h-5 w-5 animate-spin text-[#484f58]" />
@@ -154,7 +154,7 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
         )}
         <div ref={bottomRef} />
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -248,7 +248,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
         </div>
 
         {/* Messages with left rail */}
-        <div className="border-l-2 ml-2" style={{ borderColor: color.rail }}>
+        <div className="border-l-2 ml-2 min-w-0 overflow-hidden" style={{ borderColor: color.rail }}>
           {turn.messages.map((msg, i) => (
             <MessageRow
               key={`${msg.id}-${i}`}
@@ -267,7 +267,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
 
   // Plain exchange (no agents spawned) — lighter separator
   return (
-    <div className="relative mb-1">
+    <div className="relative mb-1 min-w-0 overflow-hidden">
       {isMultiRound && turn.userMessage && (
         <div className="flex items-center gap-2 px-4 py-1.5 bg-[#161b22] border-b border-[#21262d]">
           <div className="text-[10px] font-medium text-[#6e7681] uppercase tracking-wider">Exchange</div>
@@ -275,7 +275,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
           <span className="text-[10px] text-[#6e7681]">{fmtTime(turn.userMessage.timestamp)}</span>
         </div>
       )}
-      <div>
+      <div className="min-w-0">
         {turn.messages.map((msg, i) => (
           <MessageRow
             key={`${msg.id}-${i}`}
