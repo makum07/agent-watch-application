@@ -181,6 +181,49 @@ function runMigrations(db: Database.Database) {
     }
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (2, ${Date.now()});`);
   }
+
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS feedback_items (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        message_id TEXT,
+        artifact_id TEXT,
+        category TEXT NOT NULL,
+        text TEXT NOT NULL,
+        agent_name TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_feedback_session ON feedback_items(session_id);
+      CREATE INDEX IF NOT EXISTS idx_feedback_agent ON feedback_items(session_id, agent_id);
+
+      CREATE TABLE IF NOT EXISTS improvement_cycles (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        cycle_number INTEGER NOT NULL,
+        feedback_ids TEXT NOT NULL DEFAULT '[]',
+        generated_prompt TEXT NOT NULL,
+        claude_response TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvements_session ON improvement_cycles(session_id, created_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (3, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 4) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'jsonl_snapshot_size')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN jsonl_snapshot_size INTEGER;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (4, ${Date.now()});`);
+  }
 }
 
 export function closeDatabase() {

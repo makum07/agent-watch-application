@@ -15,6 +15,7 @@ export function MarkdownRenderer({ content, className, size = 'sm' }: MarkdownRe
   return (
     <div className={cn(
       isBase ? 'prose prose-invert prose-base max-w-none' : 'prose prose-invert prose-sm max-w-none',
+      'overflow-hidden min-w-0',
       className,
     )}>
       <ReactMarkdown

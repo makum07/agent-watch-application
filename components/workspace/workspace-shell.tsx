@@ -36,7 +36,7 @@ export function WorkspaceShell({ sessionId }: WorkspaceShellProps) {
 function renderRoot(node: LayoutNode, sessionId: string): React.ReactNode {
   if (node.type === 'pane') {
     return (
-      <div className="h-full">
+      <div className="h-full overflow-hidden">
         <Pane
           paneId={node.id}
           tabs={node.tabs}
@@ -67,7 +67,7 @@ function renderChild(node: LayoutNode, sessionId: string): React.ReactNode {
   if (node.type === 'pane') {
     return (
       <Panel key={node.id} id={node.id} minSize={10} defaultSize={50}>
-        <div className="h-full">
+        <div className="h-full overflow-hidden">
           <Pane
             paneId={node.id}
             tabs={node.tabs}

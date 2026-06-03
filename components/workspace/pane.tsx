@@ -116,7 +116,7 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
       )}
 
       {/* Single tab — no tab bar, but show close + split in the agent view header area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden min-h-0 min-w-0">
         {currentTab && renderTabContent(currentTab, sessionId, paneId, tabs.length === 1)}
       </div>
     </div>
