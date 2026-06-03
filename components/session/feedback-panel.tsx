@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Trash2, Zap, Loader2, ChevronDown, ChevronRight, MessageSquare, AlertCircle, Pencil, Check, FileText } from 'lucide-react';
+import { X, Trash2, Zap, Loader2, ChevronDown, ChevronRight, MessageSquare, AlertCircle, Pencil, Check, FileText, RotateCcw } from 'lucide-react';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
 import { FEEDBACK_CATEGORIES, type FeedbackCategory } from '@/types/feedback';
@@ -16,7 +16,7 @@ interface FeedbackPanelProps {
 }
 
 export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
-  const { items, cycles, isLoading, isApplying, lastError, lastCycle, loadFeedback, loadCycles, deleteFeedback, updateFeedback, previewPrompt, applyImprovements, clearError } = useFeedbackStore();
+  const { items, cycles, isLoading, isApplying, lastError, lastCycle, loadFeedback, loadCycles, deleteFeedback, updateFeedback, previewPrompt, applyImprovements, rewindCycle, clearError } = useFeedbackStore();
   const agentMap = useSessionStore(s => s.agentMap);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -26,6 +26,11 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   // Apply flow: idle → loading-preview → editing-prompt → applying
   const [applyStep, setApplyStep] = useState<'idle' | 'loading-preview' | 'editing-prompt' | 'applying'>('idle');
   const [promptDraft, setPromptDraft] = useState('');
+  const [rewindFromCycle, setRewindFromCycle] = useState<number | null>(null);
+
+  // Rewind confirmation — tracks which cycle is pending confirmation
+  const [rewindConfirm, setRewindConfirm] = useState<ImprovementCycle | null>(null);
+  const [isRewinding, setIsRewinding] = useState(false);
 
   // Inline edit for panel items
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -64,6 +69,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
 
   async function handlePreview() {
     setApplyStep('loading-preview');
+    setRewindFromCycle(null);
     const p = await previewPrompt(sessionId);
     if (p) { setPromptDraft(p); setApplyStep('editing-prompt'); }
     else setApplyStep('idle');
@@ -74,6 +80,29 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
     const cycle = await applyImprovements(sessionId, promptDraft);
     if (cycle) { setExpandedCycleId(cycle.id); setActiveTab('history'); }
     setApplyStep('idle');
+    setRewindFromCycle(null);
+  }
+
+  // Step 1: show confirmation dialog
+  function handleRewind(cycle: ImprovementCycle) {
+    setRewindConfirm(cycle);
+  }
+
+  // Step 2: perform actual JSONL truncation, then open prompt editor
+  async function confirmRewind() {
+    if (!rewindConfirm) return;
+    setIsRewinding(true);
+    const result = await rewindCycle(sessionId, rewindConfirm.id);
+    setIsRewinding(false);
+    setRewindConfirm(null);
+    if (!result.ok) {
+      useFeedbackStore.setState({ lastError: result.error ?? 'Rewind failed' });
+      return;
+    }
+    // Rewind succeeded — open prompt editor pre-filled with this cycle's prompt
+    setPromptDraft(rewindConfirm.generatedPrompt);
+    setRewindFromCycle(rewindConfirm.cycleNumber);
+    setApplyStep('editing-prompt');
   }
 
   function startEdit(id: string, text: string, cat: FeedbackCategory) {
@@ -274,31 +303,84 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
           )
         ) : (
           <div className="p-3 space-y-3">
-            {expandedCycle && <ImprovementResultCard cycle={expandedCycle} />}
+            {expandedCycle && (
+              <ImprovementResultCard
+                cycle={expandedCycle}
+                onRewind={handleRewind}
+              />
+            )}
             {cycles.filter(c => c.id !== expandedCycleId).map(cycle => (
-              <button key={cycle.id} onClick={() => setExpandedCycleId(cycle.id)}
-                className="w-full text-left p-2.5 bg-[#161b22] border border-[#21262d] rounded hover:border-[#30363d] transition-colors">
-                <div className="flex items-center gap-2">
+              <div key={cycle.id} className="group flex items-center bg-[#161b22] border border-[#21262d] rounded hover:border-[#30363d] transition-colors overflow-hidden">
+                <button
+                  onClick={() => setExpandedCycleId(cycle.id)}
+                  className="flex-1 flex items-center gap-2 p-2.5 min-w-0 text-left"
+                >
                   <span className="text-xs font-medium text-[#e6edf3]">Cycle #{cycle.cycleNumber}</span>
                   <StatusBadge status={cycle.status} />
                   <span className="text-[10px] text-[#8b949e] ml-auto">
                     {new Date(cycle.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>
-                </div>
-              </button>
+                </button>
+                {cycle.status !== 'applying' && cycle.status !== 'rewound' && (
+                  <button
+                    onClick={() => handleRewind(cycle)}
+                    title="Rewind — restore conversation and edit prompt"
+                    className="shrink-0 p-2 text-[#484f58] hover:text-[#f0883e] hover:bg-[#f0883e]/10 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             ))}
             {cycles.length === 0 && <div className="text-center py-12 text-[#484f58] text-xs">No improvement cycles yet</div>}
           </div>
         )}
       </div>
 
+      {/* Rewind confirmation overlay */}
+      {rewindConfirm && (
+        <div className="shrink-0 border-t border-[#f0883e]/40 bg-[#f0883e]/5 p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <RotateCcw className="h-3.5 w-3.5 text-[#f0883e] shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-[11px] font-medium text-[#e6edf3]">Rewind Cycle #{rewindConfirm.cycleNumber}?</p>
+              <p className="text-[10px] text-[#8b949e] mt-0.5 leading-relaxed">
+                Claude Code&apos;s built-in <code className="bg-[#21262d] px-1 rounded font-mono">/rewind</code> will
+                run once per cycle being removed — undoing both the conversation messages
+                and any file changes Claude made. The editor will then open so you can
+                refine the prompt and re-apply.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={confirmRewind}
+              disabled={isRewinding}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#f0883e] hover:bg-[#f0883e]/80 disabled:opacity-40 text-white text-xs font-medium transition-colors"
+            >
+              {isRewinding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+              {isRewinding ? 'Rewinding…' : 'Confirm Rewind'}
+            </button>
+            <button
+              onClick={() => setRewindConfirm(null)}
+              disabled={isRewinding}
+              className="px-3 py-1.5 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-xs transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Apply improvements footer */}
       <div className="shrink-0 border-t border-[#21262d] bg-[#0d1117]">
         {applyStep === 'editing-prompt' ? (
           <div className="p-3 space-y-2">
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#c9d1d9]">
-              <FileText className="h-3.5 w-3.5 text-[#58a6ff]" />
-              Review & Edit Prompt
+              {rewindFromCycle !== null
+                ? <><RotateCcw className="h-3.5 w-3.5 text-[#f0883e]" /> Rewinding Cycle #{rewindFromCycle} — edit &amp; retry</>
+                : <><FileText className="h-3.5 w-3.5 text-[#58a6ff]" /> Review &amp; Edit Prompt</>
+              }
             </div>
             <textarea
               value={promptDraft}
@@ -316,7 +398,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
                 Apply
               </button>
               <button
-                onClick={() => setApplyStep('idle')}
+                onClick={() => { setApplyStep('idle'); setRewindFromCycle(null); }}
                 className="px-3 py-1.5 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-xs transition-colors"
               >
                 Cancel
@@ -349,6 +431,7 @@ function StatusBadge({ status }: { status: string }) {
     applying:  { label: 'Applying…', color: '#58a6ff' },
     completed: { label: 'Completed', color: '#3fb950' },
     failed:    { label: 'Failed',    color: '#ff7b72' },
+    rewound:   { label: 'Rewound',   color: '#8b949e' },
   };
   const s = map[status] ?? { label: status, color: '#8b949e' };
   return (
@@ -358,15 +441,26 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ImprovementResultCard({ cycle }: { cycle: ImprovementCycle }) {
+function ImprovementResultCard({ cycle, onRewind }: { cycle: ImprovementCycle; onRewind?: (c: ImprovementCycle) => void }) {
   const [showPrompt, setShowPrompt] = useState(false);
 
   return (
     <div className="bg-[#161b22] border border-[#21262d] rounded overflow-hidden">
+      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#21262d]">
         <Zap className="h-3.5 w-3.5 text-[#58a6ff]" />
         <span className="text-xs font-semibold text-[#e6edf3] flex-1">Cycle #{cycle.cycleNumber}</span>
         <StatusBadge status={cycle.status} />
+        {cycle.status !== 'applying' && cycle.status !== 'rewound' && onRewind && (
+          <button
+            onClick={() => onRewind(cycle)}
+            title="Rewind — restore conversation and edit prompt"
+            className="ml-1 flex items-center gap-1 px-2 py-1 rounded text-[10px] text-[#8b949e] hover:text-[#f0883e] hover:bg-[#f0883e]/10 transition-colors border border-transparent hover:border-[#f0883e]/30"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Rewind
+          </button>
+        )}
       </div>
 
       {/* Prompt — collapsible */}

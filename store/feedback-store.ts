@@ -26,6 +26,7 @@ interface FeedbackStore {
   deleteFeedback: (sessionId: string, itemId: string) => Promise<void>;
   previewPrompt: (sessionId: string) => Promise<string | null>;
   applyImprovements: (sessionId: string, customPrompt?: string) => Promise<ImprovementCycle | null>;
+  rewindCycle: (sessionId: string, cycleId: string) => Promise<{ ok: boolean; error?: string }>;
   loadCycles: (sessionId: string) => Promise<void>;
   setPanelOpen: (open: boolean) => void;
   clearError: () => void;
@@ -146,6 +147,25 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
       set({ cycles: data.cycles ?? [] });
     } catch (e) {
       set({ lastError: String(e) });
+    }
+  },
+
+  rewindCycle: async (sessionId, cycleId) => {
+    try {
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements?rewind=${cycleId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        return { ok: false, error: err.error ?? res.statusText };
+      }
+      // Refresh cycles — rewound ones will now show 'rewound' status
+      await get().loadCycles(sessionId);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e) };
     }
   },
 

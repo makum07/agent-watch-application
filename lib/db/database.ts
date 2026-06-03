@@ -216,6 +216,14 @@ function runMigrations(db: Database.Database) {
       INSERT INTO schema_version (version, applied_at) VALUES (3, ${Date.now()});
     `);
   }
+
+  if (currentVersion < 4) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'jsonl_snapshot_size')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN jsonl_snapshot_size INTEGER;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (4, ${Date.now()});`);
+  }
 }
 
 export function closeDatabase() {

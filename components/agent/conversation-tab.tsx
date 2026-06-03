@@ -192,10 +192,10 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
       : '';
 
     return (
-      <div className="relative mb-2">
+      <div className="relative mb-2 min-w-0 overflow-hidden">
         {/* Bold round banner */}
         <div
-          className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2.5 border-b"
+          className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2.5 border-b min-w-0 overflow-hidden"
           style={{ backgroundColor: color.bg, borderColor: color.border, borderLeftWidth: '3px', borderLeftColor: color.border }}
         >
           {/* Round label */}
@@ -355,7 +355,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
 
   return (
     <div className={cn(
-      'flex items-start',
+      'flex items-start min-w-0 overflow-hidden',
       isUser ? 'flex-row-reverse pl-10 pr-3' : 'px-3',
       isToolOnly ? 'py-0.5 gap-1.5' : 'py-2 gap-2',
     )}>
@@ -375,12 +375,12 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
         </div>
       </div>
 
-      {/* Content column — bubble + tool cards stacked */}
-      <div className={cn('max-w-[calc(100%-2rem)]', isToolOnly ? 'space-y-0.5' : 'space-y-2')}>
+      {/* Content column — flex-1 min-w-0 so it fills remaining space without overflowing */}
+      <div className={cn('flex-1 min-w-0 overflow-hidden', isToolOnly ? 'space-y-0.5' : 'space-y-2')}>
 
         {/* Text bubble — only rendered when there is actual text */}
         {hasText && (
-          <div className={cn(isPrimary ? 'px-4 py-3.5' : 'px-3.5 py-3', bubbleCls)}>
+          <div className={cn(isPrimary ? 'px-4 py-3.5' : 'px-3.5 py-3', 'break-words overflow-hidden', bubbleCls)}>
 
             {/* Response timestamp strip */}
             {isResponse && (

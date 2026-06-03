@@ -155,7 +155,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden min-h-0">
         {activeSubTab === 'conversation' && <ConversationTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
         {activeSubTab === 'artifacts'    && <ArtifactsTab sessionId={sessionId} agentId={agentId} />}
         {activeSubTab === 'context'      && <ContextTab agent={agent} />}

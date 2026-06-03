@@ -28,6 +28,7 @@ interface DbCycle {
   status: string;
   created_at: number;
   completed_at: number | null;
+  jsonl_snapshot_size: number | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -41,6 +42,7 @@ function mapCycle(row: DbCycle) {
     status: row.status,
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    snapshotSize: row.jsonl_snapshot_size ?? null,
   };
 }
 
@@ -284,6 +286,65 @@ export async function POST(
       return NextResponse.json({ error: 'No feedback items to apply' }, { status: 400 });
     }
 
+    // Handle rewind: delegate entirely to Claude Code's built-in /rewind command.
+    // Each improvement cycle adds exactly one turn (user prompt + assistant response).
+    // We run /rewind once per cycle being removed — Claude Code handles both the
+    // conversation cleanup and any git file reversion internally.
+    const rewindCycleId = req.nextUrl.searchParams.get('rewind');
+    if (rewindCycleId) {
+      const targetCycle = db.prepare(
+        `SELECT * FROM improvement_cycles WHERE id = ? AND session_id = ?`
+      ).get(rewindCycleId, sessionId) as DbCycle | undefined;
+
+      if (!targetCycle) return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
+
+      // Count non-rewound cycles from the target cycle onward (inclusive)
+      const { n: cyclesToRewind } = db.prepare(`
+        SELECT COUNT(*) as n FROM improvement_cycles
+        WHERE session_id = ? AND cycle_number >= ? AND status != 'rewound'
+      `).get(sessionId, targetCycle.cycle_number) as { n: number };
+
+      if (cyclesToRewind === 0) {
+        return NextResponse.json({ error: 'All cycles from this point are already rewound' }, { status: 400 });
+      }
+
+      // Resolve the project working directory for claude --resume
+      let projectCwd = process.cwd();
+      try {
+        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
+        if (conv?.file_path) {
+          const slug = path.basename(path.dirname(conv.file_path));
+          const found = findProjectDirBySlug(slug);
+          if (found) projectCwd = found;
+        }
+      } catch { /* use default cwd */ }
+
+      // Build stdin: N /rewind commands (one per cycle), then EOF to exit
+      const rewindInput = Array(cyclesToRewind).fill('/rewind').join('\n') + '\n';
+
+      await new Promise<void>((resolve) => {
+        const child = spawn('claude', ['--resume', sessionId], {
+          shell: true,
+          cwd: projectCwd,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        child.stdin.write(rewindInput, 'utf8');
+        child.stdin.end(); // EOF signals end of input — claude exits after processing
+        const t = setTimeout(() => { child.kill(); resolve(); }, 60_000);
+        child.on('close', () => { clearTimeout(t); resolve(); });
+        child.on('error', () => { clearTimeout(t); resolve(); });
+      });
+
+      // Mark this cycle and all later ones as rewound in our DB
+      db.prepare(`
+        UPDATE improvement_cycles SET status = 'rewound'
+        WHERE session_id = ? AND cycle_number >= ?
+      `).run(sessionId, targetCycle.cycle_number);
+
+      return NextResponse.json({ ok: true, rewoundCycles: cyclesToRewind });
+    }
+
     // Allow an optional custom prompt from the client (user-edited version)
     let body: { customPrompt?: string } = {};
     try { body = await req.json(); } catch { /* no body is fine */ }
@@ -293,15 +354,24 @@ export async function POST(
     ).get(sessionId) as { n: number | null };
     const cycleNumber = (row?.n ?? 0) + 1;
 
+    // Capture the JSONL file size BEFORE spawning Claude, so the user can rewind to this point later
+    let snapshotSize = 0;
+    try {
+      const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
+      if (conv?.file_path && fs.existsSync(conv.file_path)) {
+        snapshotSize = fs.statSync(conv.file_path).size;
+      }
+    } catch { /* non-fatal */ }
+
     const prompt = body.customPrompt?.trim() || generateImprovementPrompt(sessionId, items);
     const cycleId = randomUUID();
     const now = Date.now();
 
     db.prepare(`
       INSERT INTO improvement_cycles
-        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, created_at)
-      VALUES (?, ?, ?, ?, ?, 'applying', ?)
-    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, now);
+        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, jsonl_snapshot_size, created_at)
+      VALUES (?, ?, ?, ?, ?, 'applying', ?, ?)
+    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, now);
 
     // Fire-and-forget — client polls GET or listens via WebSocket
     setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt));

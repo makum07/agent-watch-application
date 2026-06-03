@@ -48,7 +48,8 @@ export interface ImprovementCycle {
   feedbackIds: string[];
   generatedPrompt: string;
   claudeResponse: string | null;
-  status: 'applying' | 'completed' | 'failed';
+  status: 'applying' | 'completed' | 'failed' | 'rewound';
   createdAt: string;
   completedAt: string | null;
+  snapshotSize: number | null;
 }
