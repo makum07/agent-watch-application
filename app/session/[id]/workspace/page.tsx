@@ -43,7 +43,7 @@ export default function WorkspacePage({ params }: Props) {
   useEffect(() => {
     const stored = localStorage.getItem('feedback-panel-width');
     if (stored) {
-      const w = Math.min(600, Math.max(200, Number(stored)));
+      const w = Math.min(900, Math.max(200, Number(stored)));
       setFeedbackWidth(w);
       feedbackWidthRef.current = w;
     }
@@ -57,7 +57,7 @@ export default function WorkspacePage({ params }: Props) {
     function onMove(e: MouseEvent) {
       if (!resizingRef.current) return;
       const dx = resizeStartXRef.current - e.clientX;
-      const w = Math.min(600, Math.max(200, resizeStartWRef.current + dx));
+      const w = Math.min(900, Math.max(200, resizeStartWRef.current + dx));
       setFeedbackWidth(w);
       feedbackWidthRef.current = w;
     }
@@ -212,7 +212,7 @@ export default function WorkspacePage({ params }: Props) {
           panelRef={sidebarPanelRef}
           defaultSize={256}
           minSize={160}
-          maxSize={400}
+          maxSize={600}
           collapsible
           collapsedSize={40}
           onResize={(size) => {

@@ -243,7 +243,7 @@ function AgentRow({
   return (
     <div
       className={cn(
-        'group flex items-center gap-2 py-2 pr-3 hover:bg-[#161b22] cursor-pointer transition-colors border-b border-[#0d1117]',
+        'group flex items-center gap-2 py-2 pr-3 hover:bg-[#161b22] cursor-grab active:cursor-grabbing select-none transition-colors border-b border-[#0d1117]',
         isOrchestrator && 'border-b-2 border-b-[#21262d] mb-1',
       )}
       style={{ paddingLeft }}
@@ -289,7 +289,7 @@ function AgentRow({
       </div>
 
       {/* Drag handle — faintly always visible, bright on hover */}
-      <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 cursor-grab transition-opacity" />
+      <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
     </div>
   );
 }
