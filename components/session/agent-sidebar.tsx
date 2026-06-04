@@ -21,7 +21,7 @@ interface AgentSidebarProps {
  * If two consecutive agents (sorted by startTime) have a gap > GAP_MS between them,
  * they belong to different rounds.
  */
-function groupAgentsByRound(agents: Agent[], GAP_MS = 15 * 60 * 1000): Agent[][] {
+function groupAgentsByRound(agents: Agent[], GAP_MS = 5 * 60 * 1000): Agent[][] {
   const subagents = agents
     .filter(a => a.type !== 'orchestrator')
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
@@ -31,9 +31,14 @@ function groupAgentsByRound(agents: Agent[], GAP_MS = 15 * 60 * 1000): Agent[][]
   const groups: Agent[][] = [[subagents[0]]];
 
   for (let i = 1; i < subagents.length; i++) {
-    const prev = new Date(subagents[i - 1].startTime).getTime();
-    const curr = new Date(subagents[i].startTime).getTime();
-    if (curr - prev > GAP_MS) {
+    const prev = subagents[i - 1];
+    // Measure end-to-start gap so sequential agents (short gaps) stay grouped
+    // while distinct bursts (long idle between them) split into new rounds.
+    const prevEnd = prev.endTime
+      ? new Date(prev.endTime).getTime()
+      : new Date(prev.startTime).getTime() + (prev.durationMs || 0);
+    const currStart = new Date(subagents[i].startTime).getTime();
+    if (currStart - prevEnd > GAP_MS) {
       groups.push([subagents[i]]);
     } else {
       groups[groups.length - 1].push(subagents[i]);

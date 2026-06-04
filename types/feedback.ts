@@ -41,6 +41,14 @@ export interface FeedbackItem {
   createdAt: string;
 }
 
+export interface FileChange {
+  filePath: string;
+  type: 'create' | 'modify' | 'delete';
+  additions: number;
+  deletions: number;
+  diff: string;
+}
+
 export interface ImprovementCycle {
   id: string;
   sessionId: string;
@@ -52,4 +60,5 @@ export interface ImprovementCycle {
   createdAt: string;
   completedAt: string | null;
   snapshotSize: number | null;
+  fileChanges: FileChange[] | null;
 }

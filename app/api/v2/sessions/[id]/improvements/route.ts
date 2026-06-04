@@ -29,6 +29,7 @@ interface DbCycle {
   created_at: number;
   completed_at: number | null;
   jsonl_snapshot_size: number | null;
+  file_changes: string | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -43,7 +44,90 @@ function mapCycle(row: DbCycle) {
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     snapshotSize: row.jsonl_snapshot_size ?? null,
+    fileChanges: row.file_changes ? JSON.parse(row.file_changes) : null,
   };
+}
+
+// ── Git diff capture ──────────────────────────────────────────────────────────
+
+interface ParsedFileDiff {
+  filePath: string;
+  isNew: boolean;
+  isDeleted: boolean;
+  additions: number;
+  deletions: number;
+  diff: string;
+}
+
+function parseUnifiedDiff(diffText: string): ParsedFileDiff[] {
+  const files: ParsedFileDiff[] = [];
+  const sections = diffText.split(/^(?=diff --git )/m).filter(Boolean);
+
+  for (const section of sections) {
+    const headerMatch = section.match(/^diff --git a\/.+ b\/(.+)$/m);
+    if (!headerMatch) continue;
+
+    const filePath = headerMatch[1].trim();
+    const isNew = /^new file mode/m.test(section);
+    const isDeleted = /^deleted file mode/m.test(section);
+
+    let additions = 0;
+    let deletions = 0;
+    for (const line of section.split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+      if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+    }
+
+    // Extract hunk content only (from @@ onwards) — cap at 20k chars
+    const hunkStart = section.indexOf('\n@@');
+    const diff = hunkStart >= 0 ? section.slice(hunkStart + 1, hunkStart + 1 + 20_000) : '';
+
+    files.push({ filePath, isNew, isDeleted, additions, deletions, diff });
+  }
+
+  return files;
+}
+
+function captureFileChanges(projectCwd: string): import('@/types/feedback').FileChange[] {
+  const changes: import('@/types/feedback').FileChange[] = [];
+
+  try {
+    // Changes to tracked files
+    const diffOutput = execSync('git diff -U3', {
+      cwd: projectCwd, shell: true, timeout: 10_000,
+    }).toString('utf8');
+    for (const f of parseUnifiedDiff(diffOutput)) {
+      changes.push({
+        filePath: f.filePath,
+        type: f.isNew ? 'create' : f.isDeleted ? 'delete' : 'modify',
+        additions: f.additions,
+        deletions: f.deletions,
+        diff: f.diff,
+      });
+    }
+
+    // New untracked files not in git yet
+    const untrackedRaw = execSync('git ls-files --others --exclude-standard', {
+      cwd: projectCwd, shell: true, timeout: 5_000,
+    }).toString('utf8');
+    for (const rel of untrackedRaw.split('\n').map(l => l.trim()).filter(Boolean)) {
+      try {
+        const abs = path.join(projectCwd, rel);
+        const content = fs.readFileSync(abs, 'utf8');
+        const lines = content.split('\n');
+        const diff = `@@ -0,0 +1,${lines.length} @@\n` + lines.map(l => `+${l}`).join('\n');
+        changes.push({
+          filePath: rel,
+          type: 'create',
+          additions: lines.length,
+          deletions: 0,
+          diff: diff.slice(0, 20_000),
+        });
+      } catch { /* skip unreadable */ }
+    }
+  } catch { /* not a git repo or git not available — non-fatal */ }
+
+  return changes;
 }
 
 function formatCategory(category: string): string {
@@ -239,6 +323,9 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       child.on('error', (err) => { spawnError = err; resolve(1); });
     });
 
+    // Capture which files changed before writing the DB record
+    const fileChanges = captureFileChanges(projectCwd);
+
     const now = Date.now();
     let response: string;
     let status: string;
@@ -258,11 +345,11 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
 
     db.prepare(`
       UPDATE improvement_cycles
-      SET claude_response = ?, status = ?, completed_at = ?
+      SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?
       WHERE id = ?
-    `).run(response, status, now, cycleId);
+    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, cycleId);
 
-    broadcast('improvement_complete', { status, response });
+    broadcast('improvement_complete', { status, response, fileChanges });
   } catch (err) {
     const errMsg = String(err);
     db.prepare(`
@@ -312,7 +399,9 @@ export async function POST(
 
       if (!targetCycle) return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
 
-      // Count non-rewound cycles from the target cycle onward (inclusive)
+      // Count non-rewound cycles from the target cycle onward (inclusive).
+      // Each improvement cycle adds exactly one conversation turn, so this is
+      // also how many times we need to call /rewind.
       const { n: cyclesToRewind } = db.prepare(`
         SELECT COUNT(*) as n FROM improvement_cycles
         WHERE session_id = ? AND cycle_number >= ? AND status != 'rewound'
@@ -322,55 +411,50 @@ export async function POST(
         return NextResponse.json({ error: 'All cycles from this point are already rewound' }, { status: 400 });
       }
 
-      // Truncate the JSONL file back to the byte offset recorded before this cycle ran.
-      // This is what Claude Code's /rewind does internally — it removes turns by
-      // truncating the file, not by spawning a new process.
-      if (targetCycle.jsonl_snapshot_size === null || targetCycle.jsonl_snapshot_size === undefined) {
-        return NextResponse.json(
-          { error: 'No JSONL snapshot recorded for this cycle — cannot rewind. This cycle was created before snapshot support was added.' },
-          { status: 400 }
-        );
-      }
-
-      let filePath: string | undefined;
-      try {
-        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
-        filePath = conv?.file_path;
-      } catch { /* handled below */ }
-
-      if (!filePath) {
-        return NextResponse.json({ error: 'Session file path not found in database' }, { status: 404 });
-      }
-      if (!fs.existsSync(filePath)) {
-        return NextResponse.json({ error: 'Session JSONL file not found on disk' }, { status: 404 });
-      }
-
-      fs.truncateSync(filePath, targetCycle.jsonl_snapshot_size);
-
-      // Restore file changes made by this cycle (and any later ones already rewound).
-      // Resolve project cwd the same way the cycle did when it ran.
+      // Resolve the project working directory (same slug-decode logic as apply)
       let projectCwd = process.cwd();
       try {
-        const slug = path.basename(path.dirname(filePath));
-        const found = findProjectDirBySlug(slug);
-        if (found) projectCwd = found;
-      } catch { /* use default */ }
+        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
+        if (conv?.file_path) {
+          const slug = path.basename(path.dirname(conv.file_path));
+          const found = findProjectDirBySlug(slug);
+          if (found) projectCwd = found;
+        }
+      } catch { /* fall back to server cwd */ }
 
-      // Revert tracked edits + remove untracked files added by the cycle(s)
+      // Use Claude Code's built-in /rewind for each cycle.
+      // Each improvement cycle adds exactly one turn (one user prompt + one
+      // assistant response), so one /rewind call per cycle removes it cleanly.
+      for (let i = 0; i < cyclesToRewind; i++) {
+        try {
+          execSync(
+            `claude --resume ${sessionId} -p "/rewind" --dangerously-skip-permissions`,
+            { cwd: projectCwd, shell: true, stdio: 'pipe' }
+          );
+        } catch (e) {
+          return NextResponse.json(
+            { error: `Claude Code /rewind failed on turn ${i + 1}/${cyclesToRewind}: ${String(e)}` },
+            { status: 500 }
+          );
+        }
+      }
+
+      // Restore file changes made during the rewound cycle(s).
+      // /rewind only removes conversation turns — file edits must be undone separately.
       try { execSync('git restore .', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
       try { execSync('git clean -fd', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
 
-      // Pop the stash that was saved before this cycle ran (named by cycleId)
+      // Pop the stash saved before the target cycle ran (contains pre-cycle file state)
       try {
-        const stashList = execSync('git stash list', { cwd: projectCwd, shell: true, encoding: 'utf8' });
+        const stashList = execSync('git stash list', { cwd: projectCwd, shell: true }).toString('utf8');
         const line = stashList.split('\n').find(l => l.includes(`agentwatch-pre-${rewindCycleId}`));
         if (line) {
           const ref = line.split(':')[0].trim(); // e.g. "stash@{2}"
           execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: true, stdio: 'pipe' });
         }
-      } catch { /* non-fatal — stash may not exist if working tree was clean */ }
+      } catch { /* non-fatal — stash may not exist if the working tree was clean */ }
 
-      // Mark this cycle and all later ones as rewound in our DB
+      // Mark this cycle and all later ones as rewound
       db.prepare(`
         UPDATE improvement_cycles SET status = 'rewound'
         WHERE session_id = ? AND cycle_number >= ?

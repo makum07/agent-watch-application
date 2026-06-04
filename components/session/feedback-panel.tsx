@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
-import { FEEDBACK_CATEGORIES, type FeedbackCategory } from '@/types/feedback';
+import { FEEDBACK_CATEGORIES, type FeedbackCategory, type FileChange } from '@/types/feedback';
 import { getAgentDisplay } from '@/lib/agent-display';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
@@ -650,6 +650,13 @@ function CycleCard({ cycle, isLatest, isExpanded, onToggle, onRewind, onDelete }
             )}
           </div>
 
+          {/* File changes */}
+          {cycle.fileChanges && cycle.fileChanges.length > 0 && (
+            <div className="border-t border-[#21262d]">
+              <FileDiffViewer changes={cycle.fileChanges} />
+            </div>
+          )}
+
           {cycle.completedAt && (
             <div className="px-2.5 pb-2 text-[10px] text-[#484f58]">
               Completed {new Date(cycle.completedAt).toLocaleString([], {
@@ -659,6 +666,168 @@ function CycleCard({ cycle, isLatest, isExpanded, onToggle, onRewind, onDelete }
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── FileDiffViewer ─────────────────────────────────────────────────────────────
+
+function detectLang(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx',
+    py: 'py', go: 'go', rs: 'rs', rb: 'rb',
+    md: 'md', mdx: 'md', json: 'json',
+    yaml: 'yaml', yml: 'yaml', toml: 'toml',
+    css: 'css', scss: 'scss', html: 'html', sh: 'sh',
+  };
+  return map[ext] || ext || 'txt';
+}
+
+function FileDiffViewer({ changes }: { changes: FileChange[] }) {
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  const totalAdd = changes.reduce((s, c) => s + c.additions, 0);
+  const totalDel = changes.reduce((s, c) => s + c.deletions, 0);
+
+  const toggle = (fp: string) =>
+    setExpandedFiles(prev => {
+      const next = new Set(prev);
+      next.has(fp) ? next.delete(fp) : next.add(fp);
+      return next;
+    });
+
+  return (
+    <div>
+      {/* Section header */}
+      <div className="flex items-center gap-2 px-2.5 py-1.5 bg-[#0d1117]">
+        <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wide">
+          Files Changed
+        </span>
+        <span className="text-[10px] text-[#484f58]">{changes.length}</span>
+        <span className="ml-auto flex items-center gap-1.5 text-[10px] font-mono">
+          {totalAdd > 0 && <span className="text-[#3fb950]">+{totalAdd}</span>}
+          {totalDel > 0 && <span className="text-[#ff7b72]">−{totalDel}</span>}
+        </span>
+      </div>
+
+      {/* Per-file rows */}
+      <div className="divide-y divide-[#21262d]">
+        {changes.map(fc => {
+          const isExpanded = expandedFiles.has(fc.filePath);
+          const fileName = fc.filePath.split(/[/\\]/).pop() ?? fc.filePath;
+          const lang = detectLang(fc.filePath);
+          const typeColor =
+            fc.type === 'create' ? '#3fb950' :
+            fc.type === 'delete' ? '#ff7b72' : '#f0883e';
+          const typeBg =
+            fc.type === 'create' ? '#3fb950' :
+            fc.type === 'delete' ? '#ff7b72' : '#f0883e';
+          const typeLabel =
+            fc.type === 'create' ? '+ Create' :
+            fc.type === 'delete' ? '✕ Delete' : '✎ Modify';
+
+          return (
+            <div key={fc.filePath}>
+              {/* File header row */}
+              <button
+                onClick={() => toggle(fc.filePath)}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[#161b22] transition-colors text-left"
+              >
+                {isExpanded
+                  ? <ChevronDown className="h-2.5 w-2.5 text-[#484f58] shrink-0" />
+                  : <ChevronRight className="h-2.5 w-2.5 text-[#484f58] shrink-0" />}
+
+                {/* Type badge */}
+                <span
+                  className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded border"
+                  style={{ color: typeColor, borderColor: `${typeBg}40`, backgroundColor: `${typeBg}12` }}
+                >
+                  {typeLabel}
+                </span>
+
+                {/* File name */}
+                <span className="text-[11px] font-semibold text-[#e6edf3] truncate flex-1">{fileName}</span>
+                <span className="text-[9px] text-[#484f58] font-mono shrink-0">{lang}</span>
+
+                {/* +/- stats */}
+                <span className="shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                  {fc.additions > 0 && <span className="text-[#3fb950]">+{fc.additions}</span>}
+                  {fc.deletions > 0 && <span className="text-[#ff7b72]">−{fc.deletions}</span>}
+                </span>
+              </button>
+
+              {/* Full path (shown when collapsed, as a subtitle) */}
+              {!isExpanded && fc.filePath !== fileName && (
+                <div className="px-8 pb-1 text-[9px] text-[#30363d] font-mono truncate">
+                  {fc.filePath}
+                </div>
+              )}
+
+              {/* Diff content */}
+              {isExpanded && (
+                <div className="border-t border-[#21262d] bg-[#010409]">
+                  <div className="px-3 py-1 text-[9px] font-mono text-[#484f58] border-b border-[#21262d] truncate">
+                    {fc.filePath}
+                  </div>
+                  {fc.diff
+                    ? <DiffLines diff={fc.diff} />
+                    : <p className="px-3 py-2 text-[10px] text-[#484f58]">No diff available</p>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DiffLines({ diff }: { diff: string }) {
+  const lines = diff.split('\n');
+
+  return (
+    <div className="overflow-x-auto max-h-80 overflow-y-auto">
+      <table className="w-full border-collapse text-[11px] font-mono leading-5">
+        <tbody>
+          {lines.map((line, i) => {
+            const isAdd = line.startsWith('+') && !line.startsWith('+++');
+            const isDel = line.startsWith('-') && !line.startsWith('---');
+            const isHunk = line.startsWith('@@');
+
+            if (isHunk) {
+              return (
+                <tr key={i} className="bg-[#1c2333]">
+                  <td className="px-3 py-0.5 text-[#79c0ff] select-none w-full" colSpan={2}>
+                    {line}
+                  </td>
+                </tr>
+              );
+            }
+
+            return (
+              <tr key={i} className={isAdd ? 'bg-[#0d4429]' : isDel ? 'bg-[#3d0a0a]' : ''}>
+                <td className={cn(
+                  'select-none text-center w-5 shrink-0 pl-2 pr-1 border-r',
+                  isAdd
+                    ? 'text-[#3fb950] border-[#3fb950]/20'
+                    : isDel
+                      ? 'text-[#ff7b72] border-[#ff7b72]/20'
+                      : 'text-[#30363d] border-[#21262d]',
+                )}>
+                  {isAdd ? '+' : isDel ? '−' : ' '}
+                </td>
+                <td className={cn(
+                  'px-3 py-0 whitespace-pre break-all',
+                  isAdd ? 'text-[#aff5b4]' : isDel ? 'text-[#ffa198]' : 'text-[#8b949e]',
+                )}>
+                  {line.slice(1)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

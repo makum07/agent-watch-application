@@ -232,6 +232,14 @@ function runMigrations(db: Database.Database) {
     }
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (5, ${Date.now()});`);
   }
+
+  if (currentVersion < 6) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'file_changes')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN file_changes TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (6, ${Date.now()});`);
+  }
 }
 
 export function closeDatabase() {
