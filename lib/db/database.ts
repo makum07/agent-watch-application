@@ -224,6 +224,14 @@ function runMigrations(db: Database.Database) {
     }
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (4, ${Date.now()});`);
   }
+
+  if (currentVersion < 5) {
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'skill_invocations')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN skill_invocations TEXT DEFAULT '[]';`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (5, ${Date.now()});`);
+  }
 }
 
 export function closeDatabase() {

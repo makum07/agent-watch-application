@@ -50,6 +50,7 @@ export interface Agent {
     total: number;
   };
   toolCalls: ToolCallSummary[];
+  skillInvocations: SkillInvocation[];
   children: string[];
   depth: number;
 }
@@ -57,6 +58,15 @@ export interface Agent {
 export interface ToolCallSummary {
   name: string;
   count: number;
+}
+
+export interface SkillInvocation {
+  id: string;
+  skill: string;
+  args: string | null;
+  startTime: string;
+  endTime: string | null;
+  durationMs: number | null;
 }
 
 export interface Message {

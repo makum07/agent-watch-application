@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, ExternalLink } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
 import { cn, formatTokens, formatDuration } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
-import type { Agent } from '@/types/session';
+import type { Agent, SkillInvocation } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 
@@ -229,7 +229,9 @@ function AgentRow({
   isOrchestrator?: boolean;
   depth?: number;
 }) {
-  const { name, shortName, typeLabel, color, initials } = getAgentDisplay(agent);
+  const { name, shortName, color, initials } = getAgentDisplay(agent);
+  const [skillsExpanded, setSkillsExpanded] = useState(false);
+  const hasSkills = agent.skillInvocations?.length > 0;
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('agentId', agent.id);
@@ -237,59 +239,128 @@ function AgentRow({
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  // Indent based on depth (orchestrator = 0, direct subagents = 1, nested = 2+)
   const paddingLeft = isOrchestrator ? 8 : 8 + depth * 12;
 
   return (
-    <div
-      className={cn(
-        'group flex items-center gap-2 py-2 pr-3 hover:bg-[#161b22] cursor-grab active:cursor-grabbing select-none transition-colors border-b border-[#0d1117]',
-        isOrchestrator && 'border-b-2 border-b-[#21262d] mb-1',
-      )}
-      style={{ paddingLeft }}
-      draggable
-      onDragStart={handleDragStart}
-      onClick={() => onOpen(agent)}
-    >
-      {/* Depth connector line — visual tree cue for nested agents */}
-      {depth > 0 && (
-        <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
-          <div className="w-px h-full bg-[#30363d]" />
-          <div className="w-2 h-px bg-[#30363d]" />
+    <div className={cn('border-b border-[#0d1117]', isOrchestrator && 'border-b-2 border-b-[#21262d] mb-1')}>
+      <div
+        className="group flex items-center gap-2 py-2 pr-3 hover:bg-[#161b22] cursor-grab active:cursor-grabbing select-none transition-colors"
+        style={{ paddingLeft }}
+        draggable
+        onDragStart={handleDragStart}
+        onClick={() => onOpen(agent)}
+      >
+        {/* Depth connector line */}
+        {depth > 0 && (
+          <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
+            <div className="w-px h-full bg-[#30363d]" />
+            <div className="w-2 h-px bg-[#30363d]" />
+          </div>
+        )}
+
+        {/* Color avatar */}
+        <div
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 border"
+          style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}
+        >
+          {initials}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="text-xs font-semibold text-[#e6edf3] truncate leading-tight">{name}</span>
+            <span className={cn(
+              'text-[9px] px-1 py-0.5 rounded shrink-0 font-medium ml-auto',
+              agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
+              agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
+              agent.status === 'errored'   ? 'text-[#f85149] bg-[#f85149]/10' :
+              'text-[#8b949e] bg-[#21262d]'
+            )}>
+              {agent.status}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9]">
+            <span className="font-mono">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
+            <span>{formatTokens(agent.tokenUsage.total)}</span>
+            <span>{formatDuration(agent.durationMs)}</span>
+          </div>
+        </div>
+
+        {/* Skill expand toggle */}
+        {hasSkills && (
+          <button
+            className="shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#2d1f45] text-[#bc8cff] border border-[#4d3470] hover:bg-[#3d2a5a] transition-colors"
+            onClick={e => { e.stopPropagation(); setSkillsExpanded(v => !v); }}
+            title="Toggle skill invocations"
+          >
+            <span>SK·{agent.skillInvocations.length}</span>
+            <ChevronDown className={cn('h-2.5 w-2.5 transition-transform', skillsExpanded && 'rotate-180')} />
+          </button>
+        )}
+
+        <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
+      </div>
+
+      {/* Skill invocations — inline sub-items */}
+      {hasSkills && skillsExpanded && (
+        <div className="ml-3 border-l border-[#4d3470] pl-0 bg-[#0d1117]">
+          {agent.skillInvocations.map(inv => (
+            <SkillInvocationRow key={inv.id} invocation={inv} depth={depth} agent={agent} onOpen={onOpen} />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Color avatar */}
-      <div
-        className="w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 border"
-        style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}
-      >
-        {initials}
+function SkillInvocationRow({
+  invocation,
+  depth,
+  agent,
+  onOpen,
+}: {
+  invocation: SkillInvocation;
+  depth: number;
+  agent: Agent;
+  onOpen: (a: Agent) => void;
+}) {
+  const paddingLeft = 8 + (depth + 1) * 12;
+  const argsPreview = invocation.args ? invocation.args.slice(0, 48) + (invocation.args.length > 48 ? '…' : '') : null;
+
+  return (
+    <div
+      className="group flex items-center gap-2 py-1.5 pr-3 select-none cursor-pointer hover:bg-[#1a1340] transition-colors"
+      style={{ paddingLeft }}
+      onClick={() => onOpen(agent)}
+      title={`Open parent agent to view skill execution${invocation.args ? `\n\nArgs: ${invocation.args}` : ''}`}
+    >
+      {/* Tree connector */}
+      <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
+        <div className="w-px h-full bg-[#4d3470]" />
+        <div className="w-2 h-px bg-[#4d3470]" />
+      </div>
+
+      {/* SK badge */}
+      <div className="w-6 h-6 rounded flex items-center justify-center text-[9px] font-bold shrink-0 border bg-[#2d1f45] text-[#bc8cff] border-[#4d3470]">
+        SK
       </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-xs font-semibold text-[#e6edf3] truncate leading-tight">{name}</span>
-          <span className={cn(
-            'text-[9px] px-1 py-0.5 rounded shrink-0 font-medium ml-auto',
-            agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-            agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-            agent.status === 'errored'   ? 'text-[#f85149] bg-[#f85149]/10' :
-            'text-[#8b949e] bg-[#21262d]'
-          )}>
-            {agent.status}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9]">
-          <span className="font-mono">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
-          <span>{formatTokens(agent.tokenUsage.total)}</span>
-          <span>{formatDuration(agent.durationMs)}</span>
-        </div>
+        <div className="text-[11px] font-semibold text-[#bc8cff] truncate leading-tight">{invocation.skill}</div>
+        {argsPreview && (
+          <div className="text-[10px] text-[#6e7681] truncate">{argsPreview}</div>
+        )}
       </div>
 
-      {/* Drag handle — faintly always visible, bright on hover */}
-      <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
+      {/* Duration + open icon */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {invocation.durationMs != null && (
+          <span className="text-[10px] text-[#6e7681]">{formatDuration(invocation.durationMs)}</span>
+        )}
+        <ExternalLink className="h-2.5 w-2.5 text-[#4d3470] opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
     </div>
   );
 }

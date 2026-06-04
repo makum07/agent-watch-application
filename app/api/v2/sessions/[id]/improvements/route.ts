@@ -57,60 +57,66 @@ function generateImprovementPrompt(sessionId: string, items: DbFeedbackItem[]): 
     byAgent.get(item.agent_id)!.push(item);
   }
 
-  const byCategory = new Map<string, number>();
+  const byCategory = new Map<string, DbFeedbackItem[]>();
   for (const item of items) {
-    byCategory.set(item.category, (byCategory.get(item.category) ?? 0) + 1);
+    if (!byCategory.has(item.category)) byCategory.set(item.category, []);
+    byCategory.get(item.category)!.push(item);
   }
+
+  const sortedCategories = Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length);
 
   const lines: string[] = [];
 
-  lines.push(`# Workflow Improvement Review — Cycle ${new Date().toISOString().slice(0, 10)}`);
+  lines.push(`# Multi-Agent Workflow Design Review — ${new Date().toISOString().slice(0, 10)}`);
   lines.push(`\nSession: \`${sessionId}\``);
-  lines.push(`\nA structured human review of this multi-agent workflow execution has produced ${items.length} feedback item${items.length !== 1 ? 's' : ''} spanning ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}. The feedback was collected by reviewing agent responses, reasoning quality, tool usage, artifacts, and workflow decisions.\n`);
 
-  lines.push(`## Feedback Summary\n`);
-  const sortedCategories = Array.from(byCategory.entries()).sort((a, b) => b[1] - a[1]);
-  for (const [cat, count] of sortedCategories) {
-    lines.push(`- **${formatCategory(cat)}**: ${count}`);
-  }
+  lines.push(`\n## Purpose\n`);
+  lines.push(`This review presents structured observations from a completed multi-agent workflow execution. The goal is **not** to patch individual failures or encode session-specific rules. The goal is to evolve the design of the workflow itself — updating orchestrator logic, agent responsibilities, skill definitions, and reasoning patterns so that all components can independently recognize and handle similar situations across any future execution.\n`);
+  lines.push(`**Constraint: Do not introduce hardcoded fixes, task-specific rules, or logic that only applies to the inputs or artifacts of this session.** Every proposed change must remain correct and beneficial across future workflow executions with entirely different tasks, contexts, and inputs.\n`);
 
-  lines.push(`\n## Detailed Feedback by Agent\n`);
-  for (const [agentId, agentItems] of byAgent.entries()) {
-    const name = agentItems[0]?.agent_name || agentId.slice(0, 12);
-    lines.push(`### ${name}\n`);
-    for (const item of agentItems) {
-      lines.push(`- **[${formatCategory(item.category)}]** ${item.text}`);
+  lines.push(`## Observed Failure Patterns (${items.length} observation${items.length !== 1 ? 's' : ''} across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''})\n`);
+  lines.push(`Observations are grouped by failure type to surface structural patterns rather than individual agent mistakes:\n`);
+
+  for (const [cat, catItems] of sortedCategories) {
+    lines.push(`### ${formatCategory(cat)} (${catItems.length})\n`);
+    for (const item of catItems) {
+      const agentLabel = item.agent_name || item.agent_id.slice(0, 12);
+      lines.push(`- ${item.text} *(context: ${agentLabel})*`);
     }
     lines.push('');
   }
 
-  // Identify recurring themes
-  const recurringCategories = sortedCategories.filter(([, count]) => count >= 2);
+  const recurringCategories = sortedCategories.filter(([, catItems]) => catItems.length >= 2);
   if (recurringCategories.length > 0) {
-    lines.push(`## Recurring Patterns\n`);
-    lines.push(`The following issues appear across multiple agents and represent systemic weaknesses:\n`);
-    for (const [cat, count] of recurringCategories) {
-      lines.push(`- **${formatCategory(cat)}** (${count} occurrences) — this is a cross-agent pattern, not an isolated incident`);
+    lines.push(`## Cross-Agent Patterns\n`);
+    lines.push(`These failure types appeared in multiple agents, indicating systemic weaknesses in the workflow design rather than isolated mistakes:\n`);
+    for (const [cat, catItems] of recurringCategories) {
+      const agentNames = [...new Set(catItems.map(i => i.agent_name || i.agent_id.slice(0, 12)))];
+      lines.push(`- **${formatCategory(cat)}** — ${catItems.length} observations across: ${agentNames.join(', ')}`);
     }
     lines.push('');
   }
 
   lines.push(`## Improvement Request\n`);
-  lines.push(`Based on this structured review, please analyze the workflow and propose specific, systemic improvements. Do not propose one-time patches — propose durable changes to the workflow design, agent instructions, and coordination patterns that will prevent these issues from recurring across future executions.\n`);
-  lines.push(`Address each of the following dimensions where the feedback reveals gaps:\n`);
-  lines.push(`1. **Orchestrator behavior** — delegation strategy, decision-making, and agent coordination`);
-  lines.push(`2. **Agent responsibilities** — task scoping, ownership boundaries, and handoff clarity`);
-  lines.push(`3. **Context gathering** — how and when agents gather context before acting`);
-  lines.push(`4. **Validation patterns** — how outputs are verified and assumptions are challenged`);
-  lines.push(`5. **Artifact design** — completeness, structure, and handoff quality of outputs`);
-  lines.push(`6. **Edge case coverage** — how the workflow handles unexpected or missing inputs`);
-  lines.push(`7. **Evidence standards** — what level of evidence is required before drawing conclusions\n`);
-  lines.push(`For each proposed improvement, specify:`);
-  lines.push(`- The affected agent or workflow component`);
-  lines.push(`- What specifically needs to change in its instructions or behavior`);
-  lines.push(`- How this change prevents the identified issue from recurring`);
-  lines.push(`- Any new coordination steps or validation checkpoints needed\n`);
-  lines.push(`Format your response as a structured improvement plan that could be used to directly update agent prompts and workflow orchestration logic.`);
+  lines.push(`For each observed failure pattern, analyze the workflow design and produce a targeted improvement. Structure each improvement as follows:\n`);
+  lines.push(`1. **Root cause** — What workflow design weakness caused this class of failure? Do not describe what went wrong in this specific execution. Identify what is missing or incorrect in the agent's instructions, reasoning approach, validation logic, or coordination design that would cause any agent to make this type of mistake.`);
+  lines.push(`2. **Affected component** — Which workflow component should change: the orchestrator's task decomposition or delegation logic, a specific agent type's responsibilities or reasoning patterns, a skill definition, or a coordination/handoff mechanism?`);
+  lines.push(`3. **Proposed change** — Write a concrete addition or modification to that component's system prompt or behavioral contract. Be specific: describe exactly what the agent should do, when, and under what conditions. Avoid vague directives like "be more careful" or "validate outputs" — specify the reasoning step, verification action, or re-evaluation trigger.`);
+  lines.push(`4. **Self-correction signal** — How should the agent recognize, mid-execution, that it may be in a situation similar to what triggered this feedback? What internal signal, uncertainty indicator, or evidence gap should prompt the agent to gather more context, re-verify an assumption, or escalate rather than proceed?`);
+  lines.push(`5. **Generalizability check** — Explicitly confirm that this change applies correctly across future executions with different inputs, tasks, and contexts. If the change would only help for tasks similar to this session, discard it and rethink from the root cause.\n`);
+
+  lines.push(`Address the following workflow dimensions where the observations reveal gaps:\n`);
+  lines.push(`- **Orchestrator design** — task decomposition strategy, agent selection criteria, delegation scope, and completion verification`);
+  lines.push(`- **Agent reasoning patterns** — how agents form hypotheses, assess confidence, and decide when more evidence is needed before acting`);
+  lines.push(`- **Validation and self-correction** — when and how agents challenge their own outputs, re-examine assumptions, and detect errors before returning results`);
+  lines.push(`- **Context and evidence gathering** — what context agents should proactively seek, how they distinguish sufficient from insufficient evidence, and when to pause and verify`);
+  lines.push(`- **Skill and capability usage** — whether the right capabilities are invoked at the right time with appropriate scope and error handling`);
+  lines.push(`- **Artifact and output quality** — what completeness, structure, and accuracy standards agents apply before considering an output ready`);
+  lines.push(`- **Coordination and handoffs** — what information must be explicitly transferred between agents and what each receiving agent must verify before continuing\n`);
+
+  lines.push(`## Output Format\n`);
+  lines.push(`Produce one improvement entry per failure pattern (not per individual feedback item). Each entry should contain a concrete system prompt addition or behavioral change that can be directly applied to the relevant workflow component.\n`);
+  lines.push(`The final output should read as a set of workflow design changes — not a post-mortem of this specific execution, and not a checklist of things to watch for on similar tasks. Every improvement must make the affected component more reliable and self-correcting across all future executions.`);
 
   return lines.join('\n');
 }
@@ -199,8 +205,12 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     broadcast('improvement_started', {});
 
     // shell:true resolves Windows .cmd wrappers; stdio:pipe so we can write
-    // the prompt via stdin (avoids cmd.exe arg-length / newline limits)
-    const child = spawn('claude', ['--resume', sessionId, '-p'], {
+    // the prompt via stdin (avoids cmd.exe arg-length / newline limits).
+    // --dangerously-skip-permissions: the user reviewed and approved the prompt
+    // before clicking Apply, so authorization happened at the UI level. Without
+    // this flag, each Edit/Write call blocks waiting for interactive approval
+    // that can never arrive because stdin is already closed after the prompt.
+    const child = spawn('claude', ['--resume', sessionId, '-p', '--dangerously-skip-permissions'], {
       shell: true,
       cwd: projectCwd,
       env: { ...process.env },

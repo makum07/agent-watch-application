@@ -14,7 +14,7 @@ import {
 } from '@/lib/parser/jsonl-parser';
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
-import type { Session, Agent } from '@/types/session';
+import type { Session, Agent, SkillInvocation } from '@/types/session';
 
 const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   'claude-opus-4-8': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
@@ -138,8 +138,8 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       type, subagent_type, model, status, start_time, end_time, duration_ms,
       prompt, description, response, schema_json, isolation,
       message_count, tokens_input, tokens_output, tokens_cache_creation, tokens_cache_read, tokens_total,
-      tool_call_summary, children, depth, jsonl_path
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tool_call_summary, children, depth, jsonl_path, skill_invocations
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertArtifact = db.prepare(`
@@ -177,6 +177,8 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       let totalInput = 0, totalOutput = 0, totalCacheCreate = 0, totalCacheRead = 0;
       let model = correlated.agentToolCall?.model || 'claude-sonnet-4-6';
       const toolCounts = new Map<string, number>();
+      const skillInvocations: SkillInvocation[] = [];
+      const pendingSkills = new Map<string, { skill: string; args: string | null; startTime: string }>();
 
       for (const msg of msgs) {
         if (msg.tokenUsage) {
@@ -189,8 +191,35 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         for (const block of msg.content) {
           if (block.type === 'tool_use') {
             toolCounts.set(block.name, (toolCounts.get(block.name) || 0) + 1);
+            if (block.name === 'Skill') {
+              pendingSkills.set(block.id, {
+                skill: (block.input.skill as string) || 'unknown',
+                args: (block.input.args as string) || null,
+                startTime: msg.timestamp,
+              });
+            }
+          }
+          if (block.type === 'tool_result') {
+            const pending = pendingSkills.get(block.tool_use_id);
+            if (pending) {
+              const startMs = new Date(pending.startTime).getTime();
+              const endMs = new Date(msg.timestamp).getTime();
+              skillInvocations.push({
+                id: block.tool_use_id,
+                skill: pending.skill,
+                args: pending.args,
+                startTime: pending.startTime,
+                endTime: msg.timestamp,
+                durationMs: endMs > startMs ? endMs - startMs : null,
+              });
+              pendingSkills.delete(block.tool_use_id);
+            }
           }
         }
+      }
+      // Capture skills that completed without a matching tool_result
+      for (const [id, pending] of pendingSkills) {
+        skillInvocations.push({ id, ...pending, endTime: null, durationMs: null });
       }
 
       const children = agents
@@ -233,7 +262,8 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         JSON.stringify(Array.from(toolCounts.entries()).map(([name, count]) => ({ name, count }))),
         JSON.stringify(children),
         correlated.depth,
-        correlated.filePath  // actual JSONL path for this agent
+        correlated.filePath,
+        JSON.stringify(skillInvocations)
       );
 
       if (firstTimestamp) {
@@ -300,6 +330,7 @@ function buildSessionFromDb(sessionId: string, db: Database.Database): Session |
       total: row.tokens_total as number || 0,
     },
     toolCalls: JSON.parse(row.tool_call_summary as string || '[]'),
+    skillInvocations: JSON.parse(row.skill_invocations as string || '[]'),
     children: JSON.parse(row.children as string || '[]'),
     depth: row.depth as number || 0,
   }));

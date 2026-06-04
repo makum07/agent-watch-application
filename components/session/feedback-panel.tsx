@@ -189,8 +189,51 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'feedback' ? (
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {applyStep === 'editing-prompt' ? (
+          /* ── Prompt editor — takes over the full content area ── */
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Editor context bar */}
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[#21262d] bg-[#161b22]">
+              {rewindFromCycle !== null ? (
+                <>
+                  <RotateCcw className="h-3.5 w-3.5 text-[#f0883e] shrink-0" />
+                  <span className="text-xs font-semibold text-[#e6edf3] flex-1">
+                    Rewind Cycle #{rewindFromCycle} — Edit &amp; Re-apply
+                  </span>
+                </>
+              ) : (
+                <>
+                  <FileText className="h-3.5 w-3.5 text-[#58a6ff] shrink-0" />
+                  <span className="text-xs font-semibold text-[#e6edf3] flex-1">Review &amp; Edit Prompt</span>
+                </>
+              )}
+              <span className="shrink-0 text-[10px] text-[#484f58] font-mono tabular-nums">
+                {promptDraft.length.toLocaleString()} chars
+              </span>
+            </div>
+            {/* Hint */}
+            <div className="shrink-0 px-3 py-1.5 bg-[#0d1117] border-b border-[#21262d]">
+              <p className="text-[10px] text-[#484f58] leading-snug">
+                This prompt will be sent to Claude to evolve agent and workflow designs.
+                Edit freely — changes apply only to this cycle.
+              </p>
+            </div>
+            {/* Textarea — fills remaining space */}
+            <textarea
+              value={promptDraft}
+              onChange={e => setPromptDraft(e.target.value)}
+              className="flex-1 w-full px-3 py-2.5 bg-[#0d1117] text-[11px] text-[#c9d1d9] font-mono leading-relaxed focus:outline-none resize-none border-0"
+              placeholder="Improvement prompt will appear here…"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleApply();
+                if (e.key === 'Escape') { setApplyStep('idle'); setRewindFromCycle(null); }
+              }}
+            />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+          {activeTab === 'feedback' ? (
           isLoading ? (
             <div className="flex items-center justify-center h-32 text-[#8b949e]">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -402,6 +445,8 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
             )}
           </div>
         )}
+          </div>
+        )}
       </div>
 
       {/* Rewind confirmation overlay */}
@@ -439,36 +484,26 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
         </div>
       )}
 
-      {/* Apply / prompt-editor footer */}
+      {/* Footer */}
       <div className="shrink-0 border-t border-[#21262d] bg-[#0d1117]">
         {applyStep === 'editing-prompt' ? (
-          <div className="p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#c9d1d9]">
-              {rewindFromCycle !== null
-                ? <><RotateCcw className="h-3.5 w-3.5 text-[#f0883e]" /> Rewinding Cycle #{rewindFromCycle} — edit &amp; retry</>
-                : <><FileText className="h-3.5 w-3.5 text-[#58a6ff]" /> Review &amp; Edit Prompt</>}
-            </div>
-            <textarea
-              value={promptDraft}
-              onChange={e => setPromptDraft(e.target.value)}
-              rows={10}
-              className="w-full px-2.5 py-2 rounded bg-[#161b22] border border-[#30363d] text-[11px] text-[#c9d1d9] font-mono leading-relaxed focus:outline-none focus:border-[#58a6ff]/50 resize-none"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleApply}
-                disabled={!promptDraft.trim() || isApplying}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-[#1f6feb] hover:bg-[#388bfd] disabled:opacity-40 text-white text-xs font-medium transition-colors"
-              >
-                <Zap className="h-3 w-3" /> Apply
-              </button>
-              <button
-                onClick={() => { setApplyStep('idle'); setRewindFromCycle(null); }}
-                className="px-3 py-1.5 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-xs transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+          /* Slim action bar — editor lives in the content area above */
+          <div className="flex items-center gap-2 px-3 py-2.5">
+            <button
+              onClick={handleApply}
+              disabled={!promptDraft.trim() || isApplying}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[#1f6feb] hover:bg-[#388bfd] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+            >
+              {isApplying
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> Applying…</>
+                : <><Zap className="h-3 w-3" /> Apply Improvements</>}
+            </button>
+            <button
+              onClick={() => { setApplyStep('idle'); setRewindFromCycle(null); }}
+              className="px-3 py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58] text-xs transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         ) : (
           <div className="p-3">
