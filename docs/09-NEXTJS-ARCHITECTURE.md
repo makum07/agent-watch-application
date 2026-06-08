@@ -87,6 +87,8 @@
 |  |  |   Client Components      |  |   agent_message             | |  |
 |  |  |   API Routes             |  |   tool_call                 | |  |
 |  |  |   Server Actions         |  |   artifact_created          | |  |
+|  |  |                          |  |   improvement_stream_event  | |  |
+|  |  |                          |  |   improvement_permission_*  | |  |
 |  |  +--------------------------+  +-----------------------------+ |  |
 |  |                                                                |  |
 |  |  +----------------------------------------------------------+ |  |

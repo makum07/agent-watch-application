@@ -643,9 +643,41 @@ The system automatically detects and surfaces:
 
 ---
 
-## 10. Functional Area: Real-Time Updates
+## 10. Functional Area: Improvement Loop
 
-### 10.1 WebSocket Events (New)
+> Full specification: `10-IMPROVEMENT-LOOP.md`
+
+The Improvement Loop enables users to collect feedback on agent behavior, generate improvement prompts, and apply them by resuming the original Claude Code session — all from the browser. Key functional areas:
+
+### 10.1 Feedback Collection
+
+Users annotate agents with categorized feedback (10 categories). Items are stored per-session, editable, and deletable.
+
+### 10.2 Structured Streaming
+
+Improvements are applied by spawning Claude CLI with `--output-format stream-json`. Every event (thinking, tool calls, text responses) is forwarded via WebSocket to the browser for real-time display, and persisted with the cycle for post-hoc review.
+
+### 10.3 Edit Approval Gate
+
+Claude runs with `--permission-mode default`, causing Edit/Write tools to be auto-denied. Denied calls are forwarded to the browser as approval requests showing the proposed diff. The user approves or denies each edit. Approved edits are applied server-side, and a continuation message is sent to Claude.
+
+### 10.4 Collapsible Activity Log
+
+Stream entries are rendered as a collapsible tree view (matching the session/agent observation pattern):
+- **Thinking** — expandable with full reasoning text
+- **Tool calls** — expandable with input/output, color-coded by tool type, paired with results
+- **Text responses** — expandable with markdown rendering
+- **File viewing** — "View File" button on file-based tool calls
+
+### 10.5 Rewind
+
+Any completed or failed cycle can be rewound — truncating the session JSONL to a pre-cycle snapshot and re-applying with a refined prompt.
+
+---
+
+## 11. Functional Area: Real-Time Updates
+
+### 11.1 WebSocket Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
@@ -660,7 +692,7 @@ The system automatically detects and surfaces:
 
 ---
 
-## 11. Functional Area: Keyboard Shortcuts
+## 12. Functional Area: Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|

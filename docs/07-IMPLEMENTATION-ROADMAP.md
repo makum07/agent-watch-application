@@ -3,7 +3,8 @@
 ## AgentWatch v2.0
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01
+**Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08.
 
 ---
 
@@ -132,6 +133,64 @@ A user can:
 8. Switch to the Summary tab to see token usage and duration
 9. Close the browser, reopen, and resume exactly where they left off
 10. Search across the session for a keyword
+
+---
+
+## Phase 1.5: Improvement Loop ✅ COMPLETE (2026-06-08)
+
+> Full specification: `10-IMPROVEMENT-LOOP.md`
+
+### Goal
+
+A user can review a session, collect categorized feedback on agent behavior, and apply improvements by resuming the session via Claude Code's structured streaming protocol — with real-time visibility into Claude's thinking, tool calls, and an approval gate for file edits. All activity is persisted and viewable in a collapsible stream log matching the session/agent observation style.
+
+### Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Feedback Collection** | Per-agent categorized notes (10 categories), inline edit/delete, grouped by agent | ✅ |
+| **Prompt Generation** | Aggregates feedback into structured improvement prompt, editable before sending | ✅ |
+| **Structured Streaming** | `--output-format stream-json` piped through WebSocket to browser in real time | ✅ |
+| **Edit Approval Gate** | `--permission-mode default` auto-denies Edit/Write; browser shows diff + approve/deny | ✅ |
+| **Rewind** | Truncate session JSONL to pre-cycle snapshot, re-apply with refined prompt | ✅ |
+| **Collapsible Activity Log** | Thinking, tool calls (with input/output), text responses — all expandable, color-coded by tool type | ✅ |
+| **Persistent Stream Entries** | Full stream log (thinking text, tool calls, results) stored in DB with cycle | ✅ |
+| **Files Touched Summary** | Extracted from stream entries, shows files with tool name + approved/denied badge | ✅ |
+| **File Content Viewer** | View any project file from within the cycle card (API: path-traversal protected, 500KB cap) | ✅ |
+| **File Changes (git diff)** | Captures unstaged + staged + untracked changes at cycle completion | ✅ |
+| **Files Referenced (fallback)** | For legacy cycles without stream data: regex-extracts file paths from response text | ✅ |
+
+### Architecture Changes
+
+| Component | Change |
+|-----------|--------|
+| Database | Schema v7: `stream_entries TEXT` column on `improvement_cycles` |
+| Database | Schema v6: `file_changes TEXT` column on `improvement_cycles` |
+| API | `app/api/v2/sessions/[id]/improvements/route.ts` — POST spawns Claude CLI with stream-json, manages approval gate, persists stream log |
+| API | `app/api/v2/sessions/[id]/file/route.ts` — GET returns file content (path-traversal protected) |
+| WebSocket | `lib/websocket/ws-server.ts` — duck-type check for Turbopack compatibility |
+| Server | `server.ts` — initializes WsServer, stores on `globalThis.__wss` |
+| Store | `store/feedback-store.ts` — Zustand store for feedback, cycles, live stream entries, approvals |
+| UI | `components/session/feedback-panel.tsx` — collapsible stream log, approval cards, file viewers |
+| Hook | `hooks/use-websocket.ts` — auto-reconnecting WebSocket client |
+| Types | `types/feedback.ts` — StreamEntry, ImprovementCycle (with streamEntries field) |
+| Types | `types/events.ts` — SessionEvent, StreamEvent, ContentBlock, ClientMessage |
+
+### Deliverables
+
+- [x] Feedback collection with 10 categories, inline edit, per-agent grouping
+- [x] Prompt preview and editor
+- [x] Real-time structured streaming via WebSocket (Claude stream-json → browser)
+- [x] Edit approval gate with diff preview and file viewer
+- [x] Multi-turn continuation (approved edits → continuation message → next turn)
+- [x] Rewind with JSONL truncation and prompt re-editing
+- [x] Collapsible activity log (ThinkingEntry, ToolCallEntry, TextEntry components)
+- [x] Tool call pairing with tool_result (input/output in one card)
+- [x] Files Touched summary with approved/denied badges
+- [x] File content viewer API with security checks
+- [x] Git diff capture (unstaged + staged + untracked)
+- [x] Persistent stream entries in DB (schema v7)
+- [x] Fallback file reference extraction for legacy cycles
 
 ---
 
