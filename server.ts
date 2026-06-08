@@ -3,6 +3,7 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer } from 'ws';
 import { initServices } from './lib/services/index';
+import { initWsServer } from './lib/websocket/ws-server';
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3456', 10);
@@ -18,24 +19,19 @@ app.prepare().then(async () => {
 
   // Use noServer mode so we control which upgrades we handle
   // This prevents the ws library from rejecting Next.js HMR upgrades (/_next/webpack-hmr)
-  const wss = new WebSocketServer({ noServer: true });
+  const rawWss = new WebSocketServer({ noServer: true });
 
-  wss.on('connection', (ws) => {
-    ws.send(JSON.stringify({ type: 'ping' }));
-    ws.on('error', () => {});
-  });
+  // Wrap the raw WSS with our WsServer which handles broadcast + client messages
+  const appWss = initWsServer(rawWss);
 
   server.on('upgrade', (req, socket, head) => {
     const pathname = req.url?.split('?')[0] ?? '';
 
     if (pathname === '/ws') {
-      // Handle our app WebSocket
-      wss.handleUpgrade(req, socket, head, (client) => {
-        wss.emit('connection', client, req);
+      rawWss.handleUpgrade(req, socket, head, (client) => {
+        rawWss.emit('connection', client, req);
       });
     }
-    // All other upgrades (/_next/webpack-hmr, etc.) are handled by Next.js
-    // Next.js registers its own upgrade handler via the 'upgrade' event on the same server
   });
 
   // Let Next.js register its own upgrade handler for HMR
@@ -49,8 +45,8 @@ app.prepare().then(async () => {
     });
   }
 
-  // Expose wss globally for services to broadcast events
-  (globalThis as Record<string, unknown>).__wss = wss;
+  // Expose for globalThis access from API routes
+  (globalThis as Record<string, unknown>).__wss = appWss;
 
   initServices();
 

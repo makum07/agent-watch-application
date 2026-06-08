@@ -30,6 +30,7 @@ interface DbCycle {
   completed_at: number | null;
   jsonl_snapshot_size: number | null;
   file_changes: string | null;
+  stream_entries: string | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -45,6 +46,7 @@ function mapCycle(row: DbCycle) {
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     snapshotSize: row.jsonl_snapshot_size ?? null,
     fileChanges: row.file_changes ? JSON.parse(row.file_changes) : null,
+    streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
   };
 }
 
@@ -92,9 +94,9 @@ function captureFileChanges(projectCwd: string): import('@/types/feedback').File
   const changes: import('@/types/feedback').FileChange[] = [];
 
   try {
-    // Changes to tracked files
+    // Unstaged changes to tracked files
     const diffOutput = execSync('git diff -U3', {
-      cwd: projectCwd, shell: true, timeout: 10_000,
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 10_000,
     }).toString('utf8');
     for (const f of parseUnifiedDiff(diffOutput)) {
       changes.push({
@@ -106,9 +108,25 @@ function captureFileChanges(projectCwd: string): import('@/types/feedback').File
       });
     }
 
+    // Staged changes (index vs HEAD)
+    const stagedDiff = execSync('git diff --cached -U3', {
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 10_000,
+    }).toString('utf8');
+    const seen = new Set(changes.map(c => c.filePath));
+    for (const f of parseUnifiedDiff(stagedDiff)) {
+      if (seen.has(f.filePath)) continue;
+      changes.push({
+        filePath: f.filePath,
+        type: f.isNew ? 'create' : f.isDeleted ? 'delete' : 'modify',
+        additions: f.additions,
+        deletions: f.deletions,
+        diff: f.diff,
+      });
+    }
+
     // New untracked files not in git yet
     const untrackedRaw = execSync('git ls-files --others --exclude-standard', {
-      cwd: projectCwd, shell: true, timeout: 5_000,
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 5_000,
     }).toString('utf8');
     for (const rel of untrackedRaw.split('\n').map(l => l.trim()).filter(Boolean)) {
       try {
@@ -246,6 +264,58 @@ function findProjectDirBySlug(slug: string): string | null {
   return search(startDir, 6);
 }
 
+// ── Approval gate ────────────────────────────────────────────────────────────
+// Pending approval requests keyed by requestId. The Promise resolves when the
+// user responds via WebSocket.
+const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; cycleId: string }>();
+
+export function resolveApproval(requestId: string, approved: boolean) {
+  const entry = pendingApprovals.get(requestId);
+  if (entry) {
+    entry.resolve(approved);
+    pendingApprovals.delete(requestId);
+  }
+}
+
+function applyEditLocally(projectCwd: string, input: Record<string, unknown>): string {
+  const filePath = String(input.file_path ?? '');
+  const abs = path.isAbsolute(filePath) ? filePath : path.join(projectCwd, filePath);
+
+  if (input.content !== undefined) {
+    // Write tool — create/overwrite file
+    const dir = path.dirname(abs);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(abs, String(input.content), 'utf8');
+    return `Successfully wrote to ${filePath}`;
+  }
+
+  // Edit tool — string replacement
+  const oldStr = String(input.old_string ?? '');
+  const newStr = String(input.new_string ?? '');
+  if (!fs.existsSync(abs)) return `Error: file not found: ${filePath}`;
+  const content = fs.readFileSync(abs, 'utf8');
+  if (!content.includes(oldStr)) return `Error: old_string not found in ${filePath}`;
+  const replaceAll = input.replace_all === true;
+  const updated = replaceAll ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
+  fs.writeFileSync(abs, updated, 'utf8');
+  return `Successfully edited ${filePath}`;
+}
+
+// ── Stream-JSON runner ───────────────────────────────────────────────────────
+
+function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string): string {
+  let projectCwd = process.cwd();
+  try {
+    const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
+    if (conv?.file_path) {
+      const slug = path.basename(path.dirname(conv.file_path));
+      const found = findProjectDirBySlug(slug);
+      if (found) projectCwd = found;
+    }
+  } catch { /* fall back to server cwd */ }
+  return projectCwd;
+}
+
 async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: string) {
   const wss = getWsServer();
   const db = getDatabase();
@@ -254,67 +324,183 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
   };
 
-  // Resolve the original project's working directory so `claude --resume` can
-  // find the session. Claude only searches sessions for the project matching
-  // the current working directory.
-  //
-  // The slug (e.g. C--Users-makum-Zeroni-Product-ZER-app) cannot be
-  // unambiguously decoded because spaces, path separators, and literal dashes
-  // are all encoded as '-'. Instead we search the filesystem for the real
-  // directory whose encoded form matches the slug.
-  let projectCwd = process.cwd();
-  try {
-    const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
-    if (conv?.file_path) {
-      const slug = path.basename(path.dirname(conv.file_path)); // e.g. C--Users-makum-Zeroni-Product-ZER-app
-      const found = findProjectDirBySlug(slug);
-      if (found) projectCwd = found;
-    }
-  } catch {
-    // fall back to server cwd — resume may fail if project dir can't be found
-  }
+  const projectCwd = resolveProjectCwd(db, sessionId);
 
   // Snapshot the working tree before Claude runs so rewind can restore it.
-  // Named by cycleId — no DB column needed; found on rewind via `git stash list`.
   try {
     execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
       cwd: projectCwd, shell: true, stdio: 'pipe',
     });
   } catch { /* not a git repo, or nothing to stash — non-fatal */ }
 
-  let stdout = '';
-  let stderr = '';
+  // Collect text from assistant messages to build the final response
+  const responseChunks: string[] = [];
+  // Track permission denials encountered in this cycle
+  const deniedToolCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }> = [];
+
+  // Accumulate stream entries server-side so we can persist them with the cycle
+  let streamIdCounter = 0;
+  const streamLog: Array<Record<string, unknown>> = [];
 
   try {
     broadcast('improvement_started', {});
 
-    // shell:true resolves Windows .cmd wrappers; stdio:pipe so we can write
-    // the prompt via stdin (avoids cmd.exe arg-length / newline limits).
-    // --dangerously-skip-permissions: the user reviewed and approved the prompt
-    // before clicking Apply, so authorization happened at the UI level. Without
-    // this flag, each Edit/Write call blocks waiting for interactive approval
-    // that can never arrive because stdin is already closed after the prompt.
-    const child = spawn('claude', ['--resume', sessionId, '-p', '--dangerously-skip-permissions'], {
+    const child = spawn('claude', [
+      '--resume', sessionId, '-p',
+      '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
+      '--verbose',
+      '--permission-mode', 'default',
+    ], {
       shell: true,
       cwd: projectCwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Write prompt to stdin — cleaner than CLI arg for multiline content
-    child.stdin.write(prompt, 'utf8');
-    child.stdin.end();
+    // Send the prompt as a stream-json user message — keep stdin OPEN
+    const userMsg = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+    });
+    child.stdin.write(userMsg + '\n', 'utf8');
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdout += text;
-      broadcast('improvement_chunk', { chunk: text });
+    // Listen for approval responses from the browser
+    const unsubscribe = wss?.onClientMessage((msg) => {
+      if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
+        resolveApproval(msg.requestId, msg.approved);
+      }
     });
 
+    // Buffer for partial lines from stdout
+    let stdoutBuffer = '';
+
+    async function handleStreamEvent(line: string) {
+      let event: Record<string, unknown>;
+      try { event = JSON.parse(line); } catch { return; }
+
+      // Forward every event to the browser
+      broadcast('improvement_stream_event', { event });
+
+      const eventType = event.type as string;
+
+      if (eventType === 'system') {
+        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: `Session initialized` });
+      }
+
+      if (eventType === 'assistant') {
+        const msg = event.message as { content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }> } | undefined;
+        if (!msg?.content) return;
+
+        for (const block of msg.content) {
+          if (block.type === 'text' && block.text) {
+            responseChunks.push(block.text);
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'text', timestamp: Date.now(), text: block.text });
+          }
+          if (block.type === 'thinking') {
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'thinking', timestamp: Date.now(), text: block.thinking ?? '' });
+          }
+          if (block.type === 'tool_use') {
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
+          }
+          if (block.type === 'tool_use' && (block.name === 'Edit' || block.name === 'Write')) {
+            deniedToolCalls.push({
+              toolName: block.name,
+              toolUseId: block.id!,
+              toolInput: block.input ?? {},
+            });
+          }
+        }
+      }
+
+      if (eventType === 'user') {
+        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
+        if (userMsg?.content) {
+          for (const block of userMsg.content) {
+            if (block.type === 'tool_result') {
+              streamLog.push({
+                id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
+                toolUseId: block.tool_use_id, content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                isError: block.is_error ?? false,
+              });
+            }
+          }
+        }
+      }
+
+      if (eventType === 'result') {
+        // Turn completed. If there were denied Edit/Write calls, offer them
+        // for approval and potentially continue with a new turn.
+        if (deniedToolCalls.length > 0) {
+          const approvalResults = await handleDeniedToolCalls(
+            deniedToolCalls, projectCwd, sessionId, cycleId, broadcast,
+          );
+
+          deniedToolCalls.length = 0;
+
+          // Log approval results into stream log for persistence
+          for (const r of approvalResults) {
+            streamLog.push({
+              id: `s-${++streamIdCounter}`,
+              kind: r.approved ? 'tool_result' : 'tool_result',
+              timestamp: Date.now(),
+              toolName: r.toolName,
+              filePath: r.filePath,
+              approved: r.approved,
+              content: r.approved ? `Applied: ${r.result}` : `Denied: ${r.filePath}`,
+              isError: !r.approved,
+            });
+          }
+
+          // Build a continuation message listing what was applied/skipped
+          const lines: string[] = [];
+          for (const r of approvalResults) {
+            if (r.approved) {
+              lines.push(`- APPROVED and applied: ${r.toolName} on ${r.filePath} — ${r.result}`);
+            } else {
+              lines.push(`- DENIED: ${r.toolName} on ${r.filePath} — skipped`);
+            }
+          }
+
+          if (lines.length > 0) {
+            const hasApproved = approvalResults.some(r => r.approved);
+            const continuation = [
+              'The AgentWatch review system processed your proposed changes:',
+              ...lines,
+              '',
+              hasApproved
+                ? 'Continue with any remaining improvements.'
+                : 'All proposed edits were denied. Continue with remaining improvements that do not require those edits, or wrap up.',
+            ].join('\n');
+
+            const contMsg = JSON.stringify({
+              type: 'user',
+              message: { role: 'user', content: [{ type: 'text', text: continuation }] },
+            });
+            child.stdin.write(contMsg + '\n', 'utf8');
+            // Don't close stdin — another turn is starting
+            return;
+          }
+        }
+
+        // No pending approvals — this is the final turn. Close stdin to end the process.
+        child.stdin.end();
+      }
+    }
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split('\n');
+      // Keep the last (potentially incomplete) line in the buffer
+      stdoutBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.trim()) handleStreamEvent(line.trim());
+      }
+    });
+
+    let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      broadcast('improvement_chunk', { chunk: text });
+      stderr += chunk.toString();
     });
 
     let spawnError: Error | null = null;
@@ -323,31 +509,39 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       child.on('error', (err) => { spawnError = err; resolve(1); });
     });
 
-    // Capture which files changed before writing the DB record
+    // Process any remaining buffered line
+    if (stdoutBuffer.trim()) {
+      await handleStreamEvent(stdoutBuffer.trim());
+    }
+
+    // Clean up the approval listener
+    if (unsubscribe) unsubscribe();
+
+    // Capture which files changed
     const fileChanges = captureFileChanges(projectCwd);
-
     const now = Date.now();
-    let response: string;
-    let status: string;
+    const fullResponse = responseChunks.join('');
 
-    if (exitCode === 0 && stdout) {
+    let status: string;
+    let response: string;
+
+    if (exitCode === 0 && fullResponse) {
       status = 'completed';
-      response = stdout;
+      response = fullResponse;
     } else {
-      status = 'failed';
-      const errParts: string[] = [];
-      if (spawnError) errParts.push(`Spawn error: ${(spawnError as Error).message}`);
-      if (stderr) errParts.push(`Stderr:\n${stderr}`);
-      if (stdout) errParts.push(`Stdout:\n${stdout}`);
-      if (!errParts.length) errParts.push(`Process exited with code ${exitCode}`);
-      response = errParts.join('\n\n');
+      status = (exitCode === 0 && !fullResponse) ? 'completed' : 'failed';
+      const parts: string[] = [];
+      if (spawnError) parts.push(`Spawn error: ${(spawnError as Error).message}`);
+      if (stderr) parts.push(`Stderr:\n${stderr}`);
+      if (fullResponse) parts.push(fullResponse);
+      response = parts.length > 0 ? parts.join('\n\n') : `Process exited with code ${exitCode}`;
     }
 
     db.prepare(`
       UPDATE improvement_cycles
-      SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?
+      SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?, stream_entries = ?
       WHERE id = ?
-    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, cycleId);
+    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, streamLog.length ? JSON.stringify(streamLog) : null, cycleId);
 
     broadcast('improvement_complete', { status, response, fileChanges });
   } catch (err) {
@@ -357,6 +551,56 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     `).run(errMsg, Date.now(), cycleId);
     broadcast('improvement_failed', { error: errMsg });
   }
+}
+
+async function handleDeniedToolCalls(
+  deniedCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }>,
+  projectCwd: string,
+  sessionId: string,
+  cycleId: string,
+  broadcast: (type: string, payload: Record<string, unknown>) => void,
+): Promise<Array<{ toolName: string; filePath: string; approved: boolean; result: string }>> {
+  const results: Array<{ toolName: string; filePath: string; approved: boolean; result: string }> = [];
+
+  for (const call of deniedCalls) {
+    const requestId = randomUUID();
+    const filePath = String(call.toolInput.file_path ?? 'unknown');
+
+    // Send permission request to browser
+    broadcast('improvement_permission_request', {
+      requestId,
+      toolName: call.toolName,
+      toolInput: call.toolInput,
+    });
+
+    // Wait for user response (timeout after 5 minutes)
+    const approved = await new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingApprovals.delete(requestId);
+        resolve(false);
+      }, 5 * 60 * 1000);
+
+      pendingApprovals.set(requestId, {
+        resolve: (val) => { clearTimeout(timeout); resolve(val); },
+        cycleId,
+      });
+    });
+
+    broadcast('improvement_permission_resolved', { requestId, approved });
+
+    let result = 'skipped';
+    if (approved) {
+      try {
+        result = applyEditLocally(projectCwd, call.toolInput);
+      } catch (e) {
+        result = `Error applying: ${String(e)}`;
+      }
+    }
+
+    results.push({ toolName: call.toolName, filePath, approved, result });
+  }
+
+  return results;
 }
 
 export async function GET(

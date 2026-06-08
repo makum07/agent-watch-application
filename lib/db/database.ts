@@ -240,6 +240,14 @@ function runMigrations(db: Database.Database) {
     }
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (6, ${Date.now()});`);
   }
+
+  if (currentVersion < 7) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'stream_entries')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN stream_entries TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (7, ${Date.now()});`);
+  }
 }
 
 export function closeDatabase() {

@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   X, Trash2, Zap, Loader2, ChevronDown, ChevronRight,
   MessageSquare, AlertCircle, Pencil, Check, FileText, RotateCcw,
+  Terminal, Brain, Wrench, ShieldCheck, ShieldX, Eye, FileCode2,
 } from 'lucide-react';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
-import { FEEDBACK_CATEGORIES, type FeedbackCategory, type FileChange } from '@/types/feedback';
+import { useWebSocket } from '@/hooks/use-websocket';
+import { FEEDBACK_CATEGORIES, type FeedbackCategory, type FileChange, type StreamEntry } from '@/types/feedback';
+import type { SessionEvent, ClientMessage } from '@/types/events';
 import { getAgentDisplay } from '@/lib/agent-display';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
@@ -28,11 +31,28 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const {
     items, cycles, isLoading, isApplying, lastError, lastCycle,
+    streamEntries, pendingApprovals,
     loadFeedback, loadCycles, deleteFeedback, updateFeedback,
     previewPrompt, applyImprovements, rewindCycle, deleteCycle, clearRewoundCycles,
-    clearError,
+    clearError, handleStreamEvent,
   } = useFeedbackStore();
   const agentMap = useSessionStore(s => s.agentMap);
+
+  // WebSocket: receive stream events and send approval responses
+  const onWsEvent = useCallback((event: SessionEvent) => {
+    if (
+      event.type === 'improvement_stream_event' ||
+      event.type === 'improvement_permission_request' ||
+      event.type === 'improvement_permission_resolved' ||
+      event.type === 'improvement_started' ||
+      event.type === 'improvement_complete' ||
+      event.type === 'improvement_failed'
+    ) {
+      handleStreamEvent(event);
+    }
+  }, [handleStreamEvent]);
+
+  const { send: wsSend } = useWebSocket(onWsEvent);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'feedback' | 'history'>('feedback');
@@ -432,11 +452,16 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
               <CycleCard
                 key={cycle.id}
                 cycle={cycle}
+                sessionId={sessionId}
                 isLatest={cycle.id === latestActiveCycleId}
                 isExpanded={expandedCycleId === cycle.id}
                 onToggle={() => setExpandedCycleId(expandedCycleId === cycle.id ? null : cycle.id)}
                 onRewind={() => handleRewind(cycle)}
                 onDelete={() => deleteCycle(sessionId, cycle.id)}
+                streamEntries={streamEntries}
+                pendingApprovals={pendingApprovals}
+                onApprove={(requestId) => wsSend({ type: 'permission_response', sessionId, cycleId: cycle.id, requestId, approved: true })}
+                onDeny={(requestId) => wsSend({ type: 'permission_response', sessionId, cycleId: cycle.id, requestId, approved: false })}
               />
             ))}
 
@@ -530,14 +555,19 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
 
 interface CycleCardProps {
   cycle: ImprovementCycle;
+  sessionId: string;
   isLatest: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onRewind: () => void;
   onDelete: () => void;
+  streamEntries: StreamEntry[];
+  pendingApprovals: Map<string, { toolName: string; toolInput: Record<string, unknown> }>;
+  onApprove: (requestId: string) => void;
+  onDeny: (requestId: string) => void;
 }
 
-function CycleCard({ cycle, isLatest, isExpanded, onToggle, onRewind, onDelete }: CycleCardProps) {
+function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind, onDelete, streamEntries, pendingApprovals, onApprove, onDeny }: CycleCardProps) {
   const [showPrompt, setShowPrompt] = useState(false);
   const s = STATUS_META[cycle.status] ?? STATUS_META.completed;
   const canExpand = cycle.status !== 'rewound';
@@ -635,27 +665,34 @@ function CycleCard({ cycle, isLatest, isExpanded, onToggle, onRewind, onDelete }
             </div>
           )}
 
-          {/* Response */}
-          <div className="border-t border-[#21262d] px-2.5 py-2.5">
-            {cycle.status === 'applying' ? (
-              <div className="flex items-center gap-2 text-[11px] text-[#58a6ff]">
-                <Loader2 className="h-3 w-3 animate-spin" /> Running improvement cycle…
-              </div>
-            ) : cycle.claudeResponse ? (
-              <div className="max-h-[420px] overflow-y-auto pr-0.5">
-                <MarkdownRenderer content={cycle.claudeResponse} size="sm" />
-              </div>
-            ) : (
-              <p className="text-[11px] text-[#484f58]">No response captured</p>
-            )}
-          </div>
+          {/* Files touched summary — extracted from stream entries */}
+          {cycle.streamEntries && cycle.streamEntries.length > 0 && (
+            <TouchedFilesSummary entries={cycle.streamEntries} sessionId={sessionId} />
+          )}
 
-          {/* File changes */}
+          {/* File changes (structured diff) */}
           {cycle.fileChanges && cycle.fileChanges.length > 0 && (
             <div className="border-t border-[#21262d]">
-              <FileDiffViewer changes={cycle.fileChanges} />
+              <FileDiffViewer changes={cycle.fileChanges} sessionId={sessionId} />
             </div>
           )}
+
+          {/* Fallback: extract file references from response when no structured data */}
+          {!cycle.fileChanges?.length && !cycle.streamEntries?.length && cycle.claudeResponse && (
+            <ReferencedFiles sessionId={sessionId} responseText={cycle.claudeResponse} />
+          )}
+
+          {/* Response — collapsible stream log (live or persisted) */}
+          <div className="border-t border-[#21262d]">
+            <CycleResponseView
+              cycle={cycle}
+              sessionId={sessionId}
+              streamEntries={streamEntries}
+              pendingApprovals={pendingApprovals}
+              onApprove={onApprove}
+              onDeny={onDeny}
+            />
+          </div>
 
           {cycle.completedAt && (
             <div className="px-2.5 pb-2 text-[10px] text-[#484f58]">
@@ -666,6 +703,687 @@ function CycleCard({ cycle, isLatest, isExpanded, onToggle, onRewind, onDelete }
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── TouchedFilesSummary ──────────────────────────────────────────────────────
+
+function TouchedFilesSummary({ entries, sessionId }: { entries: StreamEntry[]; sessionId: string }) {
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
+
+  const files: { path: string; toolName: string; approved?: boolean }[] = [];
+  const seen = new Set<string>();
+  for (const e of entries) {
+    if (e.kind === 'tool_use' && e.toolInput?.file_path) {
+      const fp = String(e.toolInput.file_path);
+      if (!seen.has(fp)) {
+        seen.add(fp);
+        files.push({ path: fp, toolName: e.toolName ?? 'Unknown' });
+      }
+    }
+    // Approval results logged as tool_result with filePath
+    if (e.kind === 'tool_result' && (e as Record<string, unknown>).filePath) {
+      const fp = String((e as Record<string, unknown>).filePath);
+      const approved = (e as Record<string, unknown>).approved as boolean | undefined;
+      if (!seen.has(fp)) {
+        seen.add(fp);
+        files.push({ path: fp, toolName: String((e as Record<string, unknown>).toolName ?? 'Edit'), approved });
+      }
+    }
+  }
+
+  if (files.length === 0) return null;
+
+  return (
+    <div className="border-t border-[#21262d]">
+      <div className="px-2.5 py-1.5 text-[10px] text-[#8b949e] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+        <FileCode2 className="h-3 w-3" />
+        Files Touched ({files.length})
+      </div>
+      <div className="space-y-0.5 px-2.5 pb-2">
+        {files.map(f => {
+          const fileName = f.path.split(/[/\\]/).pop() ?? f.path;
+          const isExpanded = expandedFile === f.path;
+          const isWrite = f.toolName === 'Edit' || f.toolName === 'Write';
+          const color = isWrite ? '#f0883e' : '#79c0ff';
+
+          return (
+            <div key={f.path} className="rounded border overflow-hidden" style={{ borderColor: `${color}30` }}>
+              <button
+                className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-[#161b22] transition-colors text-left"
+                onClick={() => setExpandedFile(isExpanded ? null : f.path)}
+              >
+                <FileCode2 className="h-3 w-3 shrink-0" style={{ color }} />
+                <span className="text-[10px] font-mono text-[#c9d1d9] truncate flex-1">{f.path}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0" style={{ color, background: `${color}15` }}>
+                  {f.toolName}
+                </span>
+                {f.approved !== undefined && (
+                  <span className={cn(
+                    'text-[9px] px-1.5 py-0.5 rounded shrink-0',
+                    f.approved ? 'text-[#3fb950] bg-[#3fb950]/10' : 'text-[#ff7b72] bg-[#ff7b72]/10',
+                  )}>
+                    {f.approved ? 'approved' : 'denied'}
+                  </span>
+                )}
+                <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+              </button>
+              {isExpanded && (
+                <FileContentViewer sessionId={sessionId} filePath={f.path} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── CycleResponseView (collapsible wrapper for stream log / markdown) ────────
+
+function CycleResponseView({
+  cycle,
+  sessionId,
+  streamEntries,
+  pendingApprovals,
+  onApprove,
+  onDeny,
+}: {
+  cycle: ImprovementCycle;
+  sessionId: string;
+  streamEntries: StreamEntry[];
+  pendingApprovals: Map<string, { toolName: string; toolInput: Record<string, unknown> }>;
+  onApprove: (requestId: string) => void;
+  onDeny: (requestId: string) => void;
+}) {
+  const [showLog, setShowLog] = useState(cycle.status === 'applying');
+  const hasStreamLog = (cycle.streamEntries && cycle.streamEntries.length > 0) || cycle.status === 'applying';
+  const label = cycle.status === 'applying' ? 'Live Stream' : hasStreamLog ? 'Activity Log' : 'Response';
+  const entryCount = cycle.status === 'applying'
+    ? streamEntries.length
+    : cycle.streamEntries?.length ?? 0;
+
+  return (
+    <>
+      <button
+        onClick={e => { e.stopPropagation(); setShowLog(v => !v); }}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-[#8b949e] hover:bg-[#21262d]/50 transition-colors text-left"
+      >
+        {showLog
+          ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+          : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
+        {label}
+        {entryCount > 0 && (
+          <span className="text-[#484f58] ml-1">({entryCount} events)</span>
+        )}
+        {cycle.status === 'applying' && (
+          <Loader2 className="h-2.5 w-2.5 animate-spin text-[#58a6ff] ml-auto" />
+        )}
+      </button>
+      {showLog && (
+        <div className="px-2.5 pb-2.5">
+          {cycle.status === 'applying' ? (
+            <CollapsibleStreamLog
+              entries={streamEntries}
+              sessionId={sessionId}
+              pendingApprovals={pendingApprovals}
+              onApprove={onApprove}
+              onDeny={onDeny}
+              isLive
+            />
+          ) : cycle.streamEntries && cycle.streamEntries.length > 0 ? (
+            <CollapsibleStreamLog
+              entries={cycle.streamEntries}
+              sessionId={sessionId}
+            />
+          ) : cycle.claudeResponse ? (
+            <div className="max-h-[420px] overflow-y-auto pr-0.5">
+              <MarkdownRenderer content={cycle.claudeResponse} size="sm" />
+            </div>
+          ) : (
+            <p className="text-[11px] text-[#484f58]">No response captured</p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Collapsible Stream Log ───────────────────────────────────────────────────
+
+const TOOL_COLORS: Record<string, { border: string; icon: string }> = {
+  Bash:  { border: '#39d353', icon: '#39d353' },
+  Read:  { border: '#79c0ff', icon: '#79c0ff' },
+  Edit:  { border: '#f0883e', icon: '#f0883e' },
+  Write: { border: '#f0883e', icon: '#f0883e' },
+  Grep:  { border: '#d2a8ff', icon: '#d2a8ff' },
+  Glob:  { border: '#d2a8ff', icon: '#d2a8ff' },
+  Agent: { border: '#58a6ff', icon: '#58a6ff' },
+};
+
+function getToolColor(name: string) {
+  return TOOL_COLORS[name] ?? { border: '#30363d', icon: '#c9d1d9' };
+}
+
+function getToolSummaryText(toolName: string, toolInput: Record<string, unknown>): string {
+  if (toolName === 'Bash') return String(toolInput?.command ?? '').slice(0, 80);
+  if (toolName === 'Read') return String(toolInput?.file_path ?? '').split(/[/\\]/).slice(-2).join('/');
+  if (toolName === 'Edit') return String(toolInput?.file_path ?? '').split(/[/\\]/).slice(-2).join('/') + ' (edit)';
+  if (toolName === 'Write') return String(toolInput?.file_path ?? '').split(/[/\\]/).slice(-2).join('/') + ' (write)';
+  if (toolName === 'Grep') return `"${String(toolInput?.pattern ?? '').slice(0, 40)}"`;
+  if (toolName === 'Glob') return String(toolInput?.pattern ?? '').slice(0, 40);
+  if (toolName === 'Agent') return String(toolInput?.description ?? toolInput?.prompt ?? '').slice(0, 60);
+  return JSON.stringify(toolInput).slice(0, 60);
+}
+
+function formatToolInput(toolName: string, toolInput: Record<string, unknown>): string {
+  if (toolName === 'Bash') return String(toolInput?.command ?? '');
+  if (toolName === 'Read') return String(toolInput?.file_path ?? '');
+  if (toolName === 'Edit') {
+    const fp = String(toolInput?.file_path ?? '');
+    const old = String(toolInput?.old_string ?? '');
+    const nw = String(toolInput?.new_string ?? '');
+    return `File: ${fp}\n\n--- old\n${old}\n+++ new\n${nw}`;
+  }
+  if (toolName === 'Write') {
+    const fp = String(toolInput?.file_path ?? '');
+    const content = String(toolInput?.content ?? '');
+    return `File: ${fp}\n\n${content.slice(0, 2000)}${content.length > 2000 ? '\n...(truncated)' : ''}`;
+  }
+  if (toolName === 'Grep') return `pattern: ${toolInput?.pattern ?? ''}\npath: ${toolInput?.path ?? '.'}`;
+  return JSON.stringify(toolInput, null, 2);
+}
+
+function ThinkingEntry({ entry }: { entry: StreamEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = entry.text ?? '';
+  const hasContent = text.length > 0 && text !== 'Thinking...';
+  const preview = hasContent ? text.slice(0, 80) + (text.length > 80 ? '...' : '') : 'Thinking...';
+
+  return (
+    <div className="rounded border border-[#d2a8ff]/20 bg-[#d2a8ff]/5 overflow-hidden">
+      <button
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#d2a8ff]/10 transition-colors text-left"
+        onClick={() => hasContent && setExpanded(v => !v)}
+      >
+        <Brain className="h-3 w-3 text-[#d2a8ff] shrink-0" />
+        <span className="text-[10px] font-semibold text-[#d2a8ff]">Thinking</span>
+        <span className="text-[10px] text-[#8b949e] italic truncate flex-1">{preview}</span>
+        {hasContent && (
+          <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        )}
+      </button>
+      {expanded && hasContent && (
+        <div className="border-t border-[#d2a8ff]/15 px-2 py-1.5">
+          <pre className="text-[10px] text-[#c9d1d9] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+            {text}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry; result?: StreamEntry; sessionId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showFile, setShowFile] = useState(false);
+  const toolName = entry.toolName ?? 'Unknown';
+  const toolInput = entry.toolInput ?? {};
+  const colors = getToolColor(toolName);
+  const summary = getToolSummaryText(toolName, toolInput);
+  const filePath = String(toolInput?.file_path ?? '');
+  const hasFile = filePath && ['Read', 'Edit', 'Write', 'Glob'].includes(toolName);
+
+  const resultContent = result?.content ?? '';
+  const isError = result?.isError ?? false;
+  const isPermDenied = isError && resultContent.includes('requested permissions');
+
+  const resultBadge = isPermDenied ? 'denied'
+    : isError ? 'error'
+    : result ? 'done'
+    : null;
+
+  const ToolIcon = toolName === 'Bash' ? Terminal
+    : toolName === 'Read' ? Eye
+    : (toolName === 'Edit' || toolName === 'Write') ? Wrench
+    : (toolName === 'Grep' || toolName === 'Glob') ? Eye
+    : Wrench;
+
+  return (
+    <div className="rounded border overflow-hidden" style={{ borderColor: `${colors.border}40`, backgroundColor: `${colors.border}08` }}>
+      <button
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#161b22] transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <ToolIcon className="h-3 w-3 shrink-0" style={{ color: colors.icon }} />
+        <span className="text-[10px] font-semibold" style={{ color: colors.icon }}>{toolName}</span>
+        <span className="text-[10px] text-[#8b949e] font-mono truncate flex-1">{summary}</span>
+        {hasFile && (
+          <button
+            onClick={e => { e.stopPropagation(); setShowFile(v => !v); }}
+            className={cn(
+              'text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors shrink-0',
+              showFile ? 'text-[#58a6ff] bg-[#58a6ff]/10' : 'text-[#484f58] hover:text-[#8b949e]',
+            )}
+          >
+            <FileCode2 className="h-2.5 w-2.5" /> {showFile ? 'Hide' : 'View'}
+          </button>
+        )}
+        {resultBadge && (
+          <span className={cn(
+            'text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0',
+            isPermDenied ? 'text-[#f0883e] bg-[#f0883e]/10'
+            : isError ? 'text-[#ff7b72] bg-[#ff7b72]/10'
+            : 'text-[#3fb950] bg-[#3fb950]/10',
+          )}>
+            {resultBadge}
+          </span>
+        )}
+        <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+
+      {showFile && hasFile && (
+        <div className="border-t" style={{ borderColor: `${colors.border}20` }}>
+          <FileContentViewer sessionId={sessionId} filePath={filePath} />
+        </div>
+      )}
+
+      {expanded && (
+        <div className="border-t space-y-1.5 px-2 py-1.5" style={{ borderColor: `${colors.border}20` }}>
+          <div>
+            <div className="text-[9px] text-[#6e7681] font-semibold uppercase tracking-wider mb-0.5">Input</div>
+            <pre className="text-[10px] font-mono text-[#c9d1d9] bg-[#0d1117] rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed">
+              {formatToolInput(toolName, toolInput)}
+            </pre>
+          </div>
+          {result && !isPermDenied && (
+            <div>
+              <div className={cn(
+                'text-[9px] font-semibold uppercase tracking-wider mb-0.5',
+                isError ? 'text-[#ff7b72]' : 'text-[#3fb950]',
+              )}>
+                {isError ? 'Error' : 'Output'}
+              </div>
+              <pre className={cn(
+                'text-[10px] font-mono rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed',
+                isError ? 'text-[#ff7b72] bg-[#f85149]/5' : 'text-[#c9d1d9] bg-[#0d1117]',
+              )}>
+                {resultContent.length > 2000 ? resultContent.slice(0, 2000) + '\n...(truncated)' : resultContent || '(empty)'}
+              </pre>
+            </div>
+          )}
+          {isPermDenied && (
+            <div className="flex items-center gap-1.5 text-[10px] text-[#f0883e]">
+              <ShieldX className="h-3 w-3 shrink-0" />
+              <span>Permission denied — awaiting review approval</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TextEntry({ entry }: { entry: StreamEntry }) {
+  const [expanded, setExpanded] = useState(true);
+  const text = entry.text ?? '';
+  const isLong = text.length > 300;
+
+  return (
+    <div className="rounded border border-[#21262d] bg-[#161b22] overflow-hidden">
+      <button
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#21262d]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <MessageSquare className="h-3 w-3 text-[#c9d1d9] shrink-0" />
+        <span className="text-[10px] font-semibold text-[#c9d1d9]">Response</span>
+        {!expanded && (
+          <span className="text-[10px] text-[#8b949e] truncate flex-1">{text.slice(0, 60)}...</span>
+        )}
+        <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      {expanded && (
+        <div className="border-t border-[#21262d] px-2 py-1.5">
+          <div className={cn('text-[11px] text-[#c9d1d9]', isLong && 'max-h-80 overflow-y-auto')}>
+            <MarkdownRenderer content={text} size="sm" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleStreamLog({
+  entries,
+  sessionId,
+  pendingApprovals,
+  onApprove,
+  onDeny,
+  isLive = false,
+}: {
+  entries: StreamEntry[];
+  sessionId: string;
+  pendingApprovals?: Map<string, { toolName: string; toolInput: Record<string, unknown> }>;
+  onApprove?: (requestId: string) => void;
+  onDeny?: (requestId: string) => void;
+  isLive?: boolean;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isLive) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [entries.length, isLive]);
+
+  if (entries.length === 0 && isLive) {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-[#58a6ff]">
+        <Loader2 className="h-3 w-3 animate-spin" /> Starting improvement cycle...
+      </div>
+    );
+  }
+
+  if (entries.length === 0) return null;
+
+  // Build a map of tool_use_id -> tool_result for pairing
+  const resultMap = new Map<string, StreamEntry>();
+  for (const e of entries) {
+    if (e.kind === 'tool_result' && e.toolUseId) {
+      resultMap.set(e.toolUseId, e);
+    }
+  }
+
+  return (
+    <div ref={scrollRef} className={cn('overflow-y-auto space-y-1.5 pr-0.5', isLive ? 'max-h-[500px]' : 'max-h-[600px]')}>
+      {entries.map(entry => {
+        if (entry.kind === 'system') {
+          return (
+            <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-[#484f58]">
+              <Terminal className="h-3 w-3 shrink-0" />
+              <span>{entry.text}</span>
+            </div>
+          );
+        }
+
+        if (entry.kind === 'thinking') {
+          return <ThinkingEntry key={entry.id} entry={entry} />;
+        }
+
+        if (entry.kind === 'tool_use') {
+          const result = entry.toolUseId ? resultMap.get(entry.toolUseId) : undefined;
+          return <ToolCallEntry key={entry.id} entry={entry} result={result} sessionId={sessionId} />;
+        }
+
+        // Skip standalone tool_result — already paired with tool_use above
+        if (entry.kind === 'tool_result') {
+          if (entry.toolUseId && resultMap.has(entry.toolUseId)) return null;
+          // Orphan result — show standalone
+          const isError = entry.isError;
+          const content = entry.content ?? '';
+          return (
+            <div key={entry.id} className="pl-4">
+              <div className={cn(
+                'text-[10px] font-mono rounded px-2 py-1 max-h-20 overflow-y-auto',
+                isError ? 'text-[#ff7b72] bg-[#3d0a0a]/30' : 'text-[#8b949e] bg-[#0d1117]',
+              )}>
+                {content.length > 300 ? content.slice(0, 300) + '...' : content}
+              </div>
+            </div>
+          );
+        }
+
+        if (entry.kind === 'permission_request' && onApprove && onDeny) {
+          return (
+            <ApprovalCard
+              key={entry.id}
+              entry={entry}
+              sessionId={sessionId}
+              onApprove={() => entry.requestId && onApprove(entry.requestId)}
+              onDeny={() => entry.requestId && onDeny(entry.requestId)}
+            />
+          );
+        }
+
+        if (entry.kind === 'text') {
+          return <TextEntry key={entry.id} entry={entry} />;
+        }
+
+        return null;
+      })}
+      {isLive && pendingApprovals && pendingApprovals.size > 0 && (
+        <div className="flex items-center gap-2 text-[11px] text-[#f0883e] pt-1">
+          <Loader2 className="h-3 w-3 animate-spin" /> Waiting for approval...
+        </div>
+      )}
+      {isLive && pendingApprovals && pendingApprovals.size === 0 && entries.length > 0 && entries[entries.length - 1].kind !== 'text' && (
+        <div className="flex items-center gap-2 text-[11px] text-[#58a6ff] pt-1">
+          <Loader2 className="h-3 w-3 animate-spin" /> Processing...
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApprovalCard({ entry, sessionId, onApprove, onDeny }: { entry: StreamEntry; sessionId: string; onApprove: () => void; onDeny: () => void }) {
+  const [viewMode, setViewMode] = useState<'diff' | 'file'>('diff');
+  const filePath = String(entry.toolInput?.file_path ?? 'unknown');
+  const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
+  const isPending = entry.approved === null;
+  const isApproved = entry.approved === true;
+
+  const diffPreview = entry.toolName === 'Write'
+    ? buildWriteDiff(String(entry.toolInput?.content ?? ''))
+    : entry.toolName === 'Edit'
+      ? buildEditDiff(String(entry.toolInput?.old_string ?? ''), String(entry.toolInput?.new_string ?? ''))
+      : null;
+
+  return (
+    <div className={cn(
+      'rounded border overflow-hidden',
+      isPending
+        ? 'border-[#f0883e]/50 bg-[#f0883e]/5 ring-1 ring-[#f0883e]/20'
+        : isApproved
+          ? 'border-[#3fb950]/30 bg-[#3fb950]/5'
+          : 'border-[#ff7b72]/30 bg-[#ff7b72]/5',
+    )}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        {isPending ? (
+          <ShieldCheck className="h-4 w-4 text-[#f0883e] shrink-0" />
+        ) : isApproved ? (
+          <Check className="h-4 w-4 text-[#3fb950] shrink-0" />
+        ) : (
+          <ShieldX className="h-4 w-4 text-[#ff7b72] shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-semibold text-[#e6edf3]">
+            {isPending ? 'Approve Change?' : isApproved ? 'Approved' : 'Denied'}
+          </div>
+          <div className="text-[10px] text-[#8b949e] truncate">
+            {entry.toolName} — {fileName}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {diffPreview && (
+            <button
+              onClick={() => setViewMode(viewMode === 'diff' ? 'file' : 'diff')}
+              className={cn(
+                'text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
+                viewMode === 'file'
+                  ? 'text-[#58a6ff] bg-[#58a6ff]/10'
+                  : 'text-[#8b949e] hover:text-[#e6edf3]',
+              )}
+            >
+              <FileCode2 className="h-3 w-3" /> {viewMode === 'file' ? 'Diff' : 'File'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Content: diff or full file */}
+      {viewMode === 'diff' && diffPreview && (
+        <div className="border-t border-[#21262d] bg-[#010409]">
+          <div className="px-2.5 py-1 text-[9px] font-mono text-[#484f58] border-b border-[#21262d] truncate">
+            {filePath}
+          </div>
+          <DiffLines diff={diffPreview} />
+        </div>
+      )}
+      {viewMode === 'file' && (
+        <div className="border-t border-[#21262d]">
+          <FileContentViewer sessionId={sessionId} filePath={filePath} />
+        </div>
+      )}
+
+      {/* Action buttons */}
+      {isPending && (
+        <div className="border-t border-[#21262d] flex gap-2 px-2.5 py-2">
+          <button
+            onClick={onApprove}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white text-[11px] font-medium transition-colors"
+          >
+            <Check className="h-3 w-3" /> Approve
+          </button>
+          <button
+            onClick={onDeny}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded border border-[#ff7b72]/40 text-[#ff7b72] hover:bg-[#ff7b72]/10 text-[11px] font-medium transition-colors"
+          >
+            <X className="h-3 w-3" /> Deny
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildWriteDiff(content: string): string {
+  const lines = content.split('\n');
+  return `@@ -0,0 +1,${lines.length} @@\n` + lines.map(l => `+${l}`).join('\n');
+}
+
+function buildEditDiff(oldStr: string, newStr: string): string {
+  const oldLines = oldStr.split('\n');
+  const newLines = newStr.split('\n');
+  const removed = oldLines.map(l => `-${l}`).join('\n');
+  const added = newLines.map(l => `+${l}`).join('\n');
+  return `@@ -1,${oldLines.length} +1,${newLines.length} @@\n${removed}\n${added}`;
+}
+
+// ── ReferencedFiles (fallback for cycles without stream entries) ──────────────
+
+function extractFilePathsFromText(text: string): string[] {
+  const paths = new Set<string>();
+  // Match file paths with extensions (e.g., src/foo/bar.ts, .claude/skills/agent.md)
+  const fileRegex = /(?:^|\s|`|"|\()([a-zA-Z0-9_./-]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z]{1,10})(?:\s|`|"|,|\)|$)/gm;
+  let m;
+  while ((m = fileRegex.exec(text)) !== null) {
+    const fp = m[1].trim();
+    // Filter out URLs and very short matches
+    if (!fp.includes('://') && fp.length > 3 && !fp.startsWith('http')) {
+      paths.add(fp);
+    }
+  }
+  return Array.from(paths);
+}
+
+function ReferencedFiles({ sessionId, responseText }: { sessionId: string; responseText: string }) {
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
+  const filePaths = extractFilePathsFromText(responseText);
+
+  if (filePaths.length === 0) return null;
+
+  return (
+    <div className="border-t border-[#21262d]">
+      <div className="px-2.5 py-1.5 text-[10px] text-[#8b949e] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+        <FileCode2 className="h-3 w-3" />
+        Files Referenced ({filePaths.length})
+      </div>
+      <div className="space-y-0.5 px-2.5 pb-2">
+        {filePaths.map(fp => {
+          const fileName = fp.split(/[/\\]/).pop() ?? fp;
+          const isExpanded = expandedFile === fp;
+          return (
+            <div key={fp} className="rounded border border-[#21262d] overflow-hidden">
+              <button
+                className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-[#161b22] transition-colors text-left"
+                onClick={() => setExpandedFile(isExpanded ? null : fp)}
+              >
+                <FileCode2 className="h-3 w-3 text-[#79c0ff] shrink-0" />
+                <span className="text-[10px] font-mono text-[#c9d1d9] truncate flex-1">{fp}</span>
+                <span className="text-[9px] text-[#484f58] shrink-0">{fileName}</span>
+                <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+              </button>
+              {isExpanded && (
+                <FileContentViewer sessionId={sessionId} filePath={fp} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── FileContentViewer ─────────────────────────────────────────────────────────
+
+function FileContentViewer({ sessionId, filePath }: { sessionId: string; filePath: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    setContent(null);
+    fetch(`/api/v2/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`)
+      .then(async res => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => setContent(data.content))
+      .catch(e => setError(String(e.message ?? e)))
+      .finally(() => setLoading(false));
+  }, [sessionId, filePath]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-3 text-[10px] text-[#58a6ff]">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading file...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-3 py-2 text-[10px] text-[#ff7b72]">{error}</div>
+    );
+  }
+
+  const lines = (content ?? '').split('\n');
+  return (
+    <div className="bg-[#010409] overflow-x-auto max-h-80 overflow-y-auto">
+      <div className="px-2.5 py-1 text-[9px] font-mono text-[#484f58] border-b border-[#21262d] truncate flex items-center gap-1.5">
+        <FileCode2 className="h-3 w-3 shrink-0" />
+        {filePath}
+        <span className="ml-auto text-[#30363d]">{lines.length} lines</span>
+      </div>
+      <table className="w-full border-collapse text-[11px] font-mono leading-5">
+        <tbody>
+          {lines.map((line, i) => (
+            <tr key={i} className="hover:bg-[#161b22]">
+              <td className="select-none text-right pr-2 pl-2 text-[#30363d] border-r border-[#21262d] w-10 shrink-0">
+                {i + 1}
+              </td>
+              <td className="px-3 py-0 whitespace-pre text-[#c9d1d9] break-all">
+                {line}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -684,8 +1402,9 @@ function detectLang(filePath: string): string {
   return map[ext] || ext || 'txt';
 }
 
-function FileDiffViewer({ changes }: { changes: FileChange[] }) {
+function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; sessionId: string }) {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [fileViewMode, setFileViewMode] = useState<Record<string, 'diff' | 'file'>>({});
 
   const totalAdd = changes.reduce((s, c) => s + c.additions, 0);
   const totalDel = changes.reduce((s, c) => s + c.deletions, 0);
@@ -764,17 +1483,35 @@ function FileDiffViewer({ changes }: { changes: FileChange[] }) {
                 </div>
               )}
 
-              {/* Diff content */}
-              {isExpanded && (
-                <div className="border-t border-[#21262d] bg-[#010409]">
-                  <div className="px-3 py-1 text-[9px] font-mono text-[#484f58] border-b border-[#21262d] truncate">
-                    {fc.filePath}
+              {/* Expanded: diff or file view */}
+              {isExpanded && (() => {
+                const mode = fileViewMode[fc.filePath] ?? 'diff';
+                return (
+                  <div className="border-t border-[#21262d]">
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-[#010409] border-b border-[#21262d]">
+                      <span className="text-[9px] font-mono text-[#484f58] truncate flex-1">{fc.filePath}</span>
+                      <button
+                        onClick={e => { e.stopPropagation(); setFileViewMode(prev => ({ ...prev, [fc.filePath]: mode === 'diff' ? 'file' : 'diff' })); }}
+                        className={cn(
+                          'text-[9px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors',
+                          mode === 'file'
+                            ? 'text-[#58a6ff] bg-[#58a6ff]/10'
+                            : 'text-[#484f58] hover:text-[#8b949e]',
+                        )}
+                      >
+                        <FileCode2 className="h-2.5 w-2.5" /> {mode === 'file' ? 'Diff' : 'View File'}
+                      </button>
+                    </div>
+                    {mode === 'diff' ? (
+                      fc.diff
+                        ? <DiffLines diff={fc.diff} />
+                        : <p className="px-3 py-2 text-[10px] text-[#484f58]">No diff available</p>
+                    ) : (
+                      <FileContentViewer sessionId={sessionId} filePath={fc.filePath} />
+                    )}
                   </div>
-                  {fc.diff
-                    ? <DiffLines diff={fc.diff} />
-                    : <p className="px-3 py-2 text-[10px] text-[#484f58]">No diff available</p>}
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}

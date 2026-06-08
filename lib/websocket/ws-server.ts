@@ -1,19 +1,28 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import type { Server } from 'http';
-import type { SessionEvent } from '@/types/events';
+import type { SessionEvent, ClientMessage } from '@/types/events';
 
-let wss: WsServer | null = null;
+let instance: WsServer | null = null;
+
+export type ClientMessageHandler = (msg: ClientMessage) => void;
 
 export class WsServer {
   private wsServer: WebSocketServer;
   private clients = new Set<WebSocket>();
+  private messageHandlers = new Set<ClientMessageHandler>();
 
-  constructor(server: Server) {
-    this.wsServer = new WebSocketServer({ server, path: '/ws' });
+  constructor(wsServer: WebSocketServer) {
+    this.wsServer = wsServer;
 
     this.wsServer.on('connection', (ws) => {
       this.clients.add(ws);
       ws.send(JSON.stringify({ type: 'ping' }));
+
+      ws.on('message', (raw) => {
+        try {
+          const msg: ClientMessage = JSON.parse(raw.toString());
+          for (const handler of this.messageHandlers) handler(msg);
+        } catch { /* ignore malformed messages */ }
+      });
 
       ws.on('close', () => this.clients.delete(ws));
       ws.on('error', () => this.clients.delete(ws));
@@ -36,18 +45,27 @@ export class WsServer {
     });
   }
 
+  onClientMessage(handler: ClientMessageHandler) {
+    this.messageHandlers.add(handler);
+    return () => { this.messageHandlers.delete(handler); };
+  }
+
   get clientCount() {
     return this.clients.size;
   }
 }
 
-export function initWsServer(server: Server): WsServer {
-  if (!wss) {
-    wss = new WsServer(server);
+export function initWsServer(wsServer: WebSocketServer): WsServer {
+  if (!instance) {
+    instance = new WsServer(wsServer);
   }
-  return wss;
+  return instance;
 }
 
 export function getWsServer(): WsServer | null {
-  return wss;
+  if (instance) return instance;
+  const g = (globalThis as Record<string, unknown>).__wss;
+  // Duck-type check: instanceof fails across Turbopack module boundaries
+  if (g && typeof (g as WsServer).broadcast === 'function') return g as WsServer;
+  return null;
 }
