@@ -329,7 +329,7 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
   // Snapshot the working tree before Claude runs so rewind can restore it.
   try {
     execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
-      cwd: projectCwd, shell: true, stdio: 'pipe',
+      cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe',
     });
   } catch { /* not a git repo, or nothing to stash — non-fatal */ }
 
@@ -666,14 +666,14 @@ export async function POST(
         }
       } catch { /* fall back to server cwd */ }
 
-      // Use Claude Code's built-in /rewind for each cycle.
-      // Each improvement cycle adds exactly one turn (one user prompt + one
-      // assistant response), so one /rewind call per cycle removes it cleanly.
+      // Delegate to Claude Code's built-in /rewind for each cycle.
+      // Each improvement cycle adds exactly one conversation turn, so one
+      // /rewind call per cycle removes it — including the file changes it made.
       for (let i = 0; i < cyclesToRewind; i++) {
         try {
           execSync(
             `claude --resume ${sessionId} -p "/rewind" --dangerously-skip-permissions`,
-            { cwd: projectCwd, shell: true, stdio: 'pipe' }
+            { cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe' }
           );
         } catch (e) {
           return NextResponse.json(
@@ -683,20 +683,17 @@ export async function POST(
         }
       }
 
-      // Restore file changes made during the rewound cycle(s).
-      // /rewind only removes conversation turns — file edits must be undone separately.
-      try { execSync('git restore .', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
-      try { execSync('git clean -fd', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
-
-      // Pop the stash saved before the target cycle ran (contains pre-cycle file state)
+      // Restore any pre-cycle uncommitted changes that AgentWatch stashed before
+      // the cycle ran. Claude Code's /rewind handles reverting its own file edits;
+      // this stash pop restores whatever was already in the working tree beforehand.
       try {
-        const stashList = execSync('git stash list', { cwd: projectCwd, shell: true }).toString('utf8');
+        const stashList = execSync('git stash list', { cwd: projectCwd, shell: 'cmd.exe' }).toString('utf8');
         const line = stashList.split('\n').find(l => l.includes(`agentwatch-pre-${rewindCycleId}`));
         if (line) {
           const ref = line.split(':')[0].trim(); // e.g. "stash@{2}"
-          execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: true, stdio: 'pipe' });
+          execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe' });
         }
-      } catch { /* non-fatal — stash may not exist if the working tree was clean */ }
+      } catch { /* non-fatal — stash may not exist if working tree was clean before the cycle */ }
 
       // Mark this cycle and all later ones as rewound
       db.prepare(`

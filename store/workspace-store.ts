@@ -100,6 +100,7 @@ export interface WorkspaceStore {
   sessionId: string | null;
   layout: LayoutNode | null;
   focusedPaneId: string | null;
+  maximizedPaneId: string | null;
   paneStates: Record<string, PaneState>;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -111,6 +112,8 @@ export interface WorkspaceStore {
   splitPane: (paneId: string, direction: 'horizontal' | 'vertical', content: PaneTab) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;
+  maximizePane: (paneId: string) => void;
+  restorePane: () => void;
   updateRatio: (node: LayoutNode, sizes: number[]) => void;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   addTabToPane: (paneId: string, tab: PaneTab) => void;
@@ -130,6 +133,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     sessionId: null,
     layout: null,
     focusedPaneId: null,
+    maximizedPaneId: null,
     paneStates: {},
     sidebarCollapsed: false,
     sidebarWidth: 280,
@@ -139,6 +143,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     setSessionId: (id) => set({ sessionId: id }),
 
     setLayout: (layout) => set({ layout }),
+
+    maximizePane: (paneId) => set({ maximizedPaneId: paneId }),
+    restorePane: () => set({ maximizedPaneId: null }),
 
     splitPane: (paneId, direction, content) => {
       const { layout } = get();
@@ -226,7 +233,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     setActiveFilters: (filters) => set({ activeFilters: filters }),
 
     reset: () => set({
-      sessionId: null, layout: null, focusedPaneId: null,
+      sessionId: null, layout: null, focusedPaneId: null, maximizedPaneId: null,
       paneStates: {}, globalSearchQuery: '',
       activeFilters: { agentTypes: [], tools: [], timeRange: null, messageRoles: [] },
     }),

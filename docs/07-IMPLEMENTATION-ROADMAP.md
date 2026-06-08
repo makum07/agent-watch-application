@@ -4,7 +4,7 @@
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
 **Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08.
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08).
 
 ---
 
@@ -194,7 +194,7 @@ A user can review a session, collect categorized feedback on agent behavior, and
 
 ---
 
-## Phase 2: Advanced Visualization (6-8 weeks)
+## Phase 2: Advanced Visualization ✅ COMPLETE (2026-06-08)
 
 ### Goal
 
@@ -202,32 +202,41 @@ Rich visual representations of session execution: interactive timeline, agent hi
 
 ### Features
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| **Execution Timeline** | Canvas-based horizontal timeline with agent bars, zoom, pan, viewport culling | 2 weeks |
-| **Agent Hierarchy Graph** | SVG-based tree/DAG layout with force-directed positioning, zoom, pan | 1.5 weeks |
-| **Session Artifact Explorer** | Detect file Write/Edit operations, build file tree, show content with syntax highlighting | 1.5 weeks |
-| **Per-Agent Artifacts Tab** | Produced/consumed file lists within the agent pane, preview panel, filters | 0.5 weeks |
-| **Per-Agent Tools Tab** | Grouped, filterable tool call log within the agent pane | 0.5 weeks |
-| **Timeline Markers** | Tool call diamonds and artifact creation squares on timeline bars | 0.5 weeks |
-| **Concurrent Execution Lanes** | Swim lanes showing agents running in parallel | 0.5 weeks |
-| **Named Layout Saves** | Save/restore named layouts per session, layout dropdown with presets | 0.5 weeks |
-| **Pinning and Favorites** | Pin/favorite actions on session cards, filtered views on home dashboard | 0.5 weeks |
-| **Graph Interactions** | Click node to open agent, hover for tooltip, collapse subtrees | 0.5 weeks |
-| **Pane Maximize/Restore** | Double-click title bar to maximize a pane | 0.25 weeks |
-| **Pane Tab Management** | Tab bar, reorder tabs, close tab, add tab | 0.5 weeks |
+| Feature | Description | Effort | Status |
+|---------|-------------|--------|--------|
+| **Execution Timeline** | Zoom/pan horizontal timeline with agent bars, viewport culling, hover tooltips | 2 weeks | ✅ |
+| **Agent Hierarchy Graph** | SVG tree/DAG with bezier edges, zoom/pan, dot-grid canvas, click-to-open | 1.5 weeks | ✅ |
+| **Session Artifact Explorer** | Session-wide file tree grouped by directory, inline viewer, filter, agent badges | 1.5 weeks | ✅ |
+| **Per-Agent Artifacts Tab** | DB-backed artifact list with filter (all/created/modified), inline file viewer, dedup by path | 0.5 weeks | ✅ |
+| **Per-Agent Tools Tab** | Chronological flat list with search filter, load-more pagination | 0.5 weeks | ✅ |
+| **Timeline Markers** | Artifact triangles on agent bars (green=create, orange=edit), toggleable, with hover tooltip | 0.5 weeks | ✅ |
+| **Concurrent Execution Lanes** | "Lanes" mode toggle — swim lane layout via greedy interval algorithm, multiple agents per row | 0.5 weeks | ✅ |
+| **Named Layout Saves** | Save/restore named layouts per session, inline name input, dropdown with delete | 0.5 weeks | ✅ |
+| **Pinning and Favorites** | Interactive pin/star buttons on session cards, optimistic update via PUT history API | 0.5 weeks | ✅ |
+| **Graph Interactions** | Click node to open agent, hover for tooltip, collapse subtrees | 0.5 weeks | ✅ |
+| **Pane Maximize/Restore** | Maximize button in pane header fills workspace; restore button to return | 0.25 weeks | ✅ |
+| **Pane Tab Management** | "+" tab button in multi-tab bar with searchable agent picker dropdown | 0.5 weeks | ✅ |
 
 ### Architecture Changes
 
 | Component | Change |
 |-----------|--------|
-| Backend | New `src/services/ArtifactTracker.js` |
-| Backend | New `src/routes/artifacts.js` |
-| Backend | `timeline_events` table populated during ingestion |
-| Frontend | New `src/analytics-web/components/visualization/` directory |
-| Frontend | Canvas rendering engine for timeline |
-| Frontend | SVG rendering for agent graph |
-| Frontend | Prism.js added for syntax highlighting |
+| API | New `GET /api/v2/sessions/[id]/agents/[agentId]/artifacts` — queries DB artifacts table directly | ✅ |
+| API | New `GET /api/v2/sessions/[id]/artifacts` — session-wide artifacts for explorer + timeline markers | ✅ |
+| API | New `DELETE /api/v2/workspaces/[sessionId]/[snapshotId]` — delete named layout snapshot | ✅ |
+| Store | `workspace-store.ts` — added `maximizedPaneId`, `maximizePane`, `restorePane` | ✅ |
+| UI | `components/agent/artifacts-tab.tsx` — rewritten to use DB endpoint; inline file viewer | ✅ |
+| UI | `components/agent/tools-tab.tsx` — chronological flat list with search filter | ✅ |
+| UI | `components/agent/agent-view.tsx` — artifact count badge; maximize/restore button | ✅ |
+| UI | `components/workspace/workspace-shell.tsx` — maximized pane mode | ✅ |
+| UI | `components/workspace/pane.tsx` — timeline/graph/artifacts pane types; "+" tab picker | ✅ |
+| UI | `components/home/session-card.tsx` — interactive pin/favorite toggle buttons | ✅ |
+| UI | `components/session/session-artifacts-pane.tsx` — new session file explorer pane | ✅ |
+| UI | `components/session/execution-timeline.tsx` — Gantt timeline, swim lanes, artifact markers, click-to-open (with router fallback for standalone page) | ✅ |
+| UI | `components/session/agent-hierarchy-graph.tsx` — SVG tree with bezier edges, zoom/pan, click-to-open | ✅ |
+| UI | `components/session/agent-sidebar.tsx` — Timeline/Graph/Files buttons in footer | ✅ |
+| UI | `app/session/[id]/workspace/page.tsx` — SavedLayouts component in workspace header | ✅ |
+| UI | `app/session/[id]/timeline/page.tsx` — full-page wrapper for ExecutionTimeline; clicking bar navigates to workspace | ✅ |
 
 ### Technical Risks
 
@@ -239,14 +248,28 @@ Rich visual representations of session execution: interactive timeline, agent hi
 
 ### Deliverables
 
-- [ ] Interactive execution timeline (Canvas)
-- [ ] Agent hierarchy graph (SVG)
-- [ ] Artifact explorer with file tree
-- [ ] Timeline markers (tool calls, artifacts)
-- [ ] Concurrent execution lanes
-- [ ] Layout save/restore
-- [ ] Pane maximize/restore
-- [ ] Tab management within panes
+- [x] Interactive execution timeline — zoom/pan, row-per-agent, hover tooltips, click-to-open
+- [x] Agent hierarchy graph — SVG tree with bezier edges, dot-grid canvas, zoom/pan
+- [x] Session artifact explorer — file tree by directory, inline viewer, filter, agent badges
+- [x] Timeline markers — artifact triangles on agent bars, toggleable Markers button, legend
+- [x] Concurrent execution lanes — Lanes toggle in toolbar, greedy swim lane assignment
+- [x] Pane tab management — "+" button in tab bar with searchable agent/view picker
+- [x] Per-agent artifacts tab — DB-backed, filter by type, inline file viewer (click to expand)
+- [x] Per-agent tools tab — chronological flat list, search filter, load-more
+- [x] Named layout saves — save/restore/delete via workspace header
+- [x] Pinning and favorites — interactive toggle on session cards
+- [x] Pane maximize/restore — maximize button fills workspace area
+- [x] Graph interactions — click node opens agent, hover tooltip, status indicators
+
+> **Implementation notes:**
+> - Artifacts tab reads from `artifacts` DB table via new API endpoint (not message scan), fixing badge/content count mismatch
+> - Tools tab shows tool calls in execution order (message order), not grouped
+> - Artifact count badge in tab rail counts `Write + Edit + NotebookEdit` (matches `artifact-extractor.ts`)
+> - Pane maximize stores `maximizedPaneId` in workspace store; workspace shell renders only that pane when set
+> - Named layout saves use existing `workspace_snapshots` table (`is_auto_save = 0`); delete route added
+> - Timeline/graph click-to-open: in a workspace pane, `findOtherPane` opens the agent in a sibling pane (not the timeline pane itself); on the standalone `/timeline` page, sets layout then `router.push` to workspace
+> - Timeline markers use artifact timestamps from the `artifacts` table (populated during ingestion); `timeline_events` table has `tool_call` event type defined but not yet populated — tool call markers deferred to a future cycle
+> - Swim lanes use greedy interval scheduling: each agent assigned to the earliest lane whose last occupant has already ended, minimising lane count
 
 ### Definition of Done
 

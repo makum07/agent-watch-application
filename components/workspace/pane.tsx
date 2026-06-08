@@ -1,10 +1,12 @@
 'use client';
 
-import { X, Plus, SplitSquareHorizontal, SplitSquareVertical } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Plus, SplitSquareHorizontal, SplitSquareVertical, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentView } from '@/components/agent/agent-view';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
+import { getAgentDisplay } from '@/lib/agent-display';
 import type { PaneTab } from '@/types/workspace';
 
 interface PaneProps {
@@ -15,8 +17,9 @@ interface PaneProps {
 }
 
 export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
-  const { setActiveTab, closeTab, closePane, setFocusedPane, focusedPaneId, splitPane } = useWorkspaceStore();
+  const { setActiveTab, closeTab, closePane, setFocusedPane, focusedPaneId, splitPane, addTabToPane } = useWorkspaceStore();
   const isFocused = focusedPaneId === paneId;
+  const [showPicker, setShowPicker] = useState(false);
 
   const currentTab = tabs[activeTab];
 
@@ -81,7 +84,7 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
     >
       {/* Tab bar — shown when multiple tabs */}
       {tabs.length > 1 && (
-        <div className="flex items-center bg-[#0d1117] border-b border-[#21262d] overflow-x-auto shrink-0">
+        <div className="flex items-center bg-[#0d1117] border-b border-[#21262d] overflow-x-auto shrink-0 relative">
           {tabs.map((tab, i) => (
             <div
               key={`${tab.type}-${i}`}
@@ -102,6 +105,14 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
               </button>
             </div>
           ))}
+          {/* Add tab button */}
+          <button
+            onClick={e => { e.stopPropagation(); setShowPicker(p => !p); }}
+            className="p-1.5 text-[#484f58] hover:text-[#c9d1d9] hover:bg-[#161b22] transition-colors border-r border-[#21262d] shrink-0"
+            title="Add tab"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
           <div className="ml-auto flex items-center gap-1 px-2">
             <SplitButton paneId={paneId} tabs={tabs} activeTab={activeTab} />
             <button
@@ -112,6 +123,14 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
+          {/* Agent picker dropdown */}
+          {showPicker && (
+            <AgentPickerDropdown
+              paneId={paneId}
+              existingTabs={tabs}
+              onClose={() => setShowPicker(false)}
+            />
+          )}
         </div>
       )}
 
@@ -182,6 +201,24 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
       />
     );
   }
+  // Execution timeline
+  if (tab.type === 'timeline') {
+    const { ExecutionTimeline } = require('@/components/session/execution-timeline');
+    return <ExecutionTimeline sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
+  // Agent hierarchy graph
+  if (tab.type === 'graph') {
+    const { AgentHierarchyGraph } = require('@/components/session/agent-hierarchy-graph');
+    return <AgentHierarchyGraph sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
+  // Session-wide artifact explorer
+  if (tab.type === 'artifacts') {
+    const { SessionArtifactsPane } = require('@/components/session/session-artifacts-pane');
+    return <SessionArtifactsPane sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
   // Artifact content pane
   if (tab.type === 'artifact-content') {
     const { ArtifactPaneView } = require('@/components/agent/artifact-pane-view');
@@ -192,6 +229,112 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
     <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
       {tab.type} view
     </div>
+  );
+}
+
+// ─── Agent Picker Dropdown ─────────────────────────────────────────────────────
+
+function AgentPickerDropdown({
+  paneId,
+  existingTabs,
+  onClose,
+}: {
+  paneId: string;
+  existingTabs: PaneTab[];
+  onClose: () => void;
+}) {
+  const { addTabToPane } = useWorkspaceStore();
+  const { session } = useSessionStore();
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Agents not already open in this pane
+  const openAgentIds = new Set(existingTabs.filter(t => t.type === 'agent').map(t => (t as { agentId: string }).agentId));
+  const available = (session?.agents ?? []).filter(a => !openAgentIds.has(a.id));
+
+  const filtered = search.trim()
+    ? available.filter(a => {
+        const { name } = getAgentDisplay(a);
+        return name.toLowerCase().includes(search.toLowerCase()) ||
+          (a.subagentType || '').toLowerCase().includes(search.toLowerCase());
+      })
+    : available;
+
+  const addAgent = (agentId: string, label: string) => {
+    addTabToPane(paneId, { type: 'agent', agentId, label });
+    onClose();
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute left-0 top-full z-50 mt-0.5 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl w-64">
+        <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[#21262d]">
+          <Search className="h-3 w-3 text-[#484f58] shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search agents…"
+            className="flex-1 text-xs bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none"
+            onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
+          />
+        </div>
+        <div className="max-h-52 overflow-y-auto py-1">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-[#6e7681] text-center">
+              {available.length === 0 ? 'All agents are already open' : 'No matching agents'}
+            </div>
+          ) : (
+            filtered.map(agent => {
+              const { shortName, color, initials } = getAgentDisplay(agent);
+              return (
+                <button
+                  key={agent.id}
+                  onClick={() => addAgent(agent.id, shortName)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#21262d] transition-colors text-left"
+                >
+                  <div
+                    className="w-5 h-5 rounded flex items-center justify-center text-[8px] font-bold shrink-0 border"
+                    style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}
+                  >
+                    {initials.slice(0, 2)}
+                  </div>
+                  <span className="text-xs text-[#c9d1d9] truncate flex-1">{shortName}</span>
+                  <span className={cn('text-[8px] px-1 rounded shrink-0',
+                    agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
+                    agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
+                    'text-[#8b949e] bg-[#21262d]'
+                  )}>
+                    {agent.status[0].toUpperCase()}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div className="border-t border-[#21262d] px-2 py-1 flex gap-1">
+          {([
+            { type: 'timeline' as const, label: 'Timeline' },
+            { type: 'graph' as const, label: 'Graph' },
+            { type: 'artifacts' as const, label: 'Files' },
+          ] as const).map(({ type, label }) => (
+            <button
+              key={type}
+              onClick={() => { addTabToPane(paneId, { type, label }); onClose(); }}
+              className="flex-1 text-[10px] py-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, ExternalLink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, ExternalLink, Files, Activity, GitFork } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
@@ -211,6 +211,38 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* Session-level views */}
+      <div className="px-2 py-1.5 border-t border-[#21262d] flex gap-1">
+        {([
+          { type: 'timeline', label: 'Timeline', icon: <Activity className="h-3.5 w-3.5 text-[#58a6ff]" /> },
+          { type: 'graph',    label: 'Graph',    icon: <GitFork  className="h-3.5 w-3.5 text-[#bc8cff]" /> },
+          { type: 'artifacts',label: 'Files',    icon: <Files    className="h-3.5 w-3.5 text-[#f0883e]" /> },
+        ] as const).map(({ type, label, icon }) => (
+          <button
+            key={type}
+            onClick={() => {
+              const store = useWorkspaceStore.getState();
+              const tab: PaneTab = {
+                type: type as 'timeline' | 'graph' | 'artifacts',
+                label: type === 'timeline' ? 'Timeline' : type === 'graph' ? 'Agent Graph' : 'Session Files',
+              };
+              if (store.focusedPaneId && store.layout) {
+                store.addTabToPane(store.focusedPaneId, tab);
+              } else if (store.layout) {
+                store.addTabToPane(getFirstPaneId(store.layout)!, tab);
+              } else {
+                store.setLayout({ type: 'pane', id: 'main', tabs: [tab], activeTab: 0 });
+              }
+            }}
+            className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1.5 rounded text-[10px] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#161b22] transition-colors"
+            title={`Open ${label}`}
+          >
+            {icon}
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Drag hint */}
       <div className="px-3 py-2 border-t border-[#21262d]">

@@ -8,12 +8,12 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare } from 'lucide-react';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
-import type { LayoutNode } from '@/types/workspace';
+import type { LayoutNode, WorkspaceSnapshot } from '@/types/workspace';
 import type { Session } from '@/types/session';
 
 interface Props {
@@ -245,6 +245,7 @@ export default function WorkspacePage({ params }: Props) {
               </div>
               <div className="flex-1" />
               <LayoutPresets session={session} setLayout={setLayout} />
+              <SavedLayouts sessionId={id} />
               <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
                 <Link href={`/session/${id}/timeline`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors">
                   Timeline
@@ -388,6 +389,135 @@ function LayoutPresets({ session, setLayout }: {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Named layout saves — save/restore custom layouts
+function SavedLayouts({ sessionId }: { sessionId: string }) {
+  const { layout, paneStates, sidebarCollapsed, sidebarWidth, globalSearchQuery, activeFilters, setLayout } = useWorkspaceStore();
+  const [snapshots, setSnapshots] = useState<WorkspaceSnapshot[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [showSaveInput, setShowSaveInput] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/v2/workspaces/${sessionId}`)
+      .then(r => r.json())
+      .then(d => setSnapshots(d.snapshots ?? []))
+      .catch(() => {});
+  }, [sessionId]);
+
+  const saveLayout = async () => {
+    if (!layout || !saveName.trim()) return;
+    setIsSaving(true);
+    const snapshot: WorkspaceSnapshot = {
+      id: crypto.randomUUID(),
+      sessionId,
+      savedAt: new Date().toISOString(),
+      isAutoSave: false,
+      name: saveName.trim(),
+      layout,
+      paneStates,
+      sidebarCollapsed,
+      sidebarWidth,
+      globalSearchQuery: globalSearchQuery || null,
+      activeFilters,
+    };
+    try {
+      const res = await fetch(`/api/v2/workspaces/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      });
+      const saved = await res.json();
+      setSnapshots(prev => [saved, ...prev]);
+      setSaveName('');
+      setShowSaveInput(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteSnapshot = async (snapshotId: string) => {
+    setSnapshots(prev => prev.filter(s => s.id !== snapshotId));
+    await fetch(`/api/v2/workspaces/${sessionId}/${snapshotId}`, { method: 'DELETE' }).catch(() => {});
+  };
+
+  const named = snapshots.filter(s => !s.isAutoSave);
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-0.5 bg-[#21262d]/60 rounded-md px-1 py-0.5">
+        {showSaveInput ? (
+          <div className="flex items-center gap-1 px-1">
+            <input
+              autoFocus
+              value={saveName}
+              onChange={e => setSaveName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveLayout(); if (e.key === 'Escape') setShowSaveInput(false); }}
+              placeholder="Layout name…"
+              className="text-[11px] bg-[#0d1117] border border-[#30363d] rounded px-2 py-0.5 text-[#e6edf3] placeholder-[#484f58] outline-none w-28 focus:border-[#58a6ff]/50"
+            />
+            <button
+              onClick={saveLayout}
+              disabled={isSaving || !saveName.trim()}
+              className="text-[11px] px-2 py-0.5 rounded bg-[#58a6ff]/15 text-[#58a6ff] hover:bg-[#58a6ff]/25 disabled:opacity-40 transition-colors"
+            >
+              {isSaving ? '…' : 'Save'}
+            </button>
+            <button onClick={() => setShowSaveInput(false)} className="text-[#6e7681] hover:text-[#c9d1d9] text-[11px] px-1">✕</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowSaveInput(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors"
+            title="Save current layout"
+          >
+            <Save className="h-3 w-3" />
+            <span className="hidden sm:inline">Save</span>
+          </button>
+        )}
+
+        {named.length > 0 && (
+          <button
+            onClick={() => setIsOpen(o => !o)}
+            className="flex items-center gap-0.5 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors"
+            title="Saved layouts"
+          >
+            <BookOpen className="h-3 w-3" />
+            <span className="text-[10px] bg-[#30363d] rounded-full px-1">{named.length}</span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
+      {isOpen && named.length > 0 && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl w-52 py-1">
+            <div className="px-3 py-1.5 text-[10px] text-[#6e7681] font-medium uppercase tracking-wide">Saved Layouts</div>
+            {named.map(s => (
+              <div key={s.id} className="flex items-center gap-1 px-2 py-1 hover:bg-[#21262d] group">
+                <button
+                  onClick={() => { setLayout(s.layout); setIsOpen(false); }}
+                  className="flex-1 text-left text-xs text-[#c9d1d9] hover:text-[#e6edf3] truncate"
+                >
+                  {s.name}
+                </button>
+                <button
+                  onClick={() => deleteSnapshot(s.id)}
+                  className="opacity-0 group-hover:opacity-100 text-[#6e7681] hover:text-red-400 transition-all p-0.5 rounded"
+                  title="Delete"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

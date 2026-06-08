@@ -12,8 +12,13 @@ interface WorkspaceShellProps {
   sessionId: string;
 }
 
+function findPaneById(node: LayoutNode, paneId: string): Extract<LayoutNode, { type: 'pane' }> | null {
+  if (node.type === 'pane') return node.id === paneId ? node : null;
+  return findPaneById(node.children[0], paneId) ?? findPaneById(node.children[1], paneId);
+}
+
 export function WorkspaceShell({ sessionId }: WorkspaceShellProps) {
-  const { layout } = useWorkspaceStore();
+  const { layout, maximizedPaneId } = useWorkspaceStore();
 
   if (!layout) {
     return (
@@ -22,6 +27,18 @@ export function WorkspaceShell({ sessionId }: WorkspaceShellProps) {
         <p className="text-sm opacity-50">Drag agents from the sidebar to create panes</p>
       </div>
     );
+  }
+
+  // Maximized mode — render only the focused pane full-height
+  if (maximizedPaneId) {
+    const pane = findPaneById(layout, maximizedPaneId);
+    if (pane) {
+      return (
+        <div className="h-full overflow-hidden">
+          <Pane paneId={pane.id} tabs={pane.tabs} activeTab={pane.activeTab} sessionId={sessionId} />
+        </div>
+      );
+    }
   }
 
   return (

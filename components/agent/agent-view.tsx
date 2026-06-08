@@ -1,6 +1,6 @@
 'use client';
 
-import { X, SplitSquareHorizontal, SplitSquareVertical } from 'lucide-react';
+import { X, SplitSquareHorizontal, SplitSquareVertical, Maximize2, Minimize2 } from 'lucide-react';
 import { ConversationTab } from './conversation-tab';
 import { ArtifactsTab } from './artifacts-tab';
 import { ContextTab } from './context-tab';
@@ -34,8 +34,9 @@ const TABS: { id: AgentSubTab; label: string }[] = [
 
 export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTab = 'conversation', onSubTabChange }: AgentViewProps) {
   const agent = useSessionStore(s => s.agentMap.get(agentId));
-  const { closePane, splitPane } = useWorkspaceStore();
+  const { closePane, splitPane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
   const feedbackCount = useFeedbackStore(s => s.items.filter(i => i.agentId === agentId).length);
+  const isMaximized = maximizedPaneId === paneId;
 
   if (!agent) {
     return (
@@ -47,6 +48,9 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
 
   const { name, typeLabel, color } = getAgentDisplay(agent);
   const toolCount = agent.toolCalls.reduce((s, t) => s + t.count, 0);
+  const artifactCount = agent.toolCalls
+    .filter(t => t.name === 'Write' || t.name === 'Edit' || t.name === 'NotebookEdit')
+    .reduce((s, t) => s + t.count, 0);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
@@ -69,22 +73,33 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           </span>
           {/* Controls */}
           <div className="flex items-center gap-0.5 shrink-0">
+            {!isMaximized && (
+              <>
+                <button
+                  onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
+                  className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                  title="Split right"
+                >
+                  <SplitSquareHorizontal className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => splitPane(paneId, 'vertical', { type: 'agent', agentId: '', label: '' })}
+                  className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                  title="Split down"
+                >
+                  <SplitSquareVertical className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
             <button
-              onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
+              onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
               className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-              title="Split right"
+              title={isMaximized ? 'Restore pane' : 'Maximize pane'}
             >
-              <SplitSquareHorizontal className="h-3.5 w-3.5" />
+              {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
             <button
-              onClick={() => splitPane(paneId, 'vertical', { type: 'agent', agentId: '', label: '' })}
-              className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-              title="Split down"
-            >
-              <SplitSquareVertical className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => closePane(paneId)}
+              onClick={() => { restorePane(); closePane(paneId); }}
               className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
               title="Close pane"
             >
@@ -121,7 +136,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
         <div className="flex items-center px-1 bg-[#0d1117] border-t border-[#21262d]">
           {TABS.map(tab => {
             const isActive = activeSubTab === tab.id;
-            const count = tab.id === 'tools' ? toolCount : 0;
+            const count = tab.id === 'tools' ? toolCount : tab.id === 'artifacts' ? artifactCount : 0;
             return (
               <button
                 key={tab.id}
