@@ -13,6 +13,7 @@ interface SessionStore {
   getAgent: (id: string) => Agent | undefined;
   getRootAgent: () => Agent | undefined;
   getChildAgents: (parentId: string) => Agent[];
+  getAncestors: (agentId: string) => Agent[];
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -46,5 +47,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const parent = agentMap.get(parentId);
     if (!parent) return [];
     return parent.children.map(id => agentMap.get(id)).filter(Boolean) as Agent[];
+  },
+
+  getAncestors: (agentId) => {
+    const { agentMap } = get();
+    const ancestors: Agent[] = [];
+    let currentId = agentMap.get(agentId)?.parentId ?? null;
+    while (currentId) {
+      const parent = agentMap.get(currentId);
+      if (!parent) break;
+      ancestors.unshift(parent);
+      currentId = parent.parentId;
+    }
+    return ancestors;
   },
 }));

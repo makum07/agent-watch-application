@@ -723,12 +723,13 @@ function TouchedFilesSummary({ entries, sessionId }: { entries: StreamEntry[]; s
       }
     }
     // Approval results logged as tool_result with filePath
-    if (e.kind === 'tool_result' && (e as Record<string, unknown>).filePath) {
-      const fp = String((e as Record<string, unknown>).filePath);
-      const approved = (e as Record<string, unknown>).approved as boolean | undefined;
+    const eAny = e as unknown as Record<string, unknown>;
+    if (e.kind === 'tool_result' && eAny.filePath) {
+      const fp = String(eAny.filePath);
+      const approved = eAny.approved as boolean | undefined;
       if (!seen.has(fp)) {
         seen.add(fp);
-        files.push({ path: fp, toolName: String((e as Record<string, unknown>).toolName ?? 'Edit'), approved });
+        files.push({ path: fp, toolName: String(eAny.toolName ?? 'Edit'), approved });
       }
     }
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
@@ -79,9 +79,18 @@ interface AgentHierarchyGraphProps {
   sessionId: string;
   paneId?: string;
   isSingleTab?: boolean;
+  showWorkflowPhases?: boolean;
 }
 
-export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab }: AgentHierarchyGraphProps) {
+interface WorkflowPhaseData {
+  title: string;
+  agentIds: Set<string>;
+  color: string;
+}
+
+const PHASE_COLORS = ['#1c3556', '#1a3d2a', '#3d2a0e', '#2d1f45', '#3d1f1a', '#1a3038'];
+
+export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkflowPhases: defaultShowPhases }: AgentHierarchyGraphProps) {
   const { session, agentMap } = useSessionStore();
   const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
   const router = useRouter();
@@ -91,8 +100,35 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab }: AgentHie
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ startX: 0, startY: 0, startPan: { x: 0, y: 0 } });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [showPhases, setShowPhases] = useState(defaultShowPhases ?? false);
+  const [phaseData, setPhaseData] = useState<WorkflowPhaseData[]>([]);
+  const [phasesLoaded, setPhasesLoaded] = useState(false);
 
   const isMaximized = paneId ? maximizedPaneId === paneId : false;
+
+  // Load workflow phases when toggled on
+  useEffect(() => {
+    if (!showPhases || phasesLoaded) return;
+    fetch(`/api/v2/sessions/${sessionId}/workflow`)
+      .then(r => r.json())
+      .then(data => {
+        const phases: WorkflowPhaseData[] = [];
+        let colorIdx = 0;
+        for (const wf of data.workflows ?? []) {
+          for (const phase of wf.phases ?? []) {
+            phases.push({
+              title: phase.title,
+              agentIds: new Set(phase.agentIds),
+              color: PHASE_COLORS[colorIdx % PHASE_COLORS.length],
+            });
+            colorIdx++;
+          }
+        }
+        setPhaseData(phases);
+        setPhasesLoaded(true);
+      })
+      .catch(() => setPhasesLoaded(true));
+  }, [showPhases, phasesLoaded, sessionId]);
 
   // Build tree layout
   const { allNodes, edges, svgWidth, svgHeight, rootIds } = useMemo(() => {
@@ -217,11 +253,32 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab }: AgentHie
         <span className="text-[11px] text-[#6e7681] flex-1">
           {session.agents.length} agents · {session.agents.filter(a => a.parentId).length} subagents
         </span>
+        <button
+          onClick={() => { setShowPhases(v => !v); setPhasesLoaded(false); }}
+          className={cn(
+            'text-[10px] px-2 py-1 rounded transition-colors shrink-0',
+            showPhases ? 'bg-[#1a3d2a] text-[#3fb950] border border-[#2d6b47]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+          )}
+          title="Show workflow phases"
+        >
+          Phases
+        </button>
         <button onClick={() => doZoom(1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
         <button onClick={() => doZoom(1 / 1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
         <button onClick={resetView} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Reset view"><RotateCcw className="h-3 w-3" /></button>
         <span className="text-[10px] font-mono text-[#484f58] w-10 text-right">{Math.round(zoom * 100)}%</span>
       </div>
+
+      {/* Phase legend */}
+      {showPhases && phaseData.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 py-1.5 border-b border-[#21262d] bg-[#0a0e14] shrink-0">
+          {phaseData.map((phase, i) => (
+            <span key={i} className="text-[10px] px-2 py-0.5 rounded border" style={{ backgroundColor: phase.color, borderColor: `${phase.color}80`, color: '#c9d1d9' }}>
+              {phase.title}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Graph canvas */}
       <div
@@ -253,6 +310,33 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab }: AgentHie
             height: svgHeight,
           }}
         >
+          {/* Workflow phase background bands (rendered before edges/nodes) */}
+          {showPhases && phaseData.map((phase, pi) => {
+            const nodesInPhase = allNodes.filter(n => phase.agentIds.has(n.agentId));
+            if (nodesInPhase.length === 0) return null;
+            const minX = Math.min(...nodesInPhase.map(n => n.x)) - 8;
+            const maxX = Math.max(...nodesInPhase.map(n => n.x + NODE_W)) + 8;
+            const minY = Math.min(...nodesInPhase.map(n => n.y)) - 8;
+            const maxY = Math.max(...nodesInPhase.map(n => n.y + NODE_H)) + 8;
+            return (
+              <div
+                key={pi}
+                className="absolute rounded-xl border pointer-events-none"
+                style={{
+                  left: minX, top: minY,
+                  width: maxX - minX, height: maxY - minY,
+                  backgroundColor: `${phase.color}40`,
+                  borderColor: `${phase.color}80`,
+                  zIndex: 0,
+                }}
+              >
+                <span className="absolute -top-5 left-2 text-[9px] font-semibold px-1.5 py-0.5 rounded-sm" style={{ backgroundColor: phase.color, color: '#c9d1d9' }}>
+                  {phase.title}
+                </span>
+              </div>
+            );
+          })}
+
           {/* SVG edges */}
           <svg
             className="absolute inset-0 pointer-events-none overflow-visible"

@@ -88,6 +88,8 @@ interface ExecutionTimelineProps {
 export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionTimelineProps) {
   const { session } = useSessionStore();
   const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const scrollSyncEnabled = useWorkspaceStore(s => s.scrollSyncEnabled);
+  const scrollSyncTimestamp = useWorkspaceStore(s => s.scrollSyncTimestamp);
   const router = useRouter();
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -323,6 +325,18 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
           Markers
         </button>
 
+        {/* Scroll sync toggle */}
+        <button
+          onClick={() => useWorkspaceStore.getState().toggleScrollSync()}
+          className={cn(
+            'text-[10px] px-2 py-1 rounded transition-colors shrink-0',
+            scrollSyncEnabled ? 'bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+          )}
+          title="Sync scroll across panes"
+        >
+          Sync
+        </button>
+
         <button onClick={() => doZoom(1.5)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
         <button onClick={() => doZoom(1 / 1.5)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
         <button onClick={resetZoom} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Fit all"><RotateCcw className="h-3 w-3" /></button>
@@ -332,7 +346,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
       </div>
 
       {/* Timeline body */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col relative">
         {/* Time axis header */}
         <div className="flex shrink-0 border-b border-[#21262d] bg-[#0d1117]" style={{ height: HEADER_HEIGHT }}>
           <div className="shrink-0 border-r border-[#21262d] flex items-center px-2" style={{ width: LABEL_WIDTH }}>
@@ -396,12 +410,20 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
 
                   {/* Bar cell */}
                   <div className="flex-1 relative"
-                    style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                    style={{ cursor: isDragging ? 'grabbing' : scrollSyncEnabled ? 'crosshair' : 'grab' }}
                     onWheel={onWheel}
                     onPointerDown={onPointerDown}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerLeave={() => setIsDragging(false)}
+                    onClick={e => {
+                      if (!scrollSyncEnabled) return;
+                      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const clickedMs = (clickX + pan) / effectiveZoom;
+                      const clickedTimestamp = new Date(sessionStart + clickedMs).toISOString();
+                      useWorkspaceStore.getState().broadcastScrollTimestamp(clickedTimestamp);
+                    }}
                   >
                     {ticks.map(t => {
                       const x = t * effectiveZoom - pan;
@@ -554,6 +576,18 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
           )}
         </div>
       </div>
+
+      {/* Scroll sync line overlay */}
+      {scrollSyncEnabled && scrollSyncTimestamp && (() => {
+        const syncX = (new Date(scrollSyncTimestamp).getTime() - sessionStart) * effectiveZoom - pan + LABEL_WIDTH;
+        if (syncX < LABEL_WIDTH || syncX > LABEL_WIDTH + canvasWidth) return null;
+        return (
+          <div
+            className="absolute top-0 bottom-0 w-px pointer-events-none z-20"
+            style={{ left: syncX, background: 'rgba(88,166,255,0.8)', boxShadow: '0 0 4px rgba(88,166,255,0.6)' }}
+          />
+        );
+      })()}
 
       {/* Legend for markers */}
       {showMarkers && artifacts.length > 0 && (

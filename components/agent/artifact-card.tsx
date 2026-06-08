@@ -208,13 +208,14 @@ function InlineMarkdown({ content }: { content: string }) {
       i++; continue;
     }
     if (line.startsWith('```')) {
+      const codeStart = i;
       const codeLang = line.slice(3).trim();
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) { codeLines.push(lines[i]); i++; }
       i++;
       elements.push(
-        <div key={i} className="my-2 rounded border border-[#30363d] overflow-hidden">
+        <div key={`code-${codeStart}`} className="my-2 rounded border border-[#30363d] overflow-hidden">
           {codeLang && <div className="px-3 py-1 bg-[#161b22] text-[10px] font-mono text-[#8b949e] border-b border-[#30363d]">{codeLang}</div>}
           <pre className="p-3 text-[12px] font-mono text-[#c9d1d9] overflow-x-auto bg-[#161b22] whitespace-pre-wrap">{codeLines.join('\n')}</pre>
         </div>

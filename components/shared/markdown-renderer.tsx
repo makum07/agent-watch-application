@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { visit } from 'unist-util-visit';
 import { Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -10,6 +11,50 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   size?: 'sm' | 'base';
+  highlightTerms?: string[];
+}
+
+function makeHighlightPlugin(terms: string[]) {
+  const lower = terms.filter(t => t.trim()).map(t => t.toLowerCase());
+  if (!lower.length) return () => {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return () => (tree: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, 'text', (node: any, index: number | null | undefined, parent: any) => {
+      if (index == null || !parent) return;
+      const text: string = node.value;
+      const textLower = text.toLowerCase();
+      if (!lower.some(t => textLower.includes(t))) return;
+
+      const ranges: { start: number; end: number }[] = [];
+      for (const term of lower) {
+        let i = 0;
+        while (i < textLower.length) {
+          const pos = textLower.indexOf(term, i);
+          if (pos === -1) break;
+          ranges.push({ start: pos, end: pos + term.length });
+          i = pos + term.length;
+        }
+      }
+      ranges.sort((a, b) => a.start - b.start);
+
+      const nodes: unknown[] = [];
+      let cursor = 0;
+      for (const { start, end } of ranges) {
+        if (start < cursor) continue;
+        if (start > cursor) nodes.push({ type: 'text', value: text.slice(cursor, start) });
+        nodes.push({
+          type: 'element', tagName: 'mark', properties: {},
+          children: [{ type: 'text', value: text.slice(start, end) }],
+        });
+        cursor = end;
+      }
+      if (cursor < text.length) nodes.push({ type: 'text', value: text.slice(cursor) });
+
+      if (nodes.length > 0) parent.children.splice(index, 1, ...nodes);
+    });
+  };
 }
 
 function CodeBlock({ lang, codeText, children }: { lang: string; codeText: string; children: React.ReactNode }) {
@@ -52,8 +97,14 @@ function CodeBlock({ lang, codeText, children }: { lang: string; codeText: strin
   );
 }
 
-export function MarkdownRenderer({ content, className, size = 'sm' }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, className, size = 'sm', highlightTerms }: MarkdownRendererProps) {
   const isBase = size === 'base';
+
+  const rehypePlugins = useMemo(
+    () => (highlightTerms?.length ? [makeHighlightPlugin(highlightTerms)] : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [highlightTerms?.join(',')]
+  );
   const textSz  = isBase ? 'text-[14px]'  : 'text-[13px]';
   const textClr  = 'text-[#c9d1d9]';
   const lineH   = isBase ? 'leading-[1.75]' : 'leading-relaxed';
@@ -63,7 +114,11 @@ export function MarkdownRenderer({ content, className, size = 'sm' }: MarkdownRe
     <div className={cn('overflow-hidden min-w-0', textSz, textClr, lineH, className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={rehypePlugins as Parameters<typeof ReactMarkdown>[0]['rehypePlugins']}
         components={{
+          mark({ children }) {
+            return <mark className="bg-yellow-500/30 text-yellow-200 rounded-sm px-0.5 not-italic">{children}</mark>;
+          },
 
           // ── Inline code ─────────────────────────────────────────────────
           code({ className: cls, children, ...props }) {

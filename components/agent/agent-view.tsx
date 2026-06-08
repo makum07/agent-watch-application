@@ -1,6 +1,7 @@
 'use client';
 
-import { X, SplitSquareHorizontal, SplitSquareVertical, Maximize2, Minimize2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, SplitSquareHorizontal, SplitSquareVertical, Maximize2, Minimize2, Columns2, Search } from 'lucide-react';
 import { ConversationTab } from './conversation-tab';
 import { ArtifactsTab } from './artifacts-tab';
 import { ContextTab } from './context-tab';
@@ -12,6 +13,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
+import { findOtherPane, getFirstPaneId } from '@/lib/workspace-utils';
 import type { AgentSubTab } from '@/types/workspace';
 
 interface AgentViewProps {
@@ -34,9 +36,18 @@ const TABS: { id: AgentSubTab; label: string }[] = [
 
 export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTab = 'conversation', onSubTabChange }: AgentViewProps) {
   const agent = useSessionStore(s => s.agentMap.get(agentId));
+  const session = useSessionStore(s => s.session);
+  const agentMap = useSessionStore(s => s.agentMap);
   const { closePane, splitPane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
   const feedbackCount = useFeedbackStore(s => s.items.filter(i => i.agentId === agentId).length);
   const isMaximized = maximizedPaneId === paneId;
+  const [showCompareMenu, setShowCompareMenu] = useState(false);
+  const [compareSearch, setCompareSearch] = useState('');
+  const compareInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showCompareMenu) compareInputRef.current?.focus();
+  }, [showCompareMenu]);
 
   if (!agent) {
     return (
@@ -72,7 +83,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
             {name}
           </span>
           {/* Controls */}
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0 relative">
             {!isMaximized && (
               <>
                 <button
@@ -88,6 +99,13 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
                   title="Split down"
                 >
                   <SplitSquareVertical className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowCompareMenu(v => !v)}
+                  className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                  title="Compare with another agent"
+                >
+                  <Columns2 className="h-3.5 w-3.5" />
                 </button>
               </>
             )}
@@ -105,6 +123,61 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
             >
               <X className="h-3.5 w-3.5" />
             </button>
+
+            {/* Compare picker dropdown */}
+            {showCompareMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowCompareMenu(false)} />
+                <div className="absolute right-0 top-full z-50 mt-0.5 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl w-56">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[#21262d]">
+                    <Search className="h-3 w-3 text-[#484f58] shrink-0" />
+                    <input
+                      ref={compareInputRef}
+                      type="text"
+                      value={compareSearch}
+                      onChange={e => setCompareSearch(e.target.value)}
+                      placeholder="Pick agent to compare…"
+                      className="flex-1 text-xs bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none"
+                      onKeyDown={e => { if (e.key === 'Escape') setShowCompareMenu(false); }}
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto py-1">
+                    {(session?.agents ?? [])
+                      .filter(a => a.id !== agentId)
+                      .filter(a => {
+                        if (!compareSearch.trim()) return true;
+                        const { name } = getAgentDisplay(a);
+                        return name.toLowerCase().includes(compareSearch.toLowerCase());
+                      })
+                      .map(a => {
+                        const { shortName, color, initials } = getAgentDisplay(a);
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => {
+                              const store = useWorkspaceStore.getState();
+                              const l = store.layout;
+                              if (!l) return;
+                              const tab = { type: 'comparison' as const, agentAId: agentId, agentBId: a.id, label: 'Compare' };
+                              const other = findOtherPane(l, paneId);
+                              store.addTabToPane(other ?? paneId, tab);
+                              setShowCompareMenu(false);
+                              setCompareSearch('');
+                            }}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#21262d] transition-colors text-left"
+                          >
+                            <div className="w-5 h-5 rounded flex items-center justify-center text-[8px] font-bold shrink-0 border" style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}>
+                              {initials.slice(0, 2)}
+                            </div>
+                            <span className="text-xs text-[#c9d1d9] truncate flex-1">{shortName}</span>
+                          </button>
+                        );
+                      })
+                    }
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -173,7 +246,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
       <div className="flex-1 overflow-hidden min-h-0">
         {activeSubTab === 'conversation' && <ConversationTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
         {activeSubTab === 'artifacts'    && <ArtifactsTab sessionId={sessionId} agentId={agentId} />}
-        {activeSubTab === 'context'      && <ContextTab agent={agent} />}
+        {activeSubTab === 'context'      && <ContextTab agent={agent} paneId={paneId} />}
         {activeSubTab === 'tools'        && <ToolsTab sessionId={sessionId} agentId={agentId} />}
         {activeSubTab === 'summary'      && <SummaryTab agent={agent} />}
         {activeSubTab === 'feedback'     && <FeedbackTab sessionId={sessionId} agentId={agentId} />}

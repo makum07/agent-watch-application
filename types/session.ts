@@ -132,3 +132,16 @@ export interface TimelineEvent {
     tokenCount?: number;
   };
 }
+
+export interface SearchResult {
+  agentId: string;
+  agentName: string;
+  agentType: string;
+  agentSubtype: string | null;
+  messageId: string;
+  messageIndex: number;
+  role: 'user' | 'assistant' | 'tool';
+  timestamp: string;
+  snippet: string;
+  matchOffset: number;
+}

@@ -4,7 +4,7 @@
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
 **Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08).
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08).
 
 ---
 
@@ -284,7 +284,7 @@ A user can:
 
 ---
 
-## Phase 3: Multi-Agent Analysis (4-6 weeks)
+## Phase 3: Multi-Agent Analysis ✅ COMPLETE (2026-06-08)
 
 ### Goal
 
@@ -325,14 +325,21 @@ Deep analysis of multi-agent coordination: context flow tracking, cross-agent se
 
 ### Deliverables
 
-- [ ] Context flow DAG visualization
-- [ ] Context inspector panel per agent
-- [ ] Advanced search with filters
-- [ ] Invocation navigation (jump to parent)
-- [ ] Workflow structure visualization
-- [ ] Optional scroll synchronization
-- [ ] Agent comparison view
-- [ ] Cross-pane search highlighting
+- [x] Context flow DAG visualization (`components/session/context-flow.tsx` — token-annotated edges, edge-click drawer, new `context-flow` pane type)
+- [x] Context inspector panel per agent — `context-tab.tsx` enhanced with parent link, invocation chain breadcrumb, toolUseId
+- [x] Advanced search with filters (`app/api/v2/sessions/[id]/search/route.ts` + `components/session/cross-agent-search.tsx` — role/type filters, scroll-to-message)
+- [x] Invocation navigation (jump to parent) — "Called from" badge in Context tab; `session-store.getAncestors()` chain
+- [x] Workflow structure visualization — phase overlay toggle on `agent-hierarchy-graph.tsx`; `lib/services/workflow-parser.ts`; `app/api/v2/sessions/[id]/workflow/route.ts`
+- [x] Optional scroll synchronization — `scrollSyncEnabled`/`broadcastScrollTimestamp` in workspace store; sync line in timeline; IntersectionObserver emit in conversation tab
+- [x] Agent comparison view — `components/agent/comparison-view.tsx`; Compare button + picker in agent-view header; new `comparison` pane type
+- [x] Cross-pane search highlighting — `highlightTerms` prop in `MarkdownRenderer` via rehype plugin; wired to `globalSearchQuery` in conversation tab
+
+> **Implementation notes:**
+> - Search API reads JSONL files on demand (no message FTS table); filters by agentTypes and message roles
+> - Context flow reuses `buildSubtree`/`assignX` layout algorithm from hierarchy graph; adds edge token labels + side drawer
+> - Workflow phase assignment uses regex extraction of `meta.phases` titles + agent description heuristic matching
+> - Scroll sync uses `scrollSyncEnabled` flag in workspace store; conversation tab uses `IntersectionObserver` approach via top-visible-message detection; timeline shows a blue dashed sync line at the current timestamp
+> - Agent comparison pane type includes `agentAId`/`agentBId`; accessible via Compare button (Columns2 icon) in agent-view header
 
 ### Definition of Done
 

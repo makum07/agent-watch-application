@@ -95,8 +95,16 @@ export function ingestSession(sessionId: string): Session | null {
     return null;
   }
 
+  // Also re-index if any non-root agent is missing its prompt (old schema gap)
+  const missingPrompt = cached
+    ? (db.prepare(
+        "SELECT 1 FROM agents WHERE session_id = ? AND depth > 0 AND prompt IS NULL LIMIT 1"
+      ).get(sessionId) != null)
+    : false;
+
   const shouldReindex = !cached ||
-    new Date(found.lastModified).getTime() > (cached.last_modified as number);
+    new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
+    missingPrompt;
 
   if (shouldReindex) {
     try {
@@ -162,6 +170,9 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       .slice(0, 16);
     agentIdMap.set(correlated.conversationId, agentId);
   }
+
+  // Build a map of conversationId → parsed messages for prompt lookup
+  const parsedByConvId = new Map(agents.map(a => [a.conversationId, a.parsed.messages]));
 
   const insertAll = db.transaction(() => {
     for (const correlated of agents) {
@@ -232,6 +243,24 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         ? extractText(lastMsg.content).slice(0, 2000)
         : null;
 
+      // Resolve prompt: prefer meta.json field, then look up from parent's tool_use block
+      let prompt: string | null = correlated.agentToolCall?.prompt ?? null;
+      if (!prompt && correlated.parentToolUseId && correlated.parentConversationId) {
+        const parentMsgs = parsedByConvId.get(correlated.parentConversationId) ?? [];
+        outer: for (const pmsg of parentMsgs) {
+          for (const block of pmsg.content) {
+            if (
+              block.type === 'tool_use' &&
+              block.id === correlated.parentToolUseId
+            ) {
+              const inp = block.input as Record<string, unknown>;
+              prompt = (inp.prompt as string) || (inp.description as string) || null;
+              break outer;
+            }
+          }
+        }
+      }
+
       insertAgent.run(
         agentId,
         discovered.id,
@@ -248,7 +277,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         firstTimestamp && lastTimestamp
           ? new Date(lastTimestamp).getTime() - new Date(firstTimestamp).getTime()
           : 0,
-        correlated.agentToolCall?.prompt ?? null,
+        prompt,
         correlated.agentLabel ?? correlated.agentToolCall?.description ?? null,
         response,
         null, // schema (not tracked for new format)

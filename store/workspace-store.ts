@@ -93,6 +93,7 @@ function tabKey(tab: PaneTab): string {
   if (tab.type === 'agent') return `agent:${tab.agentId}`;
   if (tab.type === 'context') return `context:${tab.agentId}`;
   if (tab.type === 'artifact-content') return `artifact:${tab.artifactId}`;
+  if (tab.type === 'comparison') return `comparison:${tab.agentAId}:${tab.agentBId}`;
   return tab.type;
 }
 
@@ -106,6 +107,8 @@ export interface WorkspaceStore {
   sidebarWidth: number;
   globalSearchQuery: string;
   activeFilters: FilterState;
+  scrollSyncEnabled: boolean;
+  scrollSyncTimestamp: string | null;
 
   setSessionId: (id: string) => void;
   setLayout: (layout: LayoutNode | null) => void;
@@ -125,6 +128,8 @@ export interface WorkspaceStore {
   setSidebarWidth: (width: number) => void;
   setGlobalSearchQuery: (query: string) => void;
   setActiveFilters: (filters: FilterState) => void;
+  toggleScrollSync: () => void;
+  broadcastScrollTimestamp: (timestamp: string) => void;
   reset: () => void;
 }
 
@@ -139,6 +144,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     sidebarWidth: 280,
     globalSearchQuery: '',
     activeFilters: { agentTypes: [], tools: [], timeRange: null, messageRoles: [] },
+    scrollSyncEnabled: false,
+    scrollSyncTimestamp: null,
 
     setSessionId: (id) => set({ sessionId: id }),
 
@@ -231,11 +238,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     setGlobalSearchQuery: (query) => set({ globalSearchQuery: query }),
     setActiveFilters: (filters) => set({ activeFilters: filters }),
+    toggleScrollSync: () => set(s => ({ scrollSyncEnabled: !s.scrollSyncEnabled, scrollSyncTimestamp: null })),
+    broadcastScrollTimestamp: (timestamp) => set({ scrollSyncTimestamp: timestamp }),
 
     reset: () => set({
       sessionId: null, layout: null, focusedPaneId: null, maximizedPaneId: null,
       paneStates: {}, globalSearchQuery: '',
       activeFilters: { agentTypes: [], tools: [], timeRange: null, messageRoles: [] },
+      scrollSyncEnabled: false, scrollSyncTimestamp: null,
     }),
   }))
 );

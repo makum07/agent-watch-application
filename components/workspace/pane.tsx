@@ -225,6 +225,30 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
     return <ArtifactPaneView artifactId={tab.artifactId} />;
   }
 
+  // Cross-agent search
+  if (tab.type === 'search') {
+    const { CrossAgentSearch } = require('@/components/session/cross-agent-search');
+    return <CrossAgentSearch sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
+  // Context flow view
+  if (tab.type === 'context-flow') {
+    const { ContextFlow } = require('@/components/session/context-flow');
+    return <ContextFlow sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
+  // Agent comparison
+  if (tab.type === 'comparison') {
+    const { ComparisonView } = require('@/components/agent/comparison-view');
+    return <ComparisonView sessionId={sessionId} agentAId={tab.agentAId} agentBId={tab.agentBId} paneId={paneId} />;
+  }
+
+  // Workflow visualization
+  if (tab.type === 'workflow') {
+    const { AgentHierarchyGraph } = require('@/components/session/agent-hierarchy-graph');
+    return <AgentHierarchyGraph sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} showWorkflowPhases />;
+  }
+
   return (
     <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
       {tab.type} view
@@ -318,16 +342,19 @@ function AgentPickerDropdown({
             })
           )}
         </div>
-        <div className="border-t border-[#21262d] px-2 py-1 flex gap-1">
+        <div className="border-t border-[#21262d] px-2 py-1 flex flex-wrap gap-1">
           {([
             { type: 'timeline' as const, label: 'Timeline' },
             { type: 'graph' as const, label: 'Graph' },
             { type: 'artifacts' as const, label: 'Files' },
+            { type: 'search' as const, label: 'Search' },
+            { type: 'context-flow' as const, label: 'Flow' },
+            { type: 'workflow' as const, label: 'Workflow' },
           ] as const).map(({ type, label }) => (
             <button
               key={type}
               onClick={() => { addTabToPane(paneId, { type, label }); onClose(); }}
-              className="flex-1 text-[10px] py-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              className="flex-1 text-[10px] py-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors min-w-[40px]"
             >
               {label}
             </button>

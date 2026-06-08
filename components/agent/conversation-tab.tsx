@@ -100,6 +100,99 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   const { messages, loadMore, hasMore, isLoading, total } = useAgentMessages(sessionId, agentId);
   const { agentMap } = useSessionStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll-to-message: read target from tab state and scroll when found
+  const scrollToMessageId = useWorkspaceStore(s =>
+    paneId ? s.paneStates[paneId]?.tabStates[`agent:${agentId}`]?.scrollToMessageId : undefined
+  );
+
+  useEffect(() => {
+    if (!scrollToMessageId || isLoading) return;
+
+    const el = document.querySelector(`[data-message-id="${scrollToMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      useWorkspaceStore.getState().updateTabState(paneId, `agent:${agentId}`, { scrollToMessageId: undefined });
+    } else if (hasMore) {
+      loadMore();
+    }
+  }, [scrollToMessageId, messages, hasMore, isLoading, paneId, agentId]);
+
+  // Scroll sync: emit current visible timestamp on scroll; listen for incoming sync timestamp
+  const scrollSyncEnabled = useWorkspaceStore(s => s.scrollSyncEnabled);
+  const scrollSyncTimestamp = useWorkspaceStore(s => s.scrollSyncTimestamp);
+  const isEmitting = useRef(false); // prevent echo-loop
+
+  // Build sorted timestamp index from messages (for binary search)
+  const timestampIndex = useRef<{ ts: number; id: string }[]>([]);
+  useEffect(() => {
+    timestampIndex.current = messages
+      .filter(m => m.timestamp)
+      .map(m => ({ ts: new Date(m.timestamp).getTime(), id: m.id }))
+      .sort((a, b) => a.ts - b.ts);
+  }, [messages]);
+
+  // Emit: on scroll, find the topmost visible message and broadcast its timestamp
+  const handleScroll = useRef(() => {
+    if (!scrollSyncEnabled || isEmitting.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const els = container.querySelectorAll('[data-message-id]');
+    for (const el of els) {
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > containerTop + 20) {
+        const msgId = (el as HTMLElement).dataset.messageId;
+        const msg = messages.find(m => m.id === msgId);
+        if (msg) useWorkspaceStore.getState().broadcastScrollTimestamp(msg.timestamp);
+        break;
+      }
+    }
+  });
+
+  useEffect(() => {
+    handleScroll.current = () => {
+      if (!scrollSyncEnabled || isEmitting.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const containerTop = container.getBoundingClientRect().top;
+      const els = container.querySelectorAll('[data-message-id]');
+      for (const el of els) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom > containerTop + 20) {
+          const msgId = (el as HTMLElement).dataset.messageId;
+          const msg = messages.find(m => m.id === msgId);
+          if (msg) useWorkspaceStore.getState().broadcastScrollTimestamp(msg.timestamp);
+          break;
+        }
+      }
+    };
+  }, [scrollSyncEnabled, messages]);
+
+  // Receive: when scrollSyncTimestamp changes (and this pane is NOT the source), scroll to nearest message
+  useEffect(() => {
+    if (!scrollSyncEnabled || !scrollSyncTimestamp || isEmitting.current) return;
+    const targetTs = new Date(scrollSyncTimestamp).getTime();
+    const idx = timestampIndex.current;
+    if (!idx.length) return;
+
+    // Binary search for nearest timestamp
+    let lo = 0, hi = idx.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (idx[mid].ts < targetTs) lo = mid + 1;
+      else hi = mid;
+    }
+    const nearest = idx[lo];
+    if (!nearest) return;
+
+    isEmitting.current = true;
+    const el = document.querySelector(`[data-message-id="${nearest.id}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => { isEmitting.current = false; }, 500);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollSyncTimestamp, scrollSyncEnabled]);
 
   // Tool result map for inline display
   const toolResultMap = new Map<string, { content: ContentBlock[]; isError: boolean }>();
@@ -122,7 +215,11 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   const activePaneId = paneId;
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden bg-[#0d1117]">
+    <div
+      ref={containerRef}
+      className="h-full overflow-y-auto overflow-x-hidden bg-[#0d1117]"
+      onScroll={() => handleScroll.current()}
+    >
       <div className="min-h-full w-full py-3">
         {isLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-32">
@@ -325,6 +422,9 @@ interface MessageRowProps {
 }
 
 function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneId }: MessageRowProps) {
+  const globalSearchQuery = useWorkspaceStore(s => s.globalSearchQuery);
+  const highlightTerms = globalSearchQuery ? [globalSearchQuery] : undefined;
+
   const textBlocks = message.content.filter(b => b.type === 'text').map(b => (b as { type:'text';text:string }).text).join('\n');
   const cleanedText = cleanText(textBlocks);
   const toolUses = message.content.filter(b => b.type === 'tool_use') as Array<{ type:'tool_use'; id:string; name:string; input:Record<string,unknown> }>;
@@ -347,7 +447,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
   // ── Tool-only rows: ghost strip, no bubble ──────────────────────────────
   if (isToolOnly) {
     return (
-      <div className="group flex items-start gap-2 px-4 py-0.5 my-0.5">
+      <div data-message-id={message.id} className="group flex items-start gap-2 px-4 py-0.5 my-0.5">
         <div
           className="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 opacity-30 group-hover:opacity-60 transition-opacity"
           style={{ backgroundColor: '#21262d', border: '1px solid #30363d' }}
@@ -388,11 +488,14 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
     : '0 1px 4px rgba(0,0,0,0.25)';
 
   return (
-    <div className={cn(
-      'flex items-end gap-2.5 px-4',
-      isUser ? 'flex-row-reverse' : 'flex-row',
-      isResponse ? 'py-3' : 'py-2',
-    )}>
+    <div
+      data-message-id={message.id}
+      className={cn(
+        'flex items-end gap-2.5 px-4',
+        isUser ? 'flex-row-reverse' : 'flex-row',
+        isResponse ? 'py-3' : 'py-2',
+      )}
+    >
       {/* Avatar — sits at baseline of the bubble */}
       <div className="shrink-0 self-end pb-6">
         <div
@@ -427,7 +530,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
                 className="overflow-hidden"
                 style={isLongMessage && !isExpanded ? { maxHeight: '500px' } : undefined}
               >
-                <MarkdownRenderer content={cleanedText} size="base" />
+                <MarkdownRenderer content={cleanedText} size="base" highlightTerms={highlightTerms} />
               </div>
               {isLongMessage && !isExpanded && (
                 <div
