@@ -249,6 +249,12 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
     return <AgentHierarchyGraph sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} showWorkflowPhases />;
   }
 
+  // Analytics dashboard
+  if (tab.type === 'analytics') {
+    const { AnalyticsDashboard } = require('@/components/session/analytics-dashboard');
+    return <AnalyticsDashboard sessionId={sessionId} paneId={paneId} isSingleTab={isSingleTab} />;
+  }
+
   return (
     <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
       {tab.type} view
@@ -350,6 +356,7 @@ function AgentPickerDropdown({
             { type: 'search' as const, label: 'Search' },
             { type: 'context-flow' as const, label: 'Flow' },
             { type: 'workflow' as const, label: 'Workflow' },
+            { type: 'analytics' as const, label: 'Analytics' },
           ] as const).map(({ type, label }) => (
             <button
               key={type}

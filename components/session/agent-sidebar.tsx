@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, Files, Activity, GitFork, Network, List, CornerDownRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, Files, Activity, GitFork, Network, List, CornerDownRight, BarChart3 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
@@ -323,10 +323,11 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
           { type: 'artifacts',    label: 'Files',    icon: <Files    className="h-3.5 w-3.5 text-[#f0883e]" /> },
           { type: 'search',       label: 'Search',   icon: <Search   className="h-3.5 w-3.5 text-[#3fb950]" /> },
           { type: 'context-flow', label: 'Flow',     icon: <GitFork  className="h-3.5 w-3.5 text-[#39d353]" /> },
+          { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[#f778ba]" /> },
         ] as const).map(({ type, label, icon }) => {
           const tabLabels: Record<string, string> = {
             timeline: 'Timeline', graph: 'Agent Graph', artifacts: 'Session Files',
-            search: 'Search', 'context-flow': 'Context Flow',
+            search: 'Search', 'context-flow': 'Context Flow', analytics: 'Analytics',
           };
           return (
             <button

@@ -4,7 +4,7 @@
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
 **Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08).
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08). Phase 4 COMPLETE (2026-06-09).
 
 ---
 
@@ -354,7 +354,7 @@ A user can:
 
 ---
 
-## Phase 4: Analytics and Debugging (4-6 weeks)
+## Phase 4: Analytics and Debugging ✅ COMPLETE (2026-06-09)
 
 ### Goal
 
@@ -362,46 +362,63 @@ Automated analysis and debugging insights: bottleneck detection, duplicate work 
 
 ### Features
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| **Session Analytics Dashboard** | Summary metrics: duration, tokens, cost, parallelism factor, model breakdown | 1 week |
-| **Debug Analyzer** | Automated detection of bottlenecks, loops, duplicate work, excessive tool usage, context bloat | 2 weeks |
-| **Debug Alerts UI** | Alert cards with severity, description, and navigation to relevant agent | 0.5 weeks |
-| **Cost Breakdown** | Detailed cost by agent, by model, by phase, with pie/bar charts | 1 week |
-| **Session Comparison** | Compare two sessions side-by-side: metrics, agent topology, cost | 1 week |
-| **Export** | Export session data as JSON, Markdown, or HTML report | 0.5 weeks |
-| **Performance Profiling** | Identify critical path agents (longest chain from root to leaf) | 0.5 weeks |
-| **Pattern Detection** | Identify common agent orchestration patterns across sessions | 1 week |
+| Feature | Description | Effort | Status |
+|---------|-------------|--------|--------|
+| **Session Analytics Dashboard** | Summary metrics: duration, tokens, cost, parallelism factor, model breakdown, cache efficiency | 1 week | ✅ |
+| **Debug Analyzer** | Automated detection of bottlenecks, loops, duplicate work, excessive tool usage, context bloat, long chains | 2 weeks | ✅ |
+| **Debug Alerts UI** | Alert cards with severity, description, and navigation to relevant agent | 0.5 weeks | ✅ |
+| **Cost Breakdown** | Detailed cost by agent, by model, by phase, with recharts pie/bar charts | 1 week | ✅ |
+| **Session Comparison** | Compare two sessions side-by-side: metrics, alerts, cost deltas | 1 week | ✅ |
+| **Export** | Export session data as JSON, Markdown, or HTML report | 0.5 weeks | ✅ |
+| **Performance Profiling** | Critical path identification (longest chain from root to leaf) | 0.5 weeks | ✅ |
+| **Pattern Detection** | Cross-session pattern detection: tool sequences, topologies, cost outliers, regressions | 1 week | ✅ |
 
 ### Architecture Changes
 
-| Component | Change |
-|-----------|--------|
-| Backend | New `src/services/DebugAnalyzer.js` |
-| Backend | New `src/routes/analytics.js` (v2 analytics) |
-| Backend | Session comparison endpoint |
-| Backend | Export endpoint (JSON, Markdown, HTML) |
-| Frontend | New `src/analytics-web/components/analytics/` directory |
-| Frontend | Chart library (or reuse existing Charts.js) |
+| Component | Change | Status |
+|-----------|--------|--------|
+| Backend | New `lib/services/debug-analyzer.ts` — 6 detection functions + critical path finder | ✅ |
+| Backend | New `lib/services/pattern-detector.ts` — cross-session pattern detection (4 types) | ✅ |
+| API | New `GET /api/v2/sessions/[id]/analytics` — computed SessionAnalytics endpoint | ✅ |
+| API | New `GET /api/v2/sessions/[id]/export?format=json|markdown|html` — session export | ✅ |
+| API | New `GET /api/v2/sessions/compare?a=X&b=Y` — session comparison | ✅ |
+| API | New `GET /api/v2/sessions/patterns` — cross-session patterns | ✅ |
+| Frontend | New `components/session/analytics-dashboard.tsx` — main analytics pane component | ✅ |
+| Frontend | New `components/session/debug-alerts.tsx` — filterable alert cards with agent navigation | ✅ |
+| Frontend | New `components/session/cost-breakdown.tsx` — recharts pie + bar charts (by model/agent/phase) | ✅ |
+| Frontend | New `app/session/compare/page.tsx` — session comparison page with picker + deltas | ✅ |
+| Frontend | Modified `components/workspace/pane.tsx` — analytics pane type + picker entry | ✅ |
+| Frontend | Modified `components/session/agent-sidebar.tsx` — Analytics button in footer | ✅ |
+| Types | New `types/analytics.ts` — DebugAlert, SessionAnalytics, SessionComparisonData, CrossSessionPattern | ✅ |
 
 ### Technical Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| **Duplicate work detection** | Determining if two agents did "duplicate" work is imprecise. Similar tool calls don't always mean redundancy. | Use multiple signals: same tool + same arguments, same file reads, similar prompt text. Report as "potential" with confidence score. |
-| **Loop detection** | Agent loops may be intentional (iterative refinement) or accidental. | Detect repeated similar prompts within a session. Flag only when > 3 iterations with high prompt similarity (> 90% by Jaccard). |
-| **Cost estimation accuracy** | Model pricing changes over time. | Make pricing configurable (JSON config file). Display "estimated" with clear caveats. |
+| **Duplicate work detection** | Determining if two agents did "duplicate" work is imprecise. Similar tool calls don't always mean redundancy. | Use Jaccard similarity on tool call sets. Report as "potential" with overlap percentage. |
+| **Loop detection** | Agent loops may be intentional (iterative refinement) or accidental. | Threshold at 10+ calls of same tool per agent. Flag as warning, not error. |
+| **Cost estimation accuracy** | Model pricing changes over time. | Pricing table in `lib/utils.ts` and `lib/services/session-ingester.ts`. Display as "estimated". |
+| **Cross-session perf** | Loading 15 sessions for pattern detection could be slow. | Cap at 15 sessions. Patterns computed on-demand via API (not persisted). |
 
 ### Deliverables
 
-- [ ] Session analytics dashboard with summary metrics
-- [ ] Debug analyzer with 6 detection types
-- [ ] Debug alerts UI with severity and navigation
-- [ ] Cost breakdown charts
-- [ ] Session comparison view
-- [ ] Export to JSON/Markdown/HTML
-- [ ] Critical path identification
-- [ ] Cross-session pattern detection
+- [x] Session analytics dashboard with summary metrics (`components/session/analytics-dashboard.tsx` — 8 stat cards, sortable agent table, critical path visualization, export buttons)
+- [x] Debug analyzer with 6 detection types (`lib/services/debug-analyzer.ts` — bottleneck, loop, duplicate-work, excessive-tools, context-bloat, long-chain)
+- [x] Debug alerts UI with severity and navigation (`components/session/debug-alerts.tsx` — severity/category filters, expandable cards, click-to-navigate agent links)
+- [x] Cost breakdown charts (`components/session/cost-breakdown.tsx` — recharts PieChart by model, BarChart by agent top-15, BarChart by phase/round)
+- [x] Session comparison view (`app/session/compare/page.tsx` + `app/api/v2/sessions/compare/route.ts` — session picker, side-by-side metrics, delta cards)
+- [x] Export to JSON/Markdown/HTML (`app/api/v2/sessions/[id]/export/route.ts` — Content-Disposition download, dark-themed HTML)
+- [x] Critical path identification (`lib/services/debug-analyzer.ts:findCriticalPath` — longest duration chain root→leaf, visualized in dashboard)
+- [x] Cross-session pattern detection (`lib/services/pattern-detector.ts` — common tool sequences, recurring topologies, cost outliers, performance regressions)
+
+> **Implementation notes:**
+> - Analytics dashboard works both as standalone page (`/session/{id}/analytics`) and as a workspace pane (analytics tab type)
+> - Debug analyzer is pure-function: takes Session, returns DebugAlert[]. No DB writes, no side effects.
+> - Cost breakdown uses recharts v3 (first usage in codebase): PieChart for model split, horizontal BarChart for top agents, vertical BarChart for round/phase costs
+> - Session comparison is a standalone page at `/session/compare?a=X&b=Y` (not a pane — spans two sessions)
+> - Pattern detection loads last 15 sessions via `discoverSessions()` + `ingestSession()`. Four detectors: tool bigram frequency, topology hash grouping, cost z-score outliers, same-project regression analysis
+> - Export markdown/HTML includes summary table, agents table sorted by cost, critical path chain, and debug alerts with severity icons
+> - Analytics button added to sidebar footer (BarChart3 icon, pink accent) and to pane tab picker dropdown
 
 ### Definition of Done
 

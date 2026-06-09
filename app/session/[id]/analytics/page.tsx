@@ -1,89 +1,53 @@
-import { notFound } from 'next/navigation';
-import { ingestSession } from '@/lib/services/session-ingester';
-import { formatTokens, formatDuration, formatCost } from '@/lib/utils';
-import { Layers, Users, Zap, Clock, DollarSign } from 'lucide-react';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import { use } from 'react';
+import { Layers, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { useSession } from '@/hooks/use-session';
+import { AnalyticsDashboard } from '@/components/session/analytics-dashboard';
 
-export default async function AnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const session = ingestSession(id);
+interface Props {
+  params: Promise<{ id: string }>;
+}
 
-  if (!session) notFound();
+export default function AnalyticsPage({ params }: Props) {
+  const { id } = use(params);
+  const { session, isLoading, error } = useSession(id);
 
-  const modelBreakdown = Object.entries(session.estimatedCost.byModel).sort((a, b) => b[1] - a[1]);
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-center text-muted-foreground">
+          <Layers className="h-8 w-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">{error || 'Session not found'}</p>
+          <Link href="/" className="text-xs text-primary mt-2 block hover:underline">← Back to dashboard</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-3">
-          <a href="/" className="text-muted-foreground hover:text-foreground"><Layers className="h-4 w-4" /></a>
+    <div className="h-screen bg-background flex flex-col">
+      <header className="border-b border-border shrink-0">
+        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3">
+          <Link href="/" className="text-muted-foreground hover:text-foreground"><Layers className="h-4 w-4" /></Link>
           <span className="text-muted-foreground">/</span>
-          <a href={`/session/${id}`} className="text-muted-foreground hover:text-foreground text-sm">Session</a>
+          <Link href={`/session/${id}/workspace`} className="text-muted-foreground hover:text-foreground text-sm">Session</Link>
           <span className="text-muted-foreground">/</span>
           <span className="text-sm font-medium">Analytics</span>
         </div>
       </header>
-
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        <h1 className="text-xl font-semibold mb-6">Session Analytics</h1>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard icon={<Users className="h-4 w-4 text-blue-400" />} label="Agents" value={String(session.totalAgents)} />
-          <StatCard icon={<Zap className="h-4 w-4 text-yellow-400" />} label="Tokens" value={formatTokens(session.totalTokens)} />
-          <StatCard icon={<Clock className="h-4 w-4 text-green-400" />} label="Duration" value={formatDuration(session.duration.wallClock)} />
-          <StatCard icon={<DollarSign className="h-4 w-4 text-purple-400" />} label="Est. Cost" value={formatCost(session.estimatedCost.total)} />
-        </div>
-
-        <section className="mb-8">
-          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Cost by Model</h2>
-          <div className="space-y-2">
-            {modelBreakdown.map(([model, cost]) => (
-              <div key={model} className="flex items-center gap-3">
-                <span className="text-sm font-mono w-48 truncate text-muted-foreground">{model}</span>
-                <div className="flex-1 bg-muted rounded-full h-2">
-                  <div
-                    className="bg-primary h-2 rounded-full"
-                    style={{ width: `${(cost / session.estimatedCost.total) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm font-mono text-right w-20">{formatCost(cost)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Top Agents by Tokens</h2>
-          <div className="space-y-2">
-            {session.agents
-              .sort((a, b) => b.tokenUsage.total - a.tokenUsage.total)
-              .slice(0, 10)
-              .map(agent => (
-                <div key={agent.id} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-24 truncate">{agent.subagentType || 'Main'}</span>
-                  <span className="text-xs truncate flex-1 text-muted-foreground/70">
-                    {agent.description?.slice(0, 50) || agent.conversationId.slice(0, 16)}
-                  </span>
-                  <span className="text-xs font-mono">{formatTokens(agent.tokenUsage.total)}</span>
-                </div>
-              ))
-            }
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="p-4 rounded-lg border border-border bg-card">
-      <div className="flex items-center gap-2 mb-1">
-        {icon}
-        <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex-1 overflow-hidden">
+        <AnalyticsDashboard sessionId={id} />
       </div>
-      <div className="text-xl font-semibold">{value}</div>
     </div>
   );
 }
