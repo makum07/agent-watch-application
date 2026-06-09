@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, ExternalLink, Files, Activity, GitFork, Network, List, CornerDownRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Search, GripVertical, Clock, Zap, Files, Activity, GitFork, Network, List, CornerDownRight } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
 import { cn, formatTokens, formatDuration } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
-import type { Agent, SkillInvocation } from '@/types/session';
+import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 
@@ -94,7 +94,7 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
   const { sidebarCollapsed, setSidebarCollapsed, addTabToPane, setLayout, focusedPaneId, layout } = useWorkspaceStore();
   const { session, agentMap } = useSessionStore();
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('tree');
+  const [viewMode, setViewMode] = useState<ViewMode>('rounds');
   const [collapsedRounds, setCollapsedRounds] = useState<Set<number>>(new Set());
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
@@ -537,11 +537,8 @@ function AgentRow({
   treeMode?: boolean;
 }) {
   const { name, shortName, color, initials } = getAgentDisplay(agent);
-  const [skillsExpanded, setSkillsExpanded] = useState(false);
-  const hasSkills = agent.skillInvocations?.length > 0;
 
   const parentAgent = agent.parentId ? agentMap.get(agent.parentId) : null;
-  const parentDisplay = parentAgent ? getAgentDisplay(parentAgent) : null;
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('agentId', agent.id);
@@ -650,79 +647,7 @@ function AgentRow({
           </div>
         </div>
 
-        {/* Skill expand toggle */}
-        {hasSkills && (
-          <button
-            className="shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#2d1f45] text-[#bc8cff] border border-[#4d3470] hover:bg-[#3d2a5a] transition-colors"
-            onClick={e => { e.stopPropagation(); setSkillsExpanded(v => !v); }}
-            title="Toggle skill invocations"
-          >
-            <span>SK·{agent.skillInvocations.length}</span>
-            <ChevronDown className={cn('h-2.5 w-2.5 transition-transform', skillsExpanded && 'rotate-180')} />
-          </button>
-        )}
-
         <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
-      </div>
-
-      {/* Skill invocations — inline sub-items */}
-      {hasSkills && skillsExpanded && (
-        <div className="ml-3 border-l border-[#4d3470] pl-0 bg-[#0d1117]">
-          {agent.skillInvocations.map(inv => (
-            <SkillInvocationRow key={inv.id} invocation={inv} depth={depth} agent={agent} onOpen={onOpen} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SkillInvocationRow({
-  invocation,
-  depth,
-  agent,
-  onOpen,
-}: {
-  invocation: SkillInvocation;
-  depth: number;
-  agent: Agent;
-  onOpen: (a: Agent) => void;
-}) {
-  const paddingLeft = 8 + (depth + 1) * 12;
-  const argsPreview = invocation.args ? invocation.args.slice(0, 48) + (invocation.args.length > 48 ? '…' : '') : null;
-
-  return (
-    <div
-      className="group flex items-center gap-2 py-1.5 pr-3 select-none cursor-pointer hover:bg-[#1a1340] transition-colors"
-      style={{ paddingLeft }}
-      onClick={() => onOpen(agent)}
-      title={`Open parent agent to view skill execution${invocation.args ? `\n\nArgs: ${invocation.args}` : ''}`}
-    >
-      {/* Tree connector */}
-      <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
-        <div className="w-px h-full bg-[#4d3470]" />
-        <div className="w-2 h-px bg-[#4d3470]" />
-      </div>
-
-      {/* SK badge */}
-      <div className="w-6 h-6 rounded flex items-center justify-center text-[9px] font-bold shrink-0 border bg-[#2d1f45] text-[#bc8cff] border-[#4d3470]">
-        SK
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="text-[11px] font-semibold text-[#bc8cff] truncate leading-tight">{invocation.skill}</div>
-        {argsPreview && (
-          <div className="text-[10px] text-[#6e7681] truncate">{argsPreview}</div>
-        )}
-      </div>
-
-      {/* Duration + open icon */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        {invocation.durationMs != null && (
-          <span className="text-[10px] text-[#6e7681]">{formatDuration(invocation.durationMs)}</span>
-        )}
-        <ExternalLink className="h-2.5 w-2.5 text-[#4d3470] opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     </div>
   );
