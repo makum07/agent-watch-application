@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useCallback } from 'react';
-import { ChevronRight, ArrowUpRight } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ChevronRight, ArrowUpRight, ArrowDown, ArrowUp } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSessionStore } from '@/store/session-store';
@@ -16,11 +16,97 @@ interface ContextTabProps {
   paneId?: string;
 }
 
+interface AgentContextEntry {
+  round: number | null;
+  delegatedBy: string[];
+  consumedBy: string[];
+}
+
+// Module-level cache so the graph is fetched once per session across all context tab instances
+const _graphCache = new Map<string, Record<string, AgentContextEntry>>();
+
+function AgentPill({
+  agent,
+  round,
+  onClick,
+}: {
+  agent: Agent;
+  round: number | null;
+  onClick: (id: string) => void;
+}) {
+  const { shortName, color, initials } = getAgentDisplay(agent);
+  return (
+    <button
+      onClick={() => onClick(agent.id)}
+      className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium hover:opacity-75 transition-opacity"
+      style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}
+    >
+      {round !== null && (
+        <span
+          className="text-[9px] font-bold px-1 rounded shrink-0"
+          style={{ backgroundColor: `${color.text}30`, color: color.text }}
+          title={`Orchestration round ${round}`}
+        >
+          R{round}
+        </span>
+      )}
+      <span
+        className="w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold shrink-0"
+        style={{ backgroundColor: `${color.text}25` }}
+      >
+        {initials.slice(0, 2)}
+      </span>
+      <span className="truncate max-w-[120px]">{shortName}</span>
+    </button>
+  );
+}
+
 export function ContextTab({ agent, paneId }: ContextTabProps) {
   const agentMap = useSessionStore(s => s.agentMap);
   const getAncestors = useSessionStore(s => s.getAncestors);
   const ancestors = getAncestors(agent.id);
   const parentAgent = agent.parentId ? (agentMap.get(agent.parentId) ?? null) : null;
+
+  const [thisRound, setThisRound] = useState<number | null>(null);
+  const [delegatedBy, setDelegatedBy] = useState<Array<{ agent: Agent; round: number | null }>>([]);
+  const [consumedBy, setConsumedBy] = useState<Array<{ agent: Agent; round: number | null }>>([]);
+
+  // Fetch (and cache) the context graph for this session
+  useEffect(() => {
+    if (agent.depth === 0) return;
+
+    const { sessionId } = agent;
+
+    const applyGraph = (graph: Record<string, AgentContextEntry>) => {
+      const info = graph[agent.id];
+      setThisRound(info?.round ?? null);
+      setDelegatedBy(
+        (info?.delegatedBy ?? [])
+          .map(id => ({ agent: agentMap.get(id), round: graph[id]?.round ?? null }))
+          .filter((e): e is { agent: Agent; round: number | null } => !!e.agent)
+      );
+      setConsumedBy(
+        (info?.consumedBy ?? [])
+          .map(id => ({ agent: agentMap.get(id), round: graph[id]?.round ?? null }))
+          .filter((e): e is { agent: Agent; round: number | null } => !!e.agent)
+      );
+    };
+
+    if (_graphCache.has(sessionId)) {
+      applyGraph(_graphCache.get(sessionId)!);
+      return;
+    }
+
+    fetch(`/api/v2/sessions/${sessionId}/context-graph`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.graph) {
+          _graphCache.set(sessionId, data.graph);
+          applyGraph(data.graph);
+        }
+      })
+      .catch(() => {});
+  }, [agent.id, agent.sessionId, agent.depth, agentMap]);
 
   const openAgent = useCallback((targetId: string) => {
     const a = agentMap.get(targetId);
@@ -43,7 +129,7 @@ export function ContextTab({ agent, paneId }: ContextTabProps) {
     <ScrollArea className="h-full">
       <div className="p-4 space-y-6">
 
-        {/* Invocation Chain — shown when there are 2+ ancestors (depth ≥ 2) */}
+        {/* Invocation Chain — shown when depth ≥ 2 */}
         {ancestors.length >= 2 && (
           <section>
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
@@ -80,11 +166,18 @@ export function ContextTab({ agent, paneId }: ContextTabProps) {
           </section>
         )}
 
-        {/* Called from — shown for any agent with a known parent */}
+        {/* Called from — the orchestrator that directly spawned this agent */}
         {parentAgent && (
           <section>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Called from
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Called from
+              </div>
+              {thisRound !== null && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#21262d] text-[#8b949e]">
+                  Round {thisRound}
+                </span>
+              )}
             </div>
             {(() => {
               const { shortName, color, typeLabel, initials } = getAgentDisplay(parentAgent);
@@ -114,6 +207,42 @@ export function ContextTab({ agent, paneId }: ContextTabProps) {
                 via {agent.toolUseId}
               </div>
             )}
+          </section>
+        )}
+
+        {/* Delegated by — agents whose response text was forwarded into this prompt */}
+        {delegatedBy.length > 0 && (
+          <section>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              <ArrowDown className="w-3 h-3 text-[#f0883e]" />
+              Informed by
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Their output was forwarded verbatim into this agent's prompt by the orchestrator.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {delegatedBy.map(({ agent: a, round }) => (
+                <AgentPill key={a.id} agent={a} round={round} onClick={openAgent} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Consumed by — agents whose prompts contain this agent's response text */}
+        {consumedBy.length > 0 && (
+          <section>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              <ArrowUp className="w-3 h-3 text-[#3fb950]" />
+              Output forwarded to
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              The orchestrator included this agent's output verbatim in their prompts.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {consumedBy.map(({ agent: a, round }) => (
+                <AgentPill key={a.id} agent={a} round={round} onClick={openAgent} />
+              ))}
+            </div>
           </section>
         )}
 
