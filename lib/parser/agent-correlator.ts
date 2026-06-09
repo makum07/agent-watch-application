@@ -292,12 +292,18 @@ function inferDelegation(agents: CorrelatedAgent[], rootId: string): void {
   let changed = false;
 
   // For each coordinator, find subsequent agents that belong to it.
-  // Two strategies:
-  //   1. Keyword overlap (strong signal)
-  //   2. Temporal window (agents sandwiched between this coordinator and the next
-  //      coordinator are assumed to be delegated work, unless they're coordinators)
+  // Strategy: match agents that the coordinator's prompt explicitly names as
+  // sub-agents it intends to spawn. Fall back to keyword + temporal heuristics
+  // only when the candidate is NOT explicitly a same-level peer.
   for (const coord of coordinators) {
     const nextCoordIdx = coordinators.find(c => c.spawnIdx > coord.spawnIdx)?.spawnIdx ?? spawnOrder.length;
+    const coordSpawn = spawnOrder[coord.spawnIdx];
+
+    // Extract the coordinator's own level from its prompt (e.g., "[Level 1 coordinator]")
+    const coordLevel = extractLevel(coordSpawn.prompt);
+
+    // Extract sub-agent names/descriptions the coordinator's prompt says it will spawn
+    const expectedSubAgents = extractExpectedSubAgents(coordSpawn.prompt);
 
     for (let i = coord.spawnIdx + 1; i < nextCoordIdx; i++) {
       const spawn = spawnOrder[i];
@@ -307,24 +313,46 @@ function inferDelegation(agents: CorrelatedAgent[], rootId: string): void {
       // Don't re-parent other coordinators
       if (coordinatorPattern.test(spawn.description)) continue;
 
-      // Strategy 1: keyword overlap
+      // Guard: skip if the candidate's prompt explicitly marks it as the same
+      // level as the coordinator (e.g., both say "[Level 1]")
+      const candidateLevel = extractLevel(spawn.prompt);
+      if (coordLevel !== null && candidateLevel !== null && candidateLevel <= coordLevel) continue;
+
+      // Guard: skip if the candidate explicitly says it does NOT spawn sub-agents
+      // — that means it's an independent worker, not delegated coordination work
+      if (/\bdo\s+not\s+spawn\s+sub[- ]?agents?\b/i.test(spawn.prompt)) continue;
+
+      // Strategy 1: coordinator prompt explicitly names this agent as a sub-agent
+      if (expectedSubAgents.length > 0) {
+        const descLower = spawn.description.toLowerCase();
+        const isExpected = expectedSubAgents.some(name =>
+          descLower.includes(name.toLowerCase()) || name.toLowerCase().includes(descLower.split(/\s[—–-]\s/)[0].toLowerCase().trim())
+        );
+        if (isExpected) {
+          candidate.parentConversationId = coord.agent.conversationId;
+          changed = true;
+          continue;
+        }
+      }
+
+      // Strategy 2: keyword overlap (require 2+ matches to avoid false positives
+      // from common words like "test")
       const candidateWords = extractTopicKeywords(spawn.description);
       const overlap = coord.keywords.filter(k =>
         candidateWords.some(ck => ck === k || ck.includes(k) || k.includes(ck))
       );
 
-      if (overlap.length >= 1) {
+      if (overlap.length >= 2) {
         candidate.parentConversationId = coord.agent.conversationId;
         changed = true;
         continue;
       }
 
-      // Strategy 2: temporal window — if no keyword match but the agent sits
-      // between this coordinator and the next, check if the coordinator's
-      // prompt mentions spawning sub-agents (strong delegation signal)
-      const coordSpawn = spawnOrder[coord.spawnIdx];
+      // Strategy 3: temporal window — only when the coordinator's prompt mentions
+      // spawning sub-agents AND neither the level guard nor explicit-non-spawner
+      // guard blocked it (those guards already returned above if applicable)
       const mentionsSubAgents = /\b(spawn|sub-?agent|level[- ]?2|coordinate\s+two|orchestrate)\b/i.test(coordSpawn.prompt);
-      if (mentionsSubAgents) {
+      if (mentionsSubAgents && overlap.length >= 1) {
         candidate.parentConversationId = coord.agent.conversationId;
         changed = true;
       }
@@ -349,17 +377,35 @@ function inferDelegation(agents: CorrelatedAgent[], rootId: string): void {
   }
 }
 
-function extractTopicKeywords(description: string): string[] {
-  // Extract the topic part before " — " or " - " (the task description prefix)
-  const parts = description.split(/\s[—–-]\s/);
-  const topicPart = parts[0] || description;
+function extractLevel(prompt: string): number | null {
+  const match = prompt.match(/\[Level[- ]?(\d+)/i);
+  return match ? parseInt(match[1], 10) : null;
+}
 
-  return topicPart
+function extractExpectedSubAgents(prompt: string): string[] {
+  // Look for patterns like "Sub-agent C: Schema Metadata Agent" or
+  // "spawn ... <AgentName> Agent" in the coordinator's prompt
+  const names: string[] = [];
+  const subAgentPattern = /sub-?agent\s*\w*:\s*\*?\*?([^*\n[\]]+?)(?:\*?\*?\s*\[|\s*$)/gim;
+  let m;
+  while ((m = subAgentPattern.exec(prompt)) !== null) {
+    const name = m[1].trim();
+    if (name.length > 3 && name.length < 60) names.push(name);
+  }
+  return names;
+}
+
+function extractTopicKeywords(description: string): string[] {
+  return description
     .toLowerCase()
     .replace(/\[.*?\]/g, '')
-    .split(/[\s,.:;]+/)
+    .split(/[\s,.:;—–\-]+/)
     .filter(w => w.length > 2)
-    .filter(w => !['the', 'and', 'for', 'agent', 'coordinator', 'coordinate', 'general', 'purpose'].includes(w));
+    .filter(w => ![
+      'the', 'and', 'for', 'agent', 'coordinator', 'coordinate', 'general',
+      'purpose', 'get', 'collect', 'gather', 'build', 'create', 'draft',
+      'check', 'verify', 'write', 'independent', 'comprehensive', 'overview',
+    ].includes(w));
 }
 
 interface JournalEntry {

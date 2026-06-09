@@ -102,21 +102,9 @@ export function ingestSession(sessionId: string): Session | null {
       ).get(sessionId) != null)
     : false;
 
-  // Re-index if all non-root agents are flat at depth 1 — the delegation
-  // inference pass may now resolve deeper conceptual relationships
-  const allFlat = cached
-    ? (db.prepare(
-        "SELECT 1 FROM agents WHERE session_id = ? AND depth > 1 LIMIT 1"
-      ).get(sessionId) == null &&
-      (db.prepare(
-        "SELECT COUNT(*) as cnt FROM agents WHERE session_id = ? AND depth = 1"
-      ).get(sessionId) as { cnt: number })?.cnt > 3)
-    : false;
-
   const shouldReindex = !cached ||
     new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
-    missingPrompt ||
-    allFlat;
+    missingPrompt;
 
   if (shouldReindex) {
     try {
@@ -428,6 +416,21 @@ function extractText(content: import('@/types/session').ContentBlock[]): string 
     .filter(b => b.type === 'text')
     .map(b => (b as { type: 'text'; text: string }).text)
     .join('\n');
+}
+
+export function forceReindex(sessionId: string): Session | null {
+  const db = getDatabase();
+  const sessions = discoverSessions();
+  const found = sessions.find(s => s.id === sessionId);
+  if (!found) return null;
+
+  db.prepare('DELETE FROM agents WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM timeline_events WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM conversations WHERE id = ?').run(sessionId);
+
+  indexSession(found, db);
+  return buildSessionFromDb(sessionId, db);
 }
 
 export function getAgentMessages(sessionId: string, agentId: string, page = 0, limit = 50) {
