@@ -102,9 +102,21 @@ export function ingestSession(sessionId: string): Session | null {
       ).get(sessionId) != null)
     : false;
 
+  // Re-index if all non-root agents are flat at depth 1 — the delegation
+  // inference pass may now resolve deeper conceptual relationships
+  const allFlat = cached
+    ? (db.prepare(
+        "SELECT 1 FROM agents WHERE session_id = ? AND depth > 1 LIMIT 1"
+      ).get(sessionId) == null &&
+      (db.prepare(
+        "SELECT COUNT(*) as cnt FROM agents WHERE session_id = ? AND depth = 1"
+      ).get(sessionId) as { cnt: number })?.cnt > 3)
+    : false;
+
   const shouldReindex = !cached ||
     new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
-    missingPrompt;
+    missingPrompt ||
+    allFlat;
 
   if (shouldReindex) {
     try {

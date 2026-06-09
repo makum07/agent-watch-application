@@ -112,6 +112,13 @@ export function correlateAgents(
   //     nesting depth, so we can't rely on directory structure for depth.
   resolveParentChain(result, rootId);
 
+  // 2c. Infer conceptual delegation for depth-1 coordinator agents.
+  //     When a coordinator (B) can't use the Agent tool (filtered at depth 1),
+  //     the orchestrator spawns sub-agents on its behalf. We detect this by:
+  //     - Identifying "coordinator" agents from their description/prompt
+  //     - Matching downstream agents via topic keywords + temporal proximity
+  inferDelegation(result, rootId);
+
   // 3. Workflow subagents — in subagents/workflows/<wf-run-id>/
   const workflowsSubDir = path.join(subagentsDir, 'workflows');
   if (fs.existsSync(workflowsSubDir)) {
@@ -224,6 +231,135 @@ function resolveParentChain(agents: CorrelatedAgent[], rootId: string): void {
       }
     }
   }
+}
+
+/**
+ * Infer conceptual delegation when depth-1 "coordinator" agents couldn't
+ * actually spawn sub-agents (Agent tool filtered out at depth 1).
+ *
+ * Heuristic: if agent B's description/prompt contains "coordinator" or
+ * "coordinate" and agent C was spawned later by the orchestrator with
+ * overlapping topic keywords, re-parent C under B.
+ */
+function inferDelegation(agents: CorrelatedAgent[], rootId: string): void {
+  const root = agents.find(a => a.conversationId === rootId);
+  if (!root) return;
+
+  // Collect spawn timestamps from root's tool_use blocks
+  const spawnOrder: { toolUseId: string; timestamp: string; description: string; prompt: string }[] = [];
+  for (const msg of root.parsed.messages) {
+    for (const block of msg.content) {
+      if (block.type === 'tool_use' && (block.name === 'Agent' || block.name === 'Task')) {
+        const input = block.input as Record<string, unknown>;
+        spawnOrder.push({
+          toolUseId: block.id,
+          timestamp: msg.timestamp,
+          description: (input.description as string) || '',
+          prompt: (input.prompt as string) || '',
+        });
+      }
+    }
+  }
+
+  // Map toolUseId → agent for quick lookup
+  const byToolUseId = new Map<string, CorrelatedAgent>();
+  for (const a of agents) {
+    if (a.parentToolUseId) byToolUseId.set(a.parentToolUseId, a);
+  }
+
+  // Identify coordinator agents: description or prompt contains "coordinator" or "coordinate"
+  const coordinatorPattern = /\bcoordinat(?:or|e|ing)\b/i;
+  const coordinators: { agent: CorrelatedAgent; spawnIdx: number; keywords: string[] }[] = [];
+
+  for (let i = 0; i < spawnOrder.length; i++) {
+    const spawn = spawnOrder[i];
+    const desc = spawn.description;
+    const prompt = spawn.prompt;
+    if (!coordinatorPattern.test(desc) && !coordinatorPattern.test(prompt)) continue;
+
+    const agent = byToolUseId.get(spawn.toolUseId);
+    if (!agent || agent.parentConversationId !== rootId) continue;
+
+    // Extract topic keywords from description (before the em-dash)
+    const keywords = extractTopicKeywords(desc);
+    if (keywords.length > 0) {
+      coordinators.push({ agent, spawnIdx: i, keywords });
+    }
+  }
+
+  if (coordinators.length === 0) return;
+
+  let changed = false;
+
+  // For each coordinator, find subsequent agents that belong to it.
+  // Two strategies:
+  //   1. Keyword overlap (strong signal)
+  //   2. Temporal window (agents sandwiched between this coordinator and the next
+  //      coordinator are assumed to be delegated work, unless they're coordinators)
+  for (const coord of coordinators) {
+    const nextCoordIdx = coordinators.find(c => c.spawnIdx > coord.spawnIdx)?.spawnIdx ?? spawnOrder.length;
+
+    for (let i = coord.spawnIdx + 1; i < nextCoordIdx; i++) {
+      const spawn = spawnOrder[i];
+      const candidate = byToolUseId.get(spawn.toolUseId);
+      if (!candidate || candidate.parentConversationId !== rootId) continue;
+
+      // Don't re-parent other coordinators
+      if (coordinatorPattern.test(spawn.description)) continue;
+
+      // Strategy 1: keyword overlap
+      const candidateWords = extractTopicKeywords(spawn.description);
+      const overlap = coord.keywords.filter(k =>
+        candidateWords.some(ck => ck === k || ck.includes(k) || k.includes(ck))
+      );
+
+      if (overlap.length >= 1) {
+        candidate.parentConversationId = coord.agent.conversationId;
+        changed = true;
+        continue;
+      }
+
+      // Strategy 2: temporal window — if no keyword match but the agent sits
+      // between this coordinator and the next, check if the coordinator's
+      // prompt mentions spawning sub-agents (strong delegation signal)
+      const coordSpawn = spawnOrder[coord.spawnIdx];
+      const mentionsSubAgents = /\b(spawn|sub-?agent|level[- ]?2|coordinate\s+two|orchestrate)\b/i.test(coordSpawn.prompt);
+      if (mentionsSubAgents) {
+        candidate.parentConversationId = coord.agent.conversationId;
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) return;
+
+  // Recompute depths via BFS
+  const depthMap = new Map<string, number>([[rootId, 0]]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    const parentDepth = depthMap.get(parentId)!;
+    for (const agent of agents) {
+      if (agent.parentConversationId === parentId && !depthMap.has(agent.conversationId)) {
+        depthMap.set(agent.conversationId, parentDepth + 1);
+        agent.depth = parentDepth + 1;
+        queue.push(agent.conversationId);
+      }
+    }
+  }
+}
+
+function extractTopicKeywords(description: string): string[] {
+  // Extract the topic part before " — " or " - " (the task description prefix)
+  const parts = description.split(/\s[—–-]\s/);
+  const topicPart = parts[0] || description;
+
+  return topicPart
+    .toLowerCase()
+    .replace(/\[.*?\]/g, '')
+    .split(/[\s,.:;]+/)
+    .filter(w => w.length > 2)
+    .filter(w => !['the', 'and', 'for', 'agent', 'coordinator', 'coordinate', 'general', 'purpose'].includes(w));
 }
 
 interface JournalEntry {
