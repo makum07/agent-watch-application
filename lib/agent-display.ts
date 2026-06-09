@@ -79,12 +79,9 @@ export function getAgentDisplay(agent: Agent): AgentDisplay {
 
   // 2. Named types (Explore, Plan, general-purpose, etc.)
   if (subType && NAMED_TYPE_COLORS[subType]) {
-    // Show "Explore: Short description" or just "Explore" if no desc
     const shortDesc = desc ? formatAgentLabel(desc) : '';
-    // Truncate long descriptions for the primary name
-    const truncDesc = shortDesc.length > 35 ? shortDesc.slice(0, 33) + '…' : shortDesc;
-    const name = truncDesc ? `${subType}: ${truncDesc}` : subType;
-    const shortName = subType + (truncDesc ? `: ${truncDesc.slice(0, 20)}` : '');
+    const name = shortDesc ? `${subType}: ${shortDesc}` : subType;
+    const shortName = subType + (shortDesc ? `: ${shortDesc.slice(0, 20)}` : '');
     const initials = subType === 'general-purpose' ? 'GP' : subType.slice(0, 2).toUpperCase();
     return {
       name,
@@ -99,8 +96,7 @@ export function getAgentDisplay(agent: Agent): AgentDisplay {
   if (subType === 'general-purpose') {
     const color = NAMED_TYPE_COLORS['general-purpose'];
     const shortDesc = desc ? formatAgentLabel(desc) : '';
-    const truncDesc = shortDesc.length > 35 ? shortDesc.slice(0, 33) + '…' : shortDesc;
-    const name = truncDesc ? `Agent: ${truncDesc}` : 'Agent';
+    const name = shortDesc ? `Agent: ${shortDesc}` : 'Agent';
     return {
       name,
       shortName: name.slice(0, 28),

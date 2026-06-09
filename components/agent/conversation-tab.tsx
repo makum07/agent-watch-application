@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAgentMessages } from '@/hooks/use-agent-messages';
 
-import { Loader2, Users, User, Bot, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Users, User, Bot, Sparkles, ChevronDown, ChevronUp, ChevronsDown } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
 import { formatTime as fmtTime } from '@/lib/utils';
@@ -101,6 +101,10 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   const { agentMap } = useSessionStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isAtTop, setIsAtTop] = useState(true);
+  const pendingScrollToBottom = useRef(false);
+  const pendingScrollToTop = useRef(false);
 
   // Scroll-to-message: read target from tab state and scroll when found
   const scrollToMessageId = useWorkspaceStore(s =>
@@ -119,6 +123,24 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
     }
   }, [scrollToMessageId, messages, hasMore, isLoading, paneId, agentId]);
 
+  // Load-all-then-scroll: when pendingScrollToBottom is set, keep paging until done, then scroll
+  useEffect(() => {
+    if (!pendingScrollToBottom.current && !pendingScrollToTop.current) return;
+    if (isLoading) return;
+    if (hasMore) {
+      loadMore();
+    } else {
+      if (pendingScrollToBottom.current) {
+        pendingScrollToBottom.current = false;
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+      if (pendingScrollToTop.current) {
+        pendingScrollToTop.current = false;
+        containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  }, [hasMore, isLoading, loadMore]);
+
   // Scroll sync: emit current visible timestamp on scroll; listen for incoming sync timestamp
   const scrollSyncEnabled = useWorkspaceStore(s => s.scrollSyncEnabled);
   const scrollSyncTimestamp = useWorkspaceStore(s => s.scrollSyncTimestamp);
@@ -135,9 +157,12 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
 
   // Emit: on scroll, find the topmost visible message and broadcast its timestamp
   const handleScroll = useRef(() => {
-    if (!scrollSyncEnabled || isEmitting.current) return;
     const container = containerRef.current;
     if (!container) return;
+    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setIsAtBottom(distFromBottom < 60);
+    setIsAtTop(container.scrollTop < 60);
+    if (!scrollSyncEnabled || isEmitting.current) return;
     const containerTop = container.getBoundingClientRect().top;
     const els = container.querySelectorAll('[data-message-id]');
     for (const el of els) {
@@ -153,9 +178,12 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
 
   useEffect(() => {
     handleScroll.current = () => {
-      if (!scrollSyncEnabled || isEmitting.current) return;
       const container = containerRef.current;
       if (!container) return;
+      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      setIsAtBottom(distFromBottom < 60);
+      setIsAtTop(container.scrollTop < 60);
+      if (!scrollSyncEnabled || isEmitting.current) return;
       const containerTop = container.getBoundingClientRect().top;
       const els = container.querySelectorAll('[data-message-id]');
       for (const el of els) {
@@ -215,6 +243,43 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   const activePaneId = paneId;
 
   return (
+    <div className="relative h-full">
+      {(!isAtBottom || !isAtTop) && (
+        <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1">
+          {!isAtTop && (
+            <button
+              onClick={() => {
+                if (hasMore) {
+                  pendingScrollToTop.current = true;
+                  loadMore();
+                } else {
+                  containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58] transition-colors shadow-lg"
+              title="Scroll to top"
+            >
+              <ChevronsDown className="h-3.5 w-3.5 rotate-180" />
+            </button>
+          )}
+          {!isAtBottom && (
+            <button
+              onClick={() => {
+                if (hasMore) {
+                  pendingScrollToBottom.current = true;
+                  loadMore();
+                } else {
+                  bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58] transition-colors shadow-lg"
+              title="Scroll to bottom"
+            >
+              <ChevronsDown className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     <div
       ref={containerRef}
       className="h-full overflow-y-auto overflow-x-hidden bg-[#0d1117]"
@@ -251,6 +316,7 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
         )}
         <div ref={bottomRef} />
       </div>
+    </div>
     </div>
   );
 }

@@ -77,7 +77,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           />
           {/* Agent name — prominent */}
           <span
-            className="text-sm font-bold truncate flex-1"
+            className="text-sm font-bold break-words flex-1 leading-snug"
             style={{ color: color.text }}
           >
             {name}

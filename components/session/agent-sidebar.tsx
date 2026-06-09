@@ -607,7 +607,7 @@ function AgentRow({
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 mb-0.5">
-            <span className="text-xs font-semibold text-[#e6edf3] truncate leading-tight">{name}</span>
+            <span className="text-xs font-semibold text-[#e6edf3] leading-tight shrink-0" title={name}>{name.length > 35 ? name.slice(0, 35) + '...' : name}</span>
             {hasChildren && treeMode && (
               <span
                 className="text-[9px] px-1 py-0 rounded font-mono shrink-0"
