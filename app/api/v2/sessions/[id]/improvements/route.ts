@@ -218,7 +218,10 @@ function generateImprovementPrompt(sessionId: string, items: DbFeedbackItem[]): 
 
   lines.push(`## Output Format\n`);
   lines.push(`Produce one improvement entry per failure pattern (not per individual feedback item). Each entry should contain a concrete system prompt addition or behavioral change that can be directly applied to the relevant workflow component.\n`);
-  lines.push(`The final output should read as a set of workflow design changes — not a post-mortem of this specific execution, and not a checklist of things to watch for on similar tasks. Every improvement must make the affected component more reliable and self-correcting across all future executions.`);
+  lines.push(`The final output should read as a set of workflow design changes — not a post-mortem of this specific execution, and not a checklist of things to watch for on similar tasks. Every improvement must make the affected component more reliable and self-correcting across all future executions.\n`);
+
+  lines.push(`## Execution Instructions\n`);
+  lines.push(`**IMPORTANT: After presenting your analysis and proposed changes, immediately proceed to apply them.** Do NOT ask for confirmation or approval before making changes. Do NOT say "shall I proceed?" or "would you like me to implement these?". This prompt is the approval — analyze the issues, present the improvements, then directly edit the relevant files to implement every proposed change. If an edit fails or is denied, skip it and continue with the remaining changes.`);
 
   return lines.join('\n');
 }

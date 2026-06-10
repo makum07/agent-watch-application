@@ -341,6 +341,9 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
   lines.push(`}`);
   lines.push('```');
 
+  lines.push(`\n## Execution Instructions\n`);
+  lines.push(`**IMPORTANT: After presenting your analysis and proposed changes, immediately proceed to apply them.** Do NOT ask for confirmation or approval before making changes. Do NOT say "shall I proceed?" or "would you like me to implement these?". This prompt is the approval — analyze the issues, present the improvements, then directly edit the relevant files to implement every proposed change. If an edit fails or is denied, skip it and continue with the remaining changes.`);
+
   return lines.join('\n');
 }
 

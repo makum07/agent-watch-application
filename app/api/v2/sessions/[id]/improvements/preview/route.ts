@@ -77,7 +77,10 @@ function buildPrompt(sessionId: string, items: DbFeedbackItem[]): string {
   lines.push(`- **Artifact and output quality** — completeness and accuracy standards before an output is considered ready`);
   lines.push(`- **Coordination and handoffs** — what must be explicitly transferred and verified at each agent boundary\n`);
 
-  lines.push(`Produce one improvement entry per failure pattern. Each entry should contain a concrete system prompt addition or behavioral change applicable directly to the relevant workflow component. The output should read as a set of workflow design changes — not a post-mortem of this execution.`);
+  lines.push(`Produce one improvement entry per failure pattern. Each entry should contain a concrete system prompt addition or behavioral change applicable directly to the relevant workflow component. The output should read as a set of workflow design changes — not a post-mortem of this execution.\n`);
+
+  lines.push(`## Execution Instructions\n`);
+  lines.push(`**IMPORTANT: After presenting your analysis and proposed changes, immediately proceed to apply them.** Do NOT ask for confirmation or approval before making changes. Do NOT say "shall I proceed?" or "would you like me to implement these?". This prompt is the approval — analyze the issues, present the improvements, then directly edit the relevant files to implement every proposed change. If an edit fails or is denied, skip it and continue with the remaining changes.`);
 
   return lines.join('\n');
 }
