@@ -15,26 +15,8 @@ import {
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
 import type { Session, Agent, SkillInvocation } from '@/types/session';
+import { estimateAgentCost } from '@/lib/utils';
 import { registerSkillExecutions } from '@/lib/services/skill-registry';
-
-const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  'claude-opus-4-8': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
-  'claude-opus-4-6': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
-  'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
-  'claude-haiku-4-5': { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 },
-  'claude-3-5-sonnet': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
-  'claude-3-5-haiku': { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 },
-};
-
-function estimateCost(model: string, input: number, output: number, cacheCreation: number, cacheRead: number): number {
-  const pricing = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
-  return (
-    (input * pricing.input) / 1_000_000 +
-    (output * pricing.output) / 1_000_000 +
-    (cacheCreation * pricing.cacheWrite) / 1_000_000 +
-    (cacheRead * pricing.cacheRead) / 1_000_000
-  );
-}
 
 export interface DiscoveredSession {
   id: string;
@@ -430,7 +412,7 @@ function buildSessionFromDb(sessionId: string, db: Database.Database): Session |
 
   const costByModel: Record<string, number> = {};
   for (const a of agents) {
-    const cost = estimateCost(a.model, a.tokenUsage.input, a.tokenUsage.output, a.tokenUsage.cacheCreation, a.tokenUsage.cacheRead);
+    const cost = estimateAgentCost(a.tokenUsage, a.model);
     costByModel[a.model] = (costByModel[a.model] || 0) + cost;
   }
   const totalCost = Object.values(costByModel).reduce((s, c) => s + c, 0);

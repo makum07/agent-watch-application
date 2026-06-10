@@ -300,7 +300,9 @@ function AnalysisCycleCard({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showStream, setShowStream] = useState(false);
   const [showResponse, setShowResponse] = useState(false);
-  const status = STATUS_CONFIG[cycle.status] ?? STATUS_CONFIG.pending;
+  const isStaleAnalyzing = (cycle.status === 'analyzing' || cycle.status === 'applying') && !isAnalyzing;
+  const displayStatus = isStaleAnalyzing ? 'failed' : cycle.status;
+  const status = STATUS_CONFIG[displayStatus] ?? STATUS_CONFIG.pending;
 
   const date = new Date(cycle.createdAt).toLocaleDateString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

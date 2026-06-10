@@ -961,15 +961,18 @@ function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry; resul
         <span className="text-[10px] font-semibold" style={{ color: colors.icon }}>{toolName}</span>
         <span className="text-[10px] text-[#8b949e] font-mono truncate flex-1">{summary}</span>
         {hasFile && (
-          <button
+          <span
+            role="button"
+            tabIndex={0}
             onClick={e => { e.stopPropagation(); setShowFile(v => !v); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setShowFile(v => !v); } }}
             className={cn(
-              'text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors shrink-0',
+              'text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors shrink-0 cursor-pointer',
               showFile ? 'text-[#58a6ff] bg-[#58a6ff]/10' : 'text-[#484f58] hover:text-[#8b949e]',
             )}
           >
             <FileCode2 className="h-2.5 w-2.5" /> {showFile ? 'Hide' : 'View'}
-          </button>
+          </span>
         )}
         {resultBadge && (
           <span className={cn(

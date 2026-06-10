@@ -736,6 +736,15 @@ export function getAnalysisCycle(cycleId: string): SkillAnalysisCycle | null {
 
 export function listAnalysisCycles(skillId: string): SkillAnalysisCycle[] {
   const db = getDatabase();
+
+  const STALE_THRESHOLD_MS = 10 * 60 * 1000;
+  const cutoff = Date.now() - STALE_THRESHOLD_MS;
+  db.prepare(`
+    UPDATE skill_analysis_cycles
+    SET status = 'failed', completed_at = ?
+    WHERE skill_id = ? AND status IN ('analyzing', 'applying') AND created_at < ?
+  `).run(Date.now(), skillId, cutoff);
+
   const rows = db.prepare(
     'SELECT * FROM skill_analysis_cycles WHERE skill_id = ? ORDER BY created_at DESC'
   ).all(skillId) as Array<Record<string, unknown>>;

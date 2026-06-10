@@ -389,6 +389,7 @@ export async function runSkillAnalysis(
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
+      '--model', 'claude-sonnet-4-6',
     ], {
       shell: true,
       env: { ...process.env },
@@ -483,13 +484,35 @@ export async function runSkillAnalysis(
       stderr += chunk.toString();
     });
 
+    const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000;
     const exitCode = await new Promise<number>((resolve) => {
-      child.on('close', (code) => resolve(code ?? 0));
-      child.on('error', () => resolve(1));
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch { /* already dead */ }
+        resolve(124);
+      }, ANALYSIS_TIMEOUT_MS);
+
+      child.on('close', (code) => { clearTimeout(timer); resolve(code ?? 0); });
+      child.on('error', () => { clearTimeout(timer); resolve(1); });
     });
 
     if (stdoutBuffer.trim()) {
       handleStreamEvent(stdoutBuffer.trim());
+    }
+
+    if (exitCode === 124) {
+      streamLog.push({
+        id: `sa-${++streamIdCounter}`,
+        kind: 'system',
+        timestamp: Date.now(),
+        text: 'Analysis timed out after 5 minutes.',
+      });
+      updateAnalysisCycle(cycleId, {
+        status: 'failed',
+        analysisResponse: responseChunks.join('') || null,
+        streamEntries: streamLog.length > 0 ? streamLog : null,
+      });
+      broadcast('skill_analysis_failed', { error: 'Analysis timed out after 5 minutes' });
+      return;
     }
 
     const fullResponse = responseChunks.join('');
@@ -549,10 +572,18 @@ export async function runSkillAnalysis(
       text: `Analysis failed: ${String(err)}`,
     });
 
-    updateAnalysisCycle(cycleId, {
-      status: 'failed',
-      streamEntries: streamLog.length > 0 ? streamLog : null,
-    });
+    try {
+      updateAnalysisCycle(cycleId, {
+        status: 'failed',
+        streamEntries: streamLog.length > 0 ? streamLog : null,
+      });
+    } catch (updateErr) {
+      try {
+        getDatabase().prepare('UPDATE skill_analysis_cycles SET status = ?, completed_at = ? WHERE id = ?')
+          .run('failed', Date.now(), cycleId);
+      } catch { /* best effort */ }
+      console.error('Failed to update analysis cycle:', updateErr);
+    }
     broadcast('skill_analysis_failed', { error: String(err) });
   }
 }
@@ -576,6 +607,7 @@ export async function applySkillFix(
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
+      '--model', 'claude-sonnet-4-6',
       '--permission-mode', 'default',
     ], {
       shell: true,
