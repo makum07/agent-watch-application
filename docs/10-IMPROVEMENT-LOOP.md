@@ -377,3 +377,122 @@ interface FileChange {
   diff: string;
 }
 ```
+
+---
+
+## 8. Skill-Level Analysis (Cross-Session Intelligence)
+
+While the session-level improvement loop (Sections 1-7) operates within a single session, AgentWatch also supports **cross-session skill analysis** — a deeper evaluation of recurring agent skills across all sessions that use them.
+
+### 8.1 Overview
+
+Skills are first-class entities representing named agent behaviors (e.g., `.claude/skills/code-review.md`). The Skill Intelligence system aggregates execution data, feedback, and improvement history across every session that invoked a given skill, then uses Claude to perform deep analysis.
+
+```
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  1. Aggregate │───▶│  2. Generate  │───▶│  3. Analyze  │───▶│  4. Recommend│
+│  Cross-Session│    │  Rich Prompt  │    │  via Claude  │    │  & Fix       │
+│  Data         │    │  (editable)   │    │  (streamed)  │    │              │
+└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+```
+
+### 8.2 Analysis Prompt Generation
+
+The analysis prompt is a structured document (~30K+ chars) assembled from:
+
+| Section | Content |
+|---------|---------|
+| **Skill Metadata** | Name, project, version, description, execution count, session count, last analysis date |
+| **Improvement Cycle History** | Chronological list of all improvement cycles across sessions, with: cycle number, timestamp, feedback IDs addressed, file changes summary, Claude response excerpt |
+| **Prior Analysis Cycles** | Previous skill analysis results with recommendations and status |
+| **Feedback Distribution** | Open/closed feedback counts per category, per agent |
+| **Open Feedback Items** | Grouped by category with timestamps and agent attribution |
+| **Closed Feedback Items** | With cycle attribution (which improvement cycle resolved them) |
+| **Recurring Issue Hints** | Categories appearing in both open and closed feedback, post-fix feedback patterns |
+| **Deep Analysis Objectives** | Fix effectiveness audit, open issue triage, recurring pattern detection, temporal trend analysis, gap analysis |
+| **Output Format** | Structured JSON block for recommendations with severity, root cause, affected component, proposed change, self-correction signal |
+
+**Open vs. Closed Feedback:** A feedback item is "closed" if its ID appears in any completed or rewound improvement cycle's `feedback_ids`. Otherwise it is "open."
+
+### 8.3 Analysis UI
+
+The Analysis tab on the skill detail page (`/skills/[skillId]`) provides:
+
+| Component | Description |
+|-----------|-------------|
+| **Preview Prompt** button | Fetches the generated prompt, opens a full-screen editor for review and editing before triggering analysis |
+| **Quick Analysis** button | Triggers analysis immediately with the auto-generated prompt |
+| **Prompt Editor** | Textarea with character count, hint text, Run Analysis / Cancel buttons, Ctrl+Enter shortcut |
+| **Analysis Cycle Cards** | Expandable cards for each cycle showing: generated prompt (with char count), activity log/live stream, analysis report (markdown), recommendations, fix prompt |
+
+### 8.4 Activity Log / Live Stream
+
+During analysis, Claude's stream events are displayed in real time via WebSocket, matching the session improvement loop's activity log pattern:
+
+| Entry Type | Styling | Content |
+|------------|---------|---------|
+| **Thinking** | Purple, collapsible | Full reasoning text with preview |
+| **Tool Call** | Color-coded by tool name | Expandable input/output, result badge (done/error) |
+| **Text Response** | Collapsible | Markdown-rendered response text |
+
+Tool color coding matches Section 4.3 (Bash=green, Read=blue, Edit/Write=orange, Grep/Glob=purple).
+
+### 8.5 Stream Entry Persistence
+
+Stream entries are accumulated server-side during analysis and persisted to the `stream_entries` column on `skill_analysis_cycles` (schema v9). This enables post-hoc review of the full analysis activity log, including all thinking blocks, tool calls, and responses.
+
+### 8.6 Recommendations
+
+Each analysis cycle produces structured recommendations parsed from Claude's response:
+
+```typescript
+interface AnalysisRecommendation {
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  title: string;
+  rootCause: string;
+  affectedComponent: string;
+  proposedChange: string;
+}
+```
+
+Recommendations are rendered as expandable cards with severity badges.
+
+### 8.7 Self-Healing Modes
+
+Skills can be configured with self-healing behavior:
+
+| Mode | Behavior |
+|------|----------|
+| `analysis_only` | Auto-triggers analysis after N executions; human reviews recommendations |
+| `analysis_and_fix` | Auto-triggers analysis; generates fix prompt; human approves before applying |
+| `fully_automatic` | Auto-triggers analysis and applies fixes without human intervention |
+
+### 8.8 Database Schema
+
+See `04-DATA-MODEL.md` Section 5 for the full schema. Key additions:
+
+- **v8:** `skills`, `skill_executions`, `skill_analysis_cycles` tables
+- **v9:** `stream_entries TEXT` column on `skill_analysis_cycles`
+
+### 8.9 Event Types
+
+| Event Type | Direction | Payload |
+|------------|-----------|---------|
+| `skill_analysis_started` | Server → Browser | `{ skillId }` |
+| `skill_analysis_stream_event` | Server → Browser | `{ skillId, event }` (Claude stream-json line) |
+| `skill_analysis_complete` | Server → Browser | `{ skillId, cycleId }` |
+| `skill_analysis_failed` | Server → Browser | `{ skillId, error }` |
+
+### 8.10 REST API
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v2/skills` | List all skills with aggregated stats |
+| POST | `/api/v2/skills` | Sync skill registry from all sessions |
+| GET | `/api/v2/skills/:skillId` | Skill detail with executions, feedback, cycles |
+| PATCH | `/api/v2/skills/:skillId` | Update self-healing config |
+| GET | `/api/v2/skills/:skillId/analysis` | List analysis cycles |
+| GET | `/api/v2/skills/:skillId/analysis?preview=1` | Preview generated prompt |
+| POST | `/api/v2/skills/:skillId/analysis` | Trigger new analysis cycle |
+| POST | `/api/v2/skills/:skillId/analysis/:cycleId` | Approve and apply fix prompt |
+| DELETE | `/api/v2/skills/:skillId/analysis/:cycleId` | Delete analysis cycle |

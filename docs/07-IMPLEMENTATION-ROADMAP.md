@@ -4,7 +4,8 @@
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
 **Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08). Phase 4 COMPLETE (2026-06-09).
+**Amendment:** Phase 5 (Skill Intelligence) added for cross-session skill analysis and self-healing.
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08). Phase 4 COMPLETE (2026-06-09). Phase 5 COMPLETE (2026-06-09).
 
 ---
 
@@ -13,21 +14,21 @@
 The implementation is divided into four phases, each building on the previous. Each phase produces a usable, shippable increment. Phase 1 is expanded to include foundational session history, workspace persistence, and the agent pane tab rail, as these are critical to daily usability.
 
 ```
-Phase 1: MVP                     Phase 2: Advanced Viz           Phase 3: Multi-Agent        Phase 4: Analytics
-(8-12 weeks)                     (6-8 weeks)                     Analysis (5-7 weeks)        & Debugging (4.5-6.5 wks)
-                                                                                              
-+---------------------------+    +-------------------------+     +------------------------+  +------------------------+
-| Session ingestion         |    | Execution timeline      |     | Context flow view      |  | Debug alerts           |
-| Agent graph construction  |    | Agent hierarchy graph   |     | Context tab (in pane)  |  | Bottleneck detection   |
-| Multi-pane workspace      |    | Artifact explorer       |     | Artifact lineage       |  | Duplicate work detect  |
-| Agent pane tab rail       |    | Timeline zoom/pan       |     | Cross-agent search     |  | Cost breakdown         |
-| Inline artifact cards     |    | Agent graph interaction |     | Invocation navigation  |  | Session comparison     |
-| Basic agent sidebar       |    | Tool call markers       |     | Workflow visualization |  | Export/reporting       |
-| Drag-and-drop to panes    |    | Concurrent execution    |     | Scroll sync            |  | Performance profiling  |
-| Layout presets            |    | Per-agent artifacts tab |     | Agent diff view        |  | Pattern detection      |
-| Home dashboard (basic)    |    | Per-agent tools tab     |     | Session tagging        |  | Advanced session search|
-| Session history tracking  |    | Pinning and favorites   |     | Artifact lineage strip |  | History pruning        |
-| Auto-save workspace      |    | Named layout saves      |     +------------------------+  +------------------------+
+Phase 1: MVP                     Phase 2: Advanced Viz           Phase 3: Multi-Agent        Phase 4: Analytics        Phase 5: Skill
+(8-12 weeks)                     (6-8 weeks)                     Analysis (5-7 weeks)        & Debugging (4.5-6.5 wks) Intelligence (2-3 wks)
+                                                                                                                        
++---------------------------+    +-------------------------+     +------------------------+  +------------------------+ +----------------------+
+| Session ingestion         |    | Execution timeline      |     | Context flow view      |  | Debug alerts           | | Skills dashboard      |
+| Agent graph construction  |    | Agent hierarchy graph   |     | Context tab (in pane)  |  | Bottleneck detection   | | Skill detail page     |
+| Multi-pane workspace      |    | Artifact explorer       |     | Artifact lineage       |  | Duplicate work detect  | | Skill registry        |
+| Agent pane tab rail       |    | Timeline zoom/pan       |     | Cross-agent search     |  | Cost breakdown         | | Cross-session analysis|
+| Inline artifact cards     |    | Agent graph interaction |     | Invocation navigation  |  | Session comparison     | | Deep analysis prompt  |
+| Basic agent sidebar       |    | Tool call markers       |     | Workflow visualization |  | Export/reporting       | | Prompt preview/edit   |
+| Drag-and-drop to panes    |    | Concurrent execution    |     | Scroll sync            |  | Performance profiling  | | Live stream log       |
+| Layout presets            |    | Per-agent artifacts tab |     | Agent diff view        |  | Pattern detection      | | Self-healing config   |
+| Home dashboard (basic)    |    | Per-agent tools tab     |     | Session tagging        |  | Advanced session search| | Feedback analytics    |
+| Session history tracking  |    | Pinning and favorites   |     | Artifact lineage strip |  | History pruning        | | Execution history     |
+| Auto-save workspace      |    | Named layout saves      |     +------------------------+  +------------------------+ +----------------------+
 | Resume dialog             |    +-------------------------+
 | Session search (basic)    |
 +---------------------------+
@@ -430,6 +431,99 @@ A user can:
 5. Compare two sessions side-by-side
 6. Export a session report as HTML
 7. See the critical path through the agent hierarchy
+
+---
+
+## Phase 5: Skill Intelligence and Self-Healing ✅ COMPLETE (2026-06-09)
+
+### Goal
+
+Cross-session skill intelligence: skills become first-class entities with their own dashboard, aggregated feedback analytics, execution history, deep analysis via Claude (with rich prompt generation, live streaming, and stream persistence), and configurable self-healing behavior.
+
+### Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Skill Registry** | Deterministic skill identity (`sha256(project:name).slice(0,16)`), auto-registration on session open, bulk sync | ✅ |
+| **Skills Dashboard** | `/skills` page with project grouping, sort/filter, sync button, skill cards with stats | ✅ |
+| **Skill Detail Page** | `/skills/[skillId]` with Radix Tabs: Overview, Executions, Feedback, Analysis | ✅ |
+| **Self-Healing Config** | Toggle + mode selector (analysis_only / analysis_and_fix / fully_automatic) + threshold input | ✅ |
+| **Execution History** | Paginated table of skill executions across sessions with agent, timestamp, duration, feedback count | ✅ |
+| **Feedback Analytics** | Recharts bar chart by category, top agents table, open/closed feedback breakdown | ✅ |
+| **Deep Analysis Prompt** | ~30K+ char structured prompt with: improvement cycles, open/closed feedback, recurring issue hints, temporal analysis objectives | ✅ |
+| **Prompt Preview & Edit** | Full-screen editor with character count, Ctrl+Enter shortcut, Run/Cancel buttons | ✅ |
+| **Live Stream Log** | Real-time Claude stream events (thinking, tool calls, text) via WebSocket, matching session improvement loop patterns | ✅ |
+| **Stream Entry Persistence** | Full stream log stored in `stream_entries` column (schema v9) for post-hoc review | ✅ |
+| **Analysis Report** | Markdown-rendered Claude response with expandable recommendation cards (severity, root cause, component, proposed change) | ✅ |
+| **Fix Prompt Workflow** | Editable fix prompt for `awaiting_review` cycles, approve & apply button | ✅ |
+
+### Architecture Changes
+
+| Component | Change | Status |
+|-----------|--------|--------|
+| Database | Schema v8: `skills`, `skill_executions`, `skill_analysis_cycles` tables with indexes | ✅ |
+| Database | Schema v9: `stream_entries TEXT` column on `skill_analysis_cycles` | ✅ |
+| Backend | New `lib/services/skill-registry.ts` — skill CRUD, execution tracking, aggregation queries | ✅ |
+| Backend | New `lib/services/self-healing-controller.ts` — prompt generation, Claude spawning, stream handling | ✅ |
+| Backend | Modified `lib/services/session-ingester.ts` — calls `registerSkillExecutions()` after indexing | ✅ |
+| API | New `app/api/v2/skills/route.ts` — GET list, POST sync | ✅ |
+| API | New `app/api/v2/skills/[skillId]/route.ts` — GET detail, PATCH config | ✅ |
+| API | New `app/api/v2/skills/[skillId]/executions/route.ts` — GET paginated executions | ✅ |
+| API | New `app/api/v2/skills/[skillId]/analysis/route.ts` — GET cycles, GET preview, POST trigger | ✅ |
+| API | New `app/api/v2/skills/[skillId]/analysis/[cycleId]/route.ts` — GET/POST/DELETE cycle | ✅ |
+| Store | New `store/skill-store.ts` — Zustand store with WebSocket event handling for live streaming | ✅ |
+| UI | New `app/skills/page.tsx` — skills dashboard with project grouping | ✅ |
+| UI | New `app/skills/[skillId]/page.tsx` — 4-tab skill detail page | ✅ |
+| UI | New `components/skills/` — skill-card, skill-list, self-healing-config, execution-history, feedback-analytics, analysis-history | ✅ |
+| Types | New `types/skills.ts` — Skill, SkillSummary, SkillExecution, SkillAnalysisCycle, AnalysisRecommendation | ✅ |
+| Types | Modified `types/events.ts` — added skill_analysis_* event types | ✅ |
+| Navigation | Skills link added to home page header and workspace header | ✅ |
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Deterministic skill ID via SHA-256 | Matches existing agent ID pattern; same skill always gets same ID regardless of registration order |
+| Lazy registration on session open | Skills register when sessions are opened, not at startup; "Sync" button for bulk catch-up |
+| Feedback linkage via JOIN | `skill_executions(session_id, agent_id)` ↔ `feedback_items(session_id, agent_id)` — no schema changes to existing tables |
+| Separate from session improvement cycles | Skill analysis examines cross-session patterns; session improvement targets a single session |
+| Fresh Claude session for analysis | Uses `-p` (not `--resume`) since analysis is independent of any single session |
+| Open/closed feedback derivation | Feedback is "closed" if its ID appears in any completed/rewound improvement cycle's `feedback_ids` |
+
+### Deliverables
+
+- [x] Skill registry with deterministic ID, auto-registration, bulk sync
+- [x] Skills dashboard (`/skills`) with project grouping, stats, sort/filter
+- [x] Skill detail page (`/skills/[skillId]`) with 4 tabs (Overview, Executions, Feedback, Analysis)
+- [x] Self-healing configuration (toggle, mode selector, threshold)
+- [x] Execution history table with pagination
+- [x] Feedback analytics with Recharts bar charts and agent breakdown
+- [x] Deep analysis prompt generation (~30K+ chars) with improvement cycles, open/closed feedback, recurring issue detection, temporal analysis
+- [x] Prompt preview/edit flow with full editor
+- [x] Live stream log during analysis (thinking, tool calls, text — matching session improvement loop patterns)
+- [x] Stream entry persistence in DB (schema v9)
+- [x] Analysis report with markdown rendering and expandable recommendation cards
+- [x] Fix prompt workflow for awaiting_review cycles
+- [x] Navigation integration (Skills link in home + workspace headers)
+- [x] Database migrations v8 (3 tables) and v9 (stream_entries column)
+
+> **Implementation notes:**
+> - Analysis component (`components/skills/analysis-history.tsx`, ~550 lines) replicates stream rendering patterns from `components/session/feedback-panel.tsx` (ThinkingEntry, ToolCallEntry, TextEntry) without extracting shared components
+> - Prompt generation (`lib/services/self-healing-controller.ts:generateAnalysisPrompt`) builds a structured prompt with: skill metadata table, chronological improvement cycles with feedback-addressed counts, prior analysis results, feedback distribution (open/closed by category and agent), grouped open/closed feedback items, recurring issue hints, and deep analysis objectives
+> - Claude spawned with `child_process.spawn('claude', ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose'])` in a fresh session
+> - Stream entries accumulated server-side and persisted via `updateAnalysisCycle({ streamEntries })` on completion
+> - Existing cycles created before v9 migration gracefully show no Activity Log section
+
+### Definition of Done
+
+A user can:
+1. Navigate to the Skills dashboard and see all registered skills grouped by project
+2. Click a skill to see its detail page with overview, executions, feedback, and analysis tabs
+3. Configure self-healing behavior (enabled/disabled, mode, threshold)
+4. Preview the auto-generated analysis prompt and edit it before triggering
+5. Trigger a new analysis and watch Claude's thinking, tool calls, and responses stream in real time
+6. Review completed analysis cycles with full activity logs and recommendation cards
+7. Approve and apply fix prompts for awaiting_review cycles
 
 ---
 

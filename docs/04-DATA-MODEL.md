@@ -3,6 +3,7 @@
 ## AgentWatch v2.0
 
 **Amendment:** Sections 2.7-2.10 and 6 added per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
+**Amendment:** Section 7 (Skill Intelligence Schema v8-v9) added for cross-session skill analysis
 
 ---
 
@@ -712,7 +713,7 @@ session.estimatedCost = sum(agent costs)
 
 ### 5.0 Schema Versioning and Migrations
 
-Migrations run automatically on startup via `lib/db/database.ts`. The current version is **v2**.
+Migrations run automatically on startup via `lib/db/database.ts`. The current version is **v9**.
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -857,3 +858,185 @@ Session history records and workspace snapshots are managed separately from the 
 | Auto-save snapshot | 2-10 KB | 1 per session (overwritten) |
 | Named save snapshots | 2-10 KB each | User-driven, max 20 per session |
 | Agent artifact reads | 0.1 KB per read | Proportional to agent count |
+
+---
+
+## 7. Skill Intelligence Schema (v8-v9)
+
+### 7.1 Entity Relationship Diagram
+
+```
++------------------+       +------------------+       +-------------------------+
+|    Skill         |       | SkillExecution   |       | SkillAnalysisCycle      |
+|------------------|       |------------------|       |-------------------------|
+| id (PK)          |<----->| id (PK)          |       | id (PK)                 |
+| project          |  1:N  | skill_id (FK)    |       | skill_id (FK)           |
+| name             |       | session_id (FK)  |       | cycle_number            |
+| description      |       | agent_id         |       | trigger_type            |
+| version          |       | invocation_id    |       | sessions_analyzed (JSON)|
+| self_healing_*   |       | timestamp        |       | feedback_analyzed (JSON)|
+| executions_since |       | duration_ms      |       | analysis_prompt         |
+| created_at       |       | args (JSON)      |       | analysis_response       |
+| updated_at       |       | feedback_count   |       | fix_prompt              |
++------------------+       +------------------+       | recommendations (JSON)  |
+                                                      | stream_entries (JSON)   |
+                                                      | status                  |
+                                                      | created_at              |
+                                                      | completed_at            |
+                                                      +-------------------------+
+```
+
+### 7.2 Skill Entity
+
+```typescript
+interface Skill {
+  id: string;                        // sha256(project + ':' + name).slice(0, 16)
+  project: string;                   // Working directory path
+  name: string;                      // Skill name (e.g., "code-review")
+  description: string | null;
+  version: string | null;
+  selfHealingEnabled: boolean;
+  selfHealingMode: 'analysis_only' | 'analysis_and_fix' | 'fully_automatic';
+  selfHealingThreshold: number;      // Executions before auto-analysis
+  executionsSinceLastCycle: number;
+  createdAt: number;                 // Unix timestamp
+  updatedAt: number;
+}
+
+interface SkillSummary extends Skill {
+  totalExecutions: number;
+  totalSessions: number;
+  totalFeedback: number;
+  avgDurationMs: number;
+  lastExecutionAt: number | null;
+  lastAnalysisAt: number | null;
+  lastAnalysisStatus: string | null;
+}
+```
+
+### 7.3 SkillExecution Entity
+
+```typescript
+interface SkillExecution {
+  id: string;
+  skillId: string;
+  sessionId: string;
+  agentId: string;
+  invocationId: string;
+  timestamp: number;
+  durationMs: number;
+  args: string | null;               // JSON
+  feedbackCount: number;
+}
+```
+
+### 7.4 SkillAnalysisCycle Entity
+
+```typescript
+interface SkillAnalysisCycle {
+  id: string;
+  skillId: string;
+  cycleNumber: number;
+  triggerType: 'manual' | 'auto_threshold';
+  sessionsAnalyzed: string[];        // Session IDs
+  feedbackAnalyzed: string[];        // Feedback item IDs
+  analysisPrompt: string;
+  analysisResponse: string | null;
+  fixPrompt: string | null;
+  recommendations: AnalysisRecommendation[] | null;
+  streamEntries: StreamEntry[] | null;  // Added in v9
+  status: 'pending' | 'analyzing' | 'awaiting_review' | 'applying' | 'completed' | 'failed';
+  createdAt: number;
+  completedAt: number | null;
+}
+
+interface AnalysisRecommendation {
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  title: string;
+  rootCause: string;
+  affectedComponent: string;
+  proposedChange: string;
+}
+```
+
+### 7.5 SQL Schema
+
+```sql
+-- Schema v8: Skill Intelligence tables
+CREATE TABLE skills (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  version TEXT,
+  self_healing_enabled INTEGER DEFAULT 0,
+  self_healing_mode TEXT DEFAULT 'analysis_only',
+  self_healing_threshold INTEGER DEFAULT 5,
+  executions_since_last_cycle INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(project, name)
+);
+
+CREATE TABLE skill_executions (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  invocation_id TEXT,
+  timestamp INTEGER NOT NULL,
+  duration_ms INTEGER DEFAULT 0,
+  args TEXT,
+  feedback_count INTEGER DEFAULT 0,
+  FOREIGN KEY (skill_id) REFERENCES skills(id)
+);
+
+CREATE INDEX idx_skill_exec_skill ON skill_executions(skill_id);
+CREATE INDEX idx_skill_exec_session ON skill_executions(session_id);
+CREATE INDEX idx_skill_exec_timestamp ON skill_executions(timestamp);
+
+CREATE TABLE skill_analysis_cycles (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  cycle_number INTEGER NOT NULL,
+  trigger_type TEXT NOT NULL DEFAULT 'manual',
+  sessions_analyzed TEXT DEFAULT '[]',
+  feedback_analyzed TEXT DEFAULT '[]',
+  analysis_prompt TEXT NOT NULL,
+  analysis_response TEXT,
+  fix_prompt TEXT,
+  recommendations TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  FOREIGN KEY (skill_id) REFERENCES skills(id)
+);
+
+CREATE INDEX idx_skill_analysis_skill ON skill_analysis_cycles(skill_id);
+
+-- Schema v9: Stream entry persistence for skill analysis
+ALTER TABLE skill_analysis_cycles ADD COLUMN stream_entries TEXT;
+```
+
+### 7.6 Feedback Linkage
+
+Feedback is linked to skills via JOIN rather than a direct foreign key:
+
+```sql
+-- Find feedback for a skill
+SELECT fi.* FROM feedback_items fi
+INNER JOIN skill_executions se
+  ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
+WHERE se.skill_id = ?;
+```
+
+A feedback item is "closed" if its ID appears in any completed or rewound improvement cycle's `feedback_ids` JSON array. Otherwise it is "open."
+
+### 7.7 Storage Budget
+
+| Data | Typical Size per Skill | Growth Rate |
+|------|------------------------|-------------|
+| Skill record | 0.3 KB | 1 per unique skill |
+| Skill execution | 0.2 KB | 1 per skill invocation per session |
+| Analysis cycle (no stream) | 5-50 KB | User-triggered or auto-threshold |
+| Analysis cycle (with stream) | 50-500 KB | Depends on Claude analysis depth |

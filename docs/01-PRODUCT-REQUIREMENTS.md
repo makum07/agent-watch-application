@@ -4,7 +4,7 @@
 
 **Document Version:** 1.2
 **Date:** 2026-06-02
-**Status:** Phase 1 MVP complete. Phase 2 not yet started.
+**Status:** All phases complete (Phase 1-4: 2026-06-01 to 2026-06-09, Phase 5 Skill Intelligence: 2026-06-09).
 **Amendment:** See `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md` for v1.1 additions. See `07-IMPLEMENTATION-ROADMAP.md` for Phase 1 completion status.
 
 ---
@@ -309,6 +309,25 @@ Make multi-agent AI workflows as inspectable as single-threaded code in a debugg
 - Support for Agent tool calls (subagent orchestration)
 - Support for Workflow tool calls (scripted orchestration)
 - Support for all standard tool calls (Bash, Read, Write, Edit, Grep, Glob, etc.)
+
+### 4.12 Skill Intelligence and Self-Healing
+
+| ID | Requirement | Priority | Status |
+|----|------------|----------|--------|
+| SI-01 | Maintain a registry of all skills encountered across sessions | P0 | ✅ |
+| SI-02 | Skills dashboard listing all skills grouped by project with aggregated stats | P0 | ✅ |
+| SI-03 | Skill detail page with tabs: Overview, Executions, Feedback, Analysis | P0 | ✅ |
+| SI-04 | Aggregate feedback from all sessions that used a skill | P0 | ✅ |
+| SI-05 | Cross-session analysis via Claude with deep analysis prompt | P0 | ✅ |
+| SI-06 | Analysis prompt includes improvement cycles, open/closed feedback, recurring issue detection | P0 | ✅ |
+| SI-07 | Preview and edit generated analysis prompt before triggering | P0 | ✅ |
+| SI-08 | Live stream Claude's analysis (thinking, tool calls, responses) via WebSocket | P0 | ✅ |
+| SI-09 | Persist stream entries for post-hoc analysis review | P1 | ✅ |
+| SI-10 | Structured recommendations with severity, root cause, proposed change | P0 | ✅ |
+| SI-11 | Self-healing configuration per skill (enabled, mode, threshold) | P1 | ✅ |
+| SI-12 | Execution history table with pagination | P1 | ✅ |
+| SI-13 | Feedback analytics with category breakdown charts | P1 | ✅ |
+| SI-14 | Fix prompt approval workflow for awaiting_review cycles | P1 | ✅ |
 
 ---
 

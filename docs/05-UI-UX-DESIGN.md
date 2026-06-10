@@ -1140,3 +1140,154 @@ On screens < 768px:
 | `T` | Toggle timeline view (when no text input focused) |
 | `G` | Toggle agent graph view (when no text input focused) |
 | `H` | Go to home dashboard (when no text input focused) |
+
+---
+
+## 18. Page: Skills Dashboard
+
+### 18.1 Wireframe
+
+```
++-----------------------------------------------------------------------+
+| AgentWatch > Skills                          [Sync Skills] [Back]     |
++-----------------------------------------------------------------------+
+|                                                                        |
+|  PROJECT: myproject                                                    |
+|  +---------------------------+  +---------------------------+          |
+|  | code-review               |  | test-generation           |          |
+|  | 45 executions | 12 sessions|  | 23 executions | 8 sessions|          |
+|  | 18 feedback | avg 2.3m    |  | 7 feedback | avg 1.1m     |          |
+|  | Self-healing: [●] ON      |  | Self-healing: [ ] OFF     |          |
+|  | Last analysis: Jun 8      |  | No analysis yet           |          |
+|  +---------------------------+  +---------------------------+          |
+|                                                                        |
+|  PROJECT: webapp                                                       |
+|  +---------------------------+  +---------------------------+          |
+|  | api-docs                  |  | migration-helper          |          |
+|  | 12 executions | 4 sessions|  | 8 executions | 3 sessions |          |
+|  | 3 feedback | avg 45s      |  | 5 feedback | avg 3.5m     |          |
+|  | Self-healing: [ ] OFF     |  | Self-healing: [●] ON      |          |
+|  +---------------------------+  +---------------------------+          |
+|                                                                        |
++-----------------------------------------------------------------------+
+```
+
+---
+
+## 19. Page: Skill Detail
+
+### 19.1 Wireframe — Overview Tab
+
+```
++-----------------------------------------------------------------------+
+| AgentWatch > Skills > code-review                                     |
++-----------------------------------------------------------------------+
+| [Overview] [Executions] [Feedback] [Analysis]                         |
++-----------------------------------------------------------------------+
+|                                                                        |
+|  +--------+  +--------+  +--------+  +--------+  +---------+         |
+|  | 45     |  | 12     |  | 18     |  | 2m 18s |  | Jun 8   |         |
+|  | exec   |  | sessions|  | feedback|  | avg dur|  | last    |         |
+|  +--------+  +--------+  +--------+  +--------+  | analysis|         |
+|                                                    +---------+         |
+|                                                                        |
+|  SELF-HEALING CONFIGURATION                                           |
+|  +------------------------------------------------------------------+ |
+|  | Enabled: [toggle ON/OFF]                                          | |
+|  |                                                                    | |
+|  | Mode: (●) Analysis Only                                           | |
+|  |       ( ) Analysis + Fix                                          | |
+|  |       ( ) Fully Automatic                                         | |
+|  |                                                                    | |
+|  | Threshold: [5] executions before auto-analysis                    | |
+|  |                                                    [Save Changes] | |
+|  +------------------------------------------------------------------+ |
+|                                                                        |
++-----------------------------------------------------------------------+
+```
+
+### 19.2 Wireframe — Analysis Tab
+
+```
++-----------------------------------------------------------------------+
+| [Overview] [Executions] [Feedback] [Analysis]                         |
++-----------------------------------------------------------------------+
+|                                                                        |
+|  [Preview Prompt]  [Quick Analysis]                                   |
+|                                                                        |
+|  +------------------------------------------------------------------+ |
+|  | ▸ Generated Prompt                              32,841 chars      | |
+|  +------------------------------------------------------------------+ |
+|  | ▸ Activity Log                                  (67 events)       | |
+|  |   ┌────────────────────────────────────────────────────────────┐  | |
+|  |   │ 🧠 Thinking  Let me analyze the improvement cycles...  ▸ │  | |
+|  |   │ 🔧 Read  .claude/skills/code-review.md            done  ▸ │  | |
+|  |   │ 🔧 Grep  "feedback.*category"                     done  ▸ │  | |
+|  |   │ 💬 Response                                             ▾ │  | |
+|  |   │   Based on my analysis of 12 sessions and 18 feedback...  │  | |
+|  |   └────────────────────────────────────────────────────────────┘  | |
+|  +------------------------------------------------------------------+ |
+|  | ▸ Analysis Report                                                 | |
+|  |   (markdown-rendered Claude response)                             | |
+|  +------------------------------------------------------------------+ |
+|  | ▸ Recommendations (4)                                             | |
+|  |   ┌────────────────────────────────────────────────────────────┐  | |
+|  |   │ [HIGH] Missing edge case handling in error paths           │  | |
+|  |   │ Root cause: Skill prompt lacks error scenario instructions │  | |
+|  |   │ Component: .claude/skills/code-review.md                   │  | |
+|  |   │ Proposed: Add explicit error handling review checklist     │  | |
+|  |   ├────────────────────────────────────────────────────────────┤  | |
+|  |   │ [MEDIUM] Recurring context drift in long sessions          │  | |
+|  |   │ Root cause: No context refresh mechanism                   │  | |
+|  |   │ ...                                                        │  | |
+|  |   └────────────────────────────────────────────────────────────┘  | |
+|  +------------------------------------------------------------------+ |
+|                                                                        |
++-----------------------------------------------------------------------+
+```
+
+### 19.3 Prompt Preview/Edit Flow
+
+```
++-----------------------------------------------------------------------+
+| ANALYSIS PROMPT EDITOR                                                |
++-----------------------------------------------------------------------+
+| Edit the prompt below before triggering analysis.                     |
+| Ctrl+Enter to run.                                                    |
++-----------------------------------------------------------------------+
+| +------------------------------------------------------------------+ |
+| | # Skill Analysis: code-review                                     | |
+| |                                                                    | |
+| | ## Skill Metadata                                                  | |
+| | | Field | Value |                                                 | |
+| | |-------|-------|                                                 | |
+| | | Name  | code-review |                                          | |
+| | | Project | myproject |                                           | |
+| | | Executions | 45 |                                               | |
+| | ...                                                                | |
+| | (full prompt content in textarea)                                  | |
+| +------------------------------------------------------------------+ |
+| 32,841 characters                                                     |
+|                                                                        |
+| [Run Analysis]  [Cancel]                                              |
++-----------------------------------------------------------------------+
+```
+
+### 19.4 Recommendation Card
+
+```
++------------------------------------------------------------------+
+| [HIGH] Missing edge case handling in error paths              ▾  |
++------------------------------------------------------------------+
+| Severity: HIGH                                                    |
+| Root Cause: Skill prompt does not include instructions for        |
+| reviewing error handling paths and exception scenarios.           |
+|                                                                    |
+| Affected Component: .claude/skills/code-review.md                |
+|                                                                    |
+| Proposed Change: Add a dedicated "Error Handling Review" section  |
+| to the skill instructions that checks for: missing try/catch,    |
+| unhandled promise rejections, missing error boundaries, and      |
+| incomplete error propagation.                                     |
++------------------------------------------------------------------+
+```

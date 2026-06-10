@@ -692,6 +692,61 @@ Any completed or failed cycle can be rewound — truncating the session JSONL to
 
 ---
 
+## 12.5 Functional Area: Skill Intelligence
+
+> Full specification: `10-IMPROVEMENT-LOOP.md` Section 8
+
+The Skill Intelligence system elevates skills from per-agent metadata to first-class cross-session entities with their own dashboard, analytics, and analysis capabilities.
+
+### 12.5.1 Skill Registry
+
+Skills are automatically registered when sessions are opened. Each skill gets a deterministic ID (`sha256(project + ':' + skillName).slice(0, 16)`). A "Sync Skills" button triggers bulk registration across all indexed sessions.
+
+### 12.5.2 Skills Dashboard
+
+The `/skills` page lists all registered skills grouped by project. Each skill card shows:
+- Skill name and project
+- Execution count, session count, feedback count, average duration
+- Self-healing status indicator (green=enabled, gray=off)
+- Last analysis date and status
+
+### 12.5.3 Skill Detail
+
+The `/skills/[skillId]` page has four tabs:
+
+| Tab | Content |
+|-----|---------|
+| **Overview** | Skill metadata, self-healing configuration (toggle, mode, threshold), summary stats |
+| **Executions** | Paginated execution history across sessions (session ID, agent, timestamp, duration, feedback count) |
+| **Feedback** | Recharts bar chart by category, top agents table, open/closed feedback breakdown |
+| **Analysis** | Analysis cycle history with prompt preview/edit, live stream, recommendations, fix prompt workflow |
+
+### 12.5.4 Deep Analysis
+
+Analysis cycles use Claude to evaluate a skill's cross-session behavior. The auto-generated prompt (~30K+ chars) includes:
+
+1. Skill metadata with timestamps
+2. Chronological improvement cycle history with feedback addressed, file changes, response summaries
+3. Prior analysis cycles with recommendations
+4. Feedback distribution (open/closed by category and agent)
+5. Grouped open and closed feedback items
+6. Recurring issue detection hints
+7. Deep analysis objectives (fix effectiveness, open issue triage, pattern detection, temporal trends, gap analysis)
+
+The user can preview and edit the prompt before triggering. During analysis, Claude's stream events are displayed in real time and persisted for post-hoc review.
+
+### 12.5.5 Self-Healing
+
+Skills can be configured to auto-trigger analysis after a threshold number of executions:
+
+| Mode | Behavior |
+|------|----------|
+| `analysis_only` | Auto-triggers analysis; human reviews |
+| `analysis_and_fix` | Auto-triggers analysis + generates fix prompt; human approves |
+| `fully_automatic` | Auto-triggers analysis and applies fixes |
+
+---
+
 ## 12. Functional Area: Keyboard Shortcuts
 
 | Shortcut | Action |
