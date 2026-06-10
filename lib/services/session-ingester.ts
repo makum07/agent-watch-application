@@ -15,6 +15,7 @@ import {
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
 import type { Session, Agent, SkillInvocation } from '@/types/session';
+import { registerSkillExecutions } from '@/lib/services/skill-registry';
 
 const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   'claude-opus-4-8': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
@@ -102,9 +103,24 @@ export function ingestSession(sessionId: string): Session | null {
       ).get(sessionId) != null)
     : false;
 
+  // Re-index if no agents have skill data but the JSONL file contains Skill calls or invoked_skills (pre-v5 gap)
+  let missingSkills = false;
+  if (cached) {
+    const hasSkillData = db.prepare(
+      "SELECT 1 FROM agents WHERE session_id = ? AND skill_invocations IS NOT NULL AND skill_invocations != '[]' LIMIT 1"
+    ).get(sessionId);
+    if (!hasSkillData) {
+      try {
+        const content = fs.readFileSync(found.filePath, 'utf8');
+        missingSkills = content.includes('"name":"Skill"') || content.includes('"name": "Skill"') || content.includes('"invoked_skills"') || content.includes('"attributionSkill"');
+      } catch { /* non-fatal */ }
+    }
+  }
+
   const shouldReindex = !cached ||
     new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
-    missingPrompt;
+    missingPrompt ||
+    missingSkills;
 
   if (shouldReindex) {
     try {
@@ -163,6 +179,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
   `);
 
   const agentIdMap = new Map<string, string>();
+  const agentSkillMap: Array<{ id: string; skillInvocations: SkillInvocation[] }> = [];
   for (const correlated of agents) {
     const agentId = crypto.createHash('sha256')
       .update(`${discovered.id}:${correlated.conversationId}`)
@@ -231,6 +248,25 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       // Capture skills that completed without a matching tool_result
       for (const [id, pending] of pendingSkills) {
         skillInvocations.push({ id, ...pending, endTime: null, durationMs: null });
+      }
+
+      // Capture directly invoked skills (via /skill-name, appear as invoked_skills attachments)
+      for (const invoked of correlated.parsed.invokedSkills) {
+        const alreadyTracked = skillInvocations.some(s => s.skill === invoked.name);
+        if (!alreadyTracked) {
+          skillInvocations.push({
+            id: crypto.createHash('sha256').update(`invoked:${discovered.id}:${invoked.name}:${invoked.timestamp || ''}`).digest('hex').slice(0, 16),
+            skill: invoked.name,
+            args: null,
+            startTime: invoked.timestamp || correlated.parsed.firstTimestamp || new Date().toISOString(),
+            endTime: null,
+            durationMs: null,
+          });
+        }
+      }
+
+      if (skillInvocations.length > 0) {
+        agentSkillMap.push({ id: agentId, skillInvocations });
       }
 
       const children = agents
@@ -323,6 +359,16 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
   });
 
   insertAll();
+
+  // Register skill executions for cross-session skill intelligence
+  if (agentSkillMap.length > 0) {
+    try {
+      const project = discovered.projectDisplayName || discovered.projectPath;
+      registerSkillExecutions(discovered.id, project, agentSkillMap);
+    } catch (err) {
+      console.error('Failed to register skill executions:', err);
+    }
+  }
 }
 
 function buildSessionFromDb(sessionId: string, db: Database.Database): Session | null {

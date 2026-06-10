@@ -11,6 +11,11 @@ interface RawLine {
   parentUuid?: string | null;
   isSidechain?: boolean;
   sessionId?: string;
+  attributionSkill?: string;
+  attachment?: {
+    type: string;
+    skills?: Array<{ name: string; path: string; content?: string }>;
+  };
 }
 
 interface RawMessage {
@@ -49,26 +54,34 @@ export interface ParsedMessage {
   };
 }
 
+export interface InvokedSkill {
+  name: string;
+  path: string;
+  timestamp: string | null;
+}
+
 export interface ParsedConversation {
   messages: ParsedMessage[];
+  invokedSkills: InvokedSkill[];
   firstTimestamp: string | null;
   lastTimestamp: string | null;
 }
 
 export function parseJsonlFile(filePath: string): ParsedConversation {
   if (!fs.existsSync(filePath)) {
-    return { messages: [], firstTimestamp: null, lastTimestamp: null };
+    return { messages: [], invokedSkills: [], firstTimestamp: null, lastTimestamp: null };
   }
 
   let content: string;
   try {
     content = fs.readFileSync(filePath, 'utf8');
   } catch {
-    return { messages: [], firstTimestamp: null, lastTimestamp: null };
+    return { messages: [], invokedSkills: [], firstTimestamp: null, lastTimestamp: null };
   }
 
   const lines = content.split('\n');
   const messages: ParsedMessage[] = [];
+  const invokedSkills: InvokedSkill[] = [];
   let msgIndex = 0;
 
   for (const rawLine of lines) {
@@ -78,8 +91,29 @@ export function parseJsonlFile(filePath: string): ParsedConversation {
     try {
       const line: RawLine = JSON.parse(trimmed);
 
+      if (line.attachment?.type === 'invoked_skills' && Array.isArray(line.attachment.skills)) {
+        for (const skill of line.attachment.skills) {
+          if (skill.name) {
+            invokedSkills.push({
+              name: skill.name,
+              path: skill.path || '',
+              timestamp: line.timestamp || null,
+            });
+          }
+        }
+        continue;
+      }
+
       if (line.type !== 'user' && line.type !== 'assistant') continue;
       if (!line.message) continue;
+
+      // Detect skill attribution on assistant messages
+      if (line.type === 'assistant' && line.attributionSkill) {
+        const name = line.attributionSkill;
+        if (!invokedSkills.some(s => s.name === name)) {
+          invokedSkills.push({ name, path: '', timestamp: line.timestamp || null });
+        }
+      }
 
       const msg = line.message;
       const role = line.type === 'assistant' ? 'assistant' : determineUserRole(msg);
@@ -115,6 +149,7 @@ export function parseJsonlFile(filePath: string): ParsedConversation {
 
   return {
     messages,
+    invokedSkills,
     firstTimestamp: messages[0]?.timestamp ?? null,
     lastTimestamp: messages[messages.length - 1]?.timestamp ?? null,
   };

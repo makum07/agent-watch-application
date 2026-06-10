@@ -3,7 +3,7 @@ import { discoverSessions } from '@/lib/services/session-ingester';
 import { SessionCard } from '@/components/home/session-card';
 import { SessionSearch } from '@/components/home/session-search';
 import { OpenById } from '@/components/home/open-by-id';
-import { Pin, Activity, Layers, FolderOpen } from 'lucide-react';
+import { Pin, Activity, Layers, FolderOpen, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +42,13 @@ export default async function HomePage() {
             <span className="font-semibold text-lg">AgentWatch</span>
             <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">v2.0</span>
           </div>
+          <Link
+            href="/skills"
+            className="flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#d2a8ff]" />
+            Skills
+          </Link>
           <div className="flex-1 max-w-md">
             <SessionSearch />
           </div>

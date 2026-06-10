@@ -253,6 +253,9 @@ export default function WorkspacePage({ params }: Props) {
                 <Link href={`/session/${id}/analytics`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors">
                   Analytics
                 </Link>
+                <Link href="/skills" className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors">
+                  Skills
+                </Link>
               </div>
               <div className="flex items-center gap-1 border-l border-[#30363d] pl-2 ml-1">
                 <button

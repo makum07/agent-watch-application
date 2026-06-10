@@ -14,11 +14,19 @@ export type SessionEvent =
   // Edit approval gate
   | { type: 'improvement_permission_request'; sessionId: string; cycleId: string; requestId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: 'improvement_permission_resolved'; sessionId: string; cycleId: string; requestId: string; approved: boolean }
+  // Skill analysis events
+  | { type: 'skill_analysis_started'; skillId: string; cycleId: string }
+  | { type: 'skill_analysis_stream_event'; skillId: string; cycleId: string; event: StreamEvent }
+  | { type: 'skill_analysis_complete'; skillId: string; cycleId: string; status: string }
+  | { type: 'skill_analysis_failed'; skillId: string; cycleId: string; error: string }
+  | { type: 'skill_analysis_permission_request'; skillId: string; cycleId: string; requestId: string; toolName: string; toolInput: Record<string, unknown> }
+  | { type: 'skill_analysis_permission_resolved'; skillId: string; cycleId: string; requestId: string; approved: boolean }
   | { type: 'ping' };
 
 // Client-to-server messages (sent from browser via WebSocket)
 export type ClientMessage =
-  | { type: 'permission_response'; sessionId: string; cycleId: string; requestId: string; approved: boolean };
+  | { type: 'permission_response'; sessionId: string; cycleId: string; requestId: string; approved: boolean }
+  | { type: 'skill_analysis_permission_response'; skillId: string; cycleId: string; requestId: string; approved: boolean };
 
 // Claude Code --output-format stream-json event types
 export type StreamEvent =
