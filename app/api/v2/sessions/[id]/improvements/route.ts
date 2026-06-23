@@ -638,6 +638,18 @@ export async function POST(
       return NextResponse.json({ error: 'No feedback items to apply' }, { status: 400 });
     }
 
+    // The improvement loop streams progress and delivers edit-approval prompts
+    // over WebSocket. Without it the cycle would spawn Claude, hit denied edits,
+    // and block waiting for approvals that can never arrive — hanging forever in
+    // "applying". Fail fast with a clear message instead. (This is the case when
+    // the app is started with `npm run dev` rather than `npm run dev:server`.)
+    if (!getWsServer()) {
+      return NextResponse.json(
+        { error: 'WebSocket server is not running, so live streaming and edit approvals cannot be delivered. Start the app with "npm run dev:server" (not "npm run dev"), then try again.' },
+        { status: 503 },
+      );
+    }
+
     const rewindCycleId = req.nextUrl.searchParams.get('rewind');
     if (rewindCycleId) {
       const targetCycle = db.prepare(

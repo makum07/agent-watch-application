@@ -40,7 +40,6 @@ export default async function HomePage() {
           <div className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
             <span className="font-semibold text-lg">AgentWatch</span>
-            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">v2.0</span>
           </div>
           <Link
             href="/skills"

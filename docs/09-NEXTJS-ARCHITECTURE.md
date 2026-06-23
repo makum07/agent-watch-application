@@ -118,12 +118,25 @@ Next.js doesn't natively support WebSocket in API routes. A custom `server.ts` w
 
 **Critical dev vs production distinction:**
 
-| Mode | Command | Server |
-|------|---------|--------|
-| Development | `npm run dev` → `next dev -p 3456` | Next.js built-in dev server (Turbopack HMR) |
-| Production | `npm start` → `node server.js` | Custom `server.ts` with WebSocket |
+| Mode | Command | Server | WebSocket |
+|------|---------|--------|-----------|
+| Development (no WS) | `npm run dev` → `next dev -p 3456` | Next.js built-in dev server (Turbopack HMR) | ❌ not available |
+| Development (with WS) | `npm run dev:server` → `tsx server.ts` | Custom `server.ts` (HMR + WebSocket) | ✅ available |
+| Production | `npm start` → `node server.js` | Custom `server.ts` with WebSocket | ✅ available |
 
-In development, the custom server is **not used**. Running `server.ts` in dev caused the WebSocketServer to reject all non-`/ws` WebSocket upgrades including `/_next/webpack-hmr`, which broke HMR and caused constant page reloads. Using `next dev` directly avoids this entirely.
+**Any feature that depends on WebSocket — the improvement loop's live stream, the
+edit-approval gate, and skill-analysis streaming — only works under `npm run dev:server`.**
+Under plain `npm run dev` there is no `/ws` handler and `getWsServer()` returns `null`,
+so those features silently fail (e.g. an improvement cycle hangs forever in "applying"
+because it can neither stream events nor receive approvals). Use `npm run dev` only when
+working on parts of the app that do not need WebSocket.
+
+> **Historical note:** An earlier `server.ts` broke HMR because its `WebSocketServer`
+> rejected all non-`/ws` upgrades (including `/_next/webpack-hmr`), causing constant page
+> reloads. The current `server.ts` fixes this by using `noServer` mode and explicitly
+> delegating every non-`/ws` upgrade to Next's own upgrade handler, so `dev:server` now
+> gives working HMR *and* WebSocket. The old "use `next dev` in dev" guidance no longer
+> applies.
 
 ```typescript
 // server.ts (production only)

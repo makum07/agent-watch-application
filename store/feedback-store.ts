@@ -140,7 +140,10 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(customPrompt ? { customPrompt } : {}),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? res.statusText);
+      }
       const cycle: ImprovementCycle = await res.json();
       set(s => ({ cycles: [cycle, ...s.cycles], lastCycle: cycle }));
       return cycle;
