@@ -39,26 +39,24 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 --ingroup nodejs appuser && \
-    mkdir -p /data && chown appuser:nodejs /data
+RUN mkdir -p /data && chown node:node /data
 
 # Next.js build output
-COPY --from=builder --chown=appuser:nodejs /app/.next          ./.next
-COPY --from=builder --chown=appuser:nodejs /app/public         ./public
+COPY --from=builder --chown=node:node /app/.next          ./.next
+COPY --from=builder --chown=node:node /app/public         ./public
 
 # Full node_modules (includes tsx needed to run server.ts, and
 # native better-sqlite3 compiled for this Node.js version)
-COPY --from=builder --chown=appuser:nodejs /app/node_modules   ./node_modules
+COPY --from=builder --chown=node:node /app/node_modules   ./node_modules
 
 # Source files the production server needs at runtime
-COPY --from=builder --chown=appuser:nodejs /app/server.ts      ./server.ts
-COPY --from=builder --chown=appuser:nodejs /app/tsconfig.json  ./tsconfig.json
-COPY --from=builder --chown=appuser:nodejs /app/package.json   ./package.json
-COPY --from=builder --chown=appuser:nodejs /app/lib            ./lib
-COPY --from=builder --chown=appuser:nodejs /app/types          ./types
+COPY --from=builder --chown=node:node /app/server.ts      ./server.ts
+COPY --from=builder --chown=node:node /app/tsconfig.json  ./tsconfig.json
+COPY --from=builder --chown=node:node /app/package.json   ./package.json
+COPY --from=builder --chown=node:node /app/lib            ./lib
+COPY --from=builder --chown=node:node /app/types          ./types
 
-USER appuser
+USER node
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -18,7 +18,8 @@ export async function GET(
       return NextResponse.json({ error: 'agentId is required' }, { status: 400 });
     }
 
-    const result = getAgentMessages(id, agentId, page, Math.min(limit, 100));
+    const sourceId = url.searchParams.get('source') ?? undefined;
+    const result = getAgentMessages(id, agentId, page, Math.min(limit, 100), sourceId);
 
     if (!result) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });

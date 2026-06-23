@@ -28,12 +28,12 @@ export interface DiscoveredSession {
   lastModified: string;
 }
 
-export function discoverSessions(): DiscoveredSession[] {
-  const projectsDir = getClaudeProjectsDir();
+export function discoverSessions(sourceId?: string): DiscoveredSession[] {
+  const projectsDir = getClaudeProjectsDir(sourceId);
   if (!fs.existsSync(projectsDir)) return [];
 
   const sessions: DiscoveredSession[] = [];
-  const projectDirs = listProjectDirs();
+  const projectDirs = listProjectDirs(sourceId);
 
   for (const dirName of projectDirs) {
     const projectDir = path.join(projectsDir, dirName);
@@ -63,12 +63,12 @@ export function discoverSessions(): DiscoveredSession[] {
   return sessions.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
 }
 
-export function ingestSession(sessionId: string): Session | null {
-  const db = getDatabase();
+export function ingestSession(sessionId: string, sourceId?: string): Session | null {
+  const db = getDatabase(sourceId);
 
   const cached = db.prepare('SELECT * FROM conversations WHERE id = ?').get(sessionId) as Record<string, unknown> | undefined;
 
-  const sessions = discoverSessions();
+  const sessions = discoverSessions(sourceId);
   const found = sessions.find(s => s.id === sessionId);
 
   if (!found) {
@@ -468,9 +468,9 @@ function extractText(content: import('@/types/session').ContentBlock[]): string 
     .join('\n');
 }
 
-export function forceReindex(sessionId: string): Session | null {
-  const db = getDatabase();
-  const sessions = discoverSessions();
+export function forceReindex(sessionId: string, sourceId?: string): Session | null {
+  const db = getDatabase(sourceId);
+  const sessions = discoverSessions(sourceId);
   const found = sessions.find(s => s.id === sessionId);
   if (!found) return null;
 
@@ -483,8 +483,8 @@ export function forceReindex(sessionId: string): Session | null {
   return buildSessionFromDb(sessionId, db);
 }
 
-export function getAgentMessages(sessionId: string, agentId: string, page = 0, limit = 50) {
-  const db = getDatabase();
+export function getAgentMessages(sessionId: string, agentId: string, page = 0, limit = 50, sourceId?: string) {
+  const db = getDatabase(sourceId);
 
   const agent = db.prepare('SELECT conversation_id, session_id, jsonl_path FROM agents WHERE id = ?').get(agentId) as
     | { conversation_id: string; session_id: string; jsonl_path?: string }

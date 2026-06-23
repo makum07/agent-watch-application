@@ -7,24 +7,31 @@ services:
     ports:
       - "${PORT:-3456}:3456"
     volumes:
-      # Mount your local ~/.claude directory (read-only) so the app can
-      # discover and read your Claude session files.
+      # Multi-source support: configure named sources via AGENTWATCH_SOURCES env var.
+      # Format: "Label:/mount/path,Label2:/mount/path2"
+      # Example for WSL + Windows:
+      #   AGENTWATCH_SOURCES=WSL:/claude-data-wsl,Windows:/claude-data-windows
       #
-      # macOS / Linux:
-      #   The default below (~/.claude) works with no extra configuration.
+      # Mount each path from your host. Paths below use the env vars as host paths.
+      # Docker Desktop on Windows — set these in a .env file next to this file:
+      #   CLAUDE_HOME_WSL=\\wsl$\Ubuntu\home\yourname\.claude
+      #   CLAUDE_HOME_WINDOWS=C:\Users\yourname\.claude
       #
-      # Windows (Docker Desktop):
-      #   Set CLAUDE_HOME in a .env file next to this file:
-      #     CLAUDE_HOME=C:/Users/YourName/.claude
-      - "${CLAUDE_HOME:-~/.claude}:/claude-data:ro"
+      # macOS / Linux (single source):
+      #   Leave AGENTWATCH_SOURCES unset — falls back to CLAUDE_HOME or ~/.claude
+      - "${CLAUDE_HOME_WSL:-~/.claude}:/claude-data-wsl:ro"
+      - "${CLAUDE_HOME_WINDOWS:-~/.claude}:/claude-data-windows:ro"
 
-      # Named volume for the SQLite database (survives container restarts)
+      # Named volume for SQLite databases (one per source, survives restarts)
       - agentwatch-data:/data
     environment:
       - NODE_ENV=production
       - PORT=3456
-      - CLAUDE_HOME=/claude-data
       - CLAUDE_DB_PATH=/data/agentwatch.db
+      # Set this to enable the source switcher UI.
+      # Format: "Label:/container-mount-path,Label2:/container-mount-path2"
+      - AGENTWATCH_SOURCES=${AGENTWATCH_SOURCES:-}
+    user: "1000:1000"
     restart: unless-stopped
 
 volumes:

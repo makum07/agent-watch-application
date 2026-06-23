@@ -30,13 +30,13 @@ function rowToHistory(row: Record<string, unknown>): SessionHistory {
   };
 }
 
-export function recordSessionOpen(session: Session): SessionHistory {
-  const db = getDatabase();
+export function recordSessionOpen(session: Session, sourceId?: string): SessionHistory {
+  const db = getDatabase(sourceId);
   const now = Date.now();
 
   const existing = db.prepare('SELECT * FROM session_history WHERE session_id = ?').get(session.id) as Record<string, unknown> | undefined;
 
-  const title = generateTitle(session);
+  const title = generateTitle(session, sourceId);
 
   if (existing) {
     db.prepare(`
@@ -80,11 +80,11 @@ export function recordSessionOpen(session: Session): SessionHistory {
     `).run(session.id, title, null, session.project, '');
   }
 
-  return getSessionHistory(session.id)!;
+  return getSessionHistory(session.id, sourceId)!;
 }
 
-export function getSessionHistory(sessionId: string): SessionHistory | null {
-  const db = getDatabase();
+export function getSessionHistory(sessionId: string, sourceId?: string): SessionHistory | null {
+  const db = getDatabase(sourceId);
   const row = db.prepare('SELECT * FROM session_history WHERE session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   return row ? rowToHistory(row) : null;
 }
@@ -96,8 +96,8 @@ export function listSessionHistory(opts: {
   pinned?: boolean;
   favorite?: boolean;
   project?: string;
-}): SessionHistory[] {
-  const db = getDatabase();
+}, sourceId?: string): SessionHistory[] {
+  const db = getDatabase(sourceId);
   const { limit = 50, offset = 0, sort = 'lastOpened', pinned, favorite, project } = opts;
 
   let where = 'WHERE 1=1';
@@ -115,8 +115,8 @@ export function listSessionHistory(opts: {
   return rows.map(rowToHistory);
 }
 
-export function searchSessionHistory(query: string, limit = 20): SessionHistory[] {
-  const db = getDatabase();
+export function searchSessionHistory(query: string, limit = 20, sourceId?: string): SessionHistory[] {
+  const db = getDatabase(sourceId);
 
   try {
     const ftsRows = db.prepare(`
@@ -140,8 +140,8 @@ export function searchSessionHistory(query: string, limit = 20): SessionHistory[
   }
 }
 
-export function updateSessionHistory(sessionId: string, update: SessionHistoryUpdate): SessionHistory | null {
-  const db = getDatabase();
+export function updateSessionHistory(sessionId: string, update: SessionHistoryUpdate, sourceId?: string): SessionHistory | null {
+  const db = getDatabase(sourceId);
   const fields: string[] = [];
   const params: unknown[] = [];
 
@@ -152,7 +152,7 @@ export function updateSessionHistory(sessionId: string, update: SessionHistoryUp
   if (update.tags !== undefined) { fields.push('tags = ?'); params.push(JSON.stringify(update.tags)); }
   if (update.notes !== undefined) { fields.push('notes = ?'); params.push(update.notes); }
 
-  if (fields.length === 0) return getSessionHistory(sessionId);
+  if (fields.length === 0) return getSessionHistory(sessionId, sourceId);
 
   params.push(sessionId);
   db.prepare(`UPDATE session_history SET ${fields.join(', ')} WHERE session_id = ?`).run(...params);
@@ -167,13 +167,13 @@ export function updateSessionHistory(sessionId: string, update: SessionHistoryUp
     }
   }
 
-  return getSessionHistory(sessionId);
+  return getSessionHistory(sessionId, sourceId);
 }
 
-function generateTitle(session: Session): string {
+function generateTitle(session: Session, sourceId?: string): string {
   // Try ai-title from the JSONL file first
   try {
-    const discovered = discoverSessions();
+    const discovered = discoverSessions(sourceId);
     const found = discovered.find(s => s.id === session.id);
     if (found) {
       const aiTitle = extractAiTitle(found.filePath);

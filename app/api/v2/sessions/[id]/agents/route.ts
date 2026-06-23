@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ingestSession } from '@/lib/services/session-ingester';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const session = ingestSession(id);
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const session = ingestSession(id, sourceId);
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

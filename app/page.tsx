@@ -1,23 +1,29 @@
+import { cookies } from 'next/headers';
 import { listSessionHistory } from '@/lib/services/session-history';
 import { discoverSessions } from '@/lib/services/session-ingester';
+import { getDefaultSource } from '@/lib/sources';
 import { SessionCard } from '@/components/home/session-card';
 import { SessionSearch } from '@/components/home/session-search';
 import { OpenById } from '@/components/home/open-by-id';
+import { SourceSwitcher } from '@/components/source-switcher';
 import { Pin, Activity, Layers, FolderOpen, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
+  const cookieStore = await cookies();
+  const sourceId = cookieStore.get('aw-source')?.value ?? getDefaultSource().id;
+
   let pinned: Awaited<ReturnType<typeof listSessionHistory>> = [];
   let recent: Awaited<ReturnType<typeof listSessionHistory>> = [];
   let allDiscovered: Awaited<ReturnType<typeof discoverSessions>> = [];
 
   try {
     [pinned, recent, allDiscovered] = await Promise.all([
-      listSessionHistory({ pinned: true, limit: 10 }),
-      listSessionHistory({ limit: 50 }),
-      discoverSessions(),
+      listSessionHistory({ pinned: true, limit: 10 }, sourceId),
+      listSessionHistory({ limit: 50 }, sourceId),
+      discoverSessions(sourceId),
     ]);
   } catch {
     // DB may not be ready on first run
@@ -48,6 +54,7 @@ export default async function HomePage() {
             <Sparkles className="h-3.5 w-3.5 text-[#d2a8ff]" />
             Skills
           </Link>
+          <SourceSwitcher initialSourceId={sourceId} />
           <div className="flex-1 max-w-md">
             <SessionSearch />
           </div>

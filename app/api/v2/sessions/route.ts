@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { discoverSessions } from '@/lib/services/session-ingester';
 import { listSessionHistory } from '@/lib/services/session-history';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const discovered = discoverSessions();
-    const history = listSessionHistory({ limit: 200 });
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const discovered = discoverSessions(sourceId);
+    const history = listSessionHistory({ limit: 200 }, sourceId);
 
     const historyMap = new Map(history.map(h => [h.sessionId, h]));
 
