@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { ContentBlock, Message, ResolvedToolCall } from '@/types/session';
+import { resolveSource } from '@/lib/sources';
 
 // ─── Outer wrapper format (actual Claude Code format) ────────────────────────
 interface RawLine {
@@ -277,14 +278,13 @@ export interface AgentToolCall {
   timestamp: string;
 }
 
-export function getClaudeProjectsDir(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const claudeHome = process.env.CLAUDE_HOME || path.join(home, '.claude');
-  return path.join(claudeHome, 'projects');
+export function getClaudeProjectsDir(sourceId?: string): string {
+  const source = resolveSource(sourceId);
+  return path.join(source.path, 'projects');
 }
 
-export function listProjectDirs(): string[] {
-  const projectsDir = getClaudeProjectsDir();
+export function listProjectDirs(sourceId?: string): string[] {
+  const projectsDir = getClaudeProjectsDir(sourceId);
   if (!fs.existsSync(projectsDir)) return [];
 
   try {
