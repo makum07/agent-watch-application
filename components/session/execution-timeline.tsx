@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatDuration, formatTokens, cn } from '@/lib/utils';
 import { ZoomIn, ZoomOut, Maximize2, Minimize2, X, RotateCcw, Activity, Layers } from 'lucide-react';
 import type { Agent } from '@/types/session';
@@ -398,14 +398,18 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                       {initials.slice(0, 2)}
                     </div>
                     <span className="text-[10px] text-[#c9d1d9] truncate flex-1 leading-tight">{shortName}</span>
-                    <span className={cn('text-[8px] px-1 rounded shrink-0 font-medium',
-                      agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-                      agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-                      agent.status === 'errored'   ? 'text-[#f85149] bg-[#f85149]/10' :
-                      'text-[#8b949e] bg-[#21262d]'
-                    )}>
-                      {agent.status[0].toUpperCase()}
-                    </span>
+                    {(() => {
+                      const st = getStatusDisplay(agent);
+                      return (
+                        <span
+                          className="text-[8px] px-1 rounded shrink-0 font-medium"
+                          style={{ color: st.hex, backgroundColor: `${st.hex}1a` }}
+                          title={st.title}
+                        >
+                          {st.label[0].toUpperCase()}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   {/* Bar cell */}
@@ -624,14 +628,18 @@ function AgentTooltip({ tooltip, canvasWidth }: { tooltip: AgentTooltipData; can
       <div className="flex items-center gap-1.5 mb-2">
         <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: color.text }} />
         <span className="text-xs font-semibold text-[#e6edf3] truncate flex-1">{name}</span>
-        <span className={cn('text-[9px] px-1 rounded font-medium',
-          agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-          agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-          agent.status === 'errored'   ? 'text-[#f85149] bg-[#f85149]/10' :
-          'text-[#8b949e] bg-[#21262d]'
-        )}>
-          {agent.status}
-        </span>
+        {(() => {
+          const st = getStatusDisplay(agent);
+          return (
+            <span
+              className="text-[9px] px-1 rounded font-medium"
+              style={{ color: st.hex, backgroundColor: `${st.hex}1a` }}
+              title={st.title}
+            >
+              {st.label}
+            </span>
+          );
+        })()}
       </div>
       <div className="grid grid-cols-2 gap-x-3 text-[11px]">
         <span className="text-[#6e7681]">Duration</span>

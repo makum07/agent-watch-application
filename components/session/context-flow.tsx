@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatTokens, formatDuration, cn } from '@/lib/utils';
 import { ZoomIn, ZoomOut, RotateCcw, GitFork, Maximize2, Minimize2, X, ChevronRight } from 'lucide-react';
 import { findOtherPane, getFirstPaneId } from '@/lib/workspace-utils';
@@ -313,11 +313,16 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                         {formatTokens(agent.tokenUsage.total)} · {formatDuration(agent.durationMs)}
                       </div>
                     </div>
-                    <div className={cn('w-1.5 h-1.5 rounded-full shrink-0',
-                      agent.status === 'completed' ? 'bg-[#3fb950]' :
-                      agent.status === 'running' ? 'bg-[#58a6ff] animate-pulse' :
-                      agent.status === 'errored' ? 'bg-[#f85149]' : 'bg-[#484f58]'
-                    )} />
+                    {(() => {
+                      const st = getStatusDisplay(agent);
+                      return (
+                        <div
+                          className={cn('w-1.5 h-1.5 rounded-full shrink-0', st.tone === 'running' && 'animate-pulse')}
+                          style={{ backgroundColor: st.hex }}
+                          title={st.title}
+                        />
+                      );
+                    })()}
                   </div>
                   {agent.children.length > 0 && (
                     <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] px-1.5 py-0.5 rounded-full font-bold border" style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}>

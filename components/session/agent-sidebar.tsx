@@ -6,41 +6,24 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
 import { cn, formatTokens, formatDuration } from '@/lib/utils';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
+import { ExportHierarchyMenu } from './export-hierarchy-menu';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 
-type ViewMode = 'tree' | 'rounds';
+type ViewMode = 'tree' | 'timeline';
 
 interface AgentSidebarProps {
   sessionId: string;
   panelRef?: React.RefObject<PanelImperativeHandle | null>;
 }
 
-function groupAgentsByRound(agents: Agent[], GAP_MS = 5 * 60 * 1000): Agent[][] {
-  const subagents = agents
+/** Flat chronological list of subagents (no artificial bucketing — just start order). */
+function timelineAgents(agents: Agent[]): Agent[] {
+  return agents
     .filter(a => a.type !== 'orchestrator')
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-  if (subagents.length === 0) return [];
-
-  const groups: Agent[][] = [[subagents[0]]];
-
-  for (let i = 1; i < subagents.length; i++) {
-    const prev = subagents[i - 1];
-    const prevEnd = prev.endTime
-      ? new Date(prev.endTime).getTime()
-      : new Date(prev.startTime).getTime() + (prev.durationMs || 0);
-    const currStart = new Date(subagents[i].startTime).getTime();
-    if (currStart - prevEnd > GAP_MS) {
-      groups.push([subagents[i]]);
-    } else {
-      groups[groups.length - 1].push(subagents[i]);
-    }
-  }
-
-  return groups;
 }
 
 function getSubtreeTokens(agent: Agent, agentMap: Map<string, Agent>): number {
@@ -61,14 +44,6 @@ function getSubtreeAgentCount(agent: Agent, agentMap: Map<string, Agent>): numbe
   return count;
 }
 
-const ROUND_COLORS = [
-  { border: '#2d5a8c', bg: '#1c3556', text: '#58a6ff', label: 'Round' },
-  { border: '#2d6b47', bg: '#1a3d2a', text: '#39d353', label: 'Round' },
-  { border: '#6b4a1a', bg: '#3d2a0e', text: '#f0883e', label: 'Round' },
-  { border: '#4d3470', bg: '#2d1f45', text: '#bc8cff', label: 'Round' },
-  { border: '#6b3530', bg: '#3d1f1a', text: '#ff9a85', label: 'Round' },
-];
-
 const DEPTH_COLORS = [
   '#58a6ff', // depth 0 — blue (orchestrator)
   '#bc8cff', // depth 1 — purple
@@ -83,37 +58,25 @@ function getDepthColor(depth: number): string {
 
 function getParentLabel(parent: Agent): string {
   if (parent.type === 'orchestrator') return 'Orchestrator';
-  // Extract meaningful part from description (before the em-dash)
-  const desc = parent.description || '';
-  const parts = desc.split(/\s[—–-]\s/);
-  const label = parts[0].replace(/\[.*?\]/g, '').trim();
-  return label.length > 24 ? label.slice(0, 22) + '…' : label || getAgentDisplay(parent).shortName;
+  // Use the parent's resolved identity (agent name) — not its task description
+  const { name } = getAgentDisplay(parent);
+  return name.length > 28 ? name.slice(0, 27) + '…' : name;
 }
 
 export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
   const { sidebarCollapsed, setSidebarCollapsed, addTabToPane, setLayout, focusedPaneId, layout } = useWorkspaceStore();
   const { session, agentMap } = useSessionStore();
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('rounds');
-  const [collapsedRounds, setCollapsedRounds] = useState<Set<number>>(new Set());
+  const [viewMode, setViewMode] = useState<ViewMode>('tree');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
   const orchestrator = session?.agents.find(a => a.type === 'orchestrator');
-  const rounds = session ? groupAgentsByRound(session.agents) : [];
+  const timeline = session ? timelineAgents(session.agents) : [];
 
   const maxDepth = useMemo(() => {
     if (!session) return 0;
     return Math.max(...session.agents.map(a => a.depth));
   }, [session]);
-
-  const toggleRound = (i: number) => {
-    setCollapsedRounds(prev => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
-  };
 
   const toggleNode = (agentId: string) => {
     setCollapsedNodes(prev => {
@@ -196,35 +159,46 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
             className="flex-1 bg-transparent text-xs text-[#e6edf3] placeholder:text-[#484f58] outline-none"
           />
         </div>
-        <div className="flex gap-0.5 p-0.5 rounded bg-[#161b22] border border-[#21262d]">
-          <button
-            onClick={() => setViewMode('tree')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
-              viewMode === 'tree'
-                ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
-                : 'text-[#6e7681] hover:text-[#c9d1d9]'
-            )}
-          >
-            <Network className="h-3 w-3" />
-            Tree
-          </button>
-          <button
-            onClick={() => setViewMode('rounds')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
-              viewMode === 'rounds'
-                ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
-                : 'text-[#6e7681] hover:text-[#c9d1d9]'
-            )}
-          >
-            <List className="h-3 w-3" />
-            Rounds
-          </button>
+        <div className="flex items-center gap-1.5">
+          <div className="flex gap-0.5 p-0.5 rounded bg-[#161b22] border border-[#21262d] flex-1 min-w-0">
+            <button
+              onClick={() => setViewMode('tree')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
+                viewMode === 'tree'
+                  ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
+                  : 'text-[#6e7681] hover:text-[#c9d1d9]'
+              )}
+            >
+              <Network className="h-3 w-3" />
+              Tree
+            </button>
+            <button
+              onClick={() => setViewMode('timeline')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
+                viewMode === 'timeline'
+                  ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
+                  : 'text-[#6e7681] hover:text-[#c9d1d9]'
+              )}
+              title="Subagents in start-time order"
+            >
+              <List className="h-3 w-3" />
+              Sequence
+            </button>
+          </div>
+          <ExportHierarchyMenu
+            rootAgent={orchestrator ?? session?.agents[0]}
+            agentMap={agentMap}
+            collapsedNodes={collapsedNodes}
+            title={session?.project.split(/[/\\]/).filter(Boolean).slice(-1)[0] || 'Session'}
+          />
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      {/* Force the Radix viewport's inner wrapper to block (it defaults to display:table,
+          which shrink-to-fits the widest row and overflows the fixed-width sidebar). */}
+      <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="py-1">
           {/* When searching, show flat filtered list with parent attribution */}
           {hasSearch ? (
@@ -254,58 +228,21 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
               />
             )
           ) : (
-            /* Rounds view (original) */
+            /* Sequence view: orchestrator + subagents in start-time order, with parent attribution */
             <>
               {orchestrator && (
                 <AgentRow agent={orchestrator} onOpen={openAgent} isOrchestrator agentMap={agentMap} />
               )}
-              {rounds.map((roundAgents, ri) => {
-                const color = ROUND_COLORS[ri % ROUND_COLORS.length];
-                const isCollapsed = collapsedRounds.has(ri);
-                const totalTokens = roundAgents.reduce((s, a) => s + a.tokenUsage.total, 0);
-
-                return (
-                  <div key={ri} className="mb-1">
-                    <button
-                      onClick={() => toggleRound(ri)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#161b22] transition-colors group"
-                    >
-                      <div
-                        className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide"
-                        style={{ backgroundColor: color.bg, color: color.text, border: `1px solid ${color.border}` }}
-                      >
-                        <span>Round {ri + 1}</span>
-                      </div>
-                      <span className="text-[10px] text-[#6e7681]">
-                        {roundAgents.length} agent{roundAgents.length !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-[10px] text-[#c9d1d9] ml-auto font-mono">
-                        {formatTokens(totalTokens)}
-                      </span>
-                      <ChevronDown
-                        className={cn('h-3 w-3 text-[#6e7681] transition-transform shrink-0', isCollapsed && '-rotate-90')}
-                      />
-                    </button>
-                    {!isCollapsed && (
-                      <div
-                        className="ml-3 border-l-2 pl-0"
-                        style={{ borderColor: color.border }}
-                      >
-                        {roundAgents.map(agent => (
-                          <AgentRow
-                            key={agent.id}
-                            agent={agent}
-                            onOpen={openAgent}
-                            depth={Math.max(1, agent.depth)}
-                            agentMap={agentMap}
-                            showParentLabel
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {timeline.map(agent => (
+                <AgentRow
+                  key={agent.id}
+                  agent={agent}
+                  onOpen={openAgent}
+                  depth={Math.max(1, agent.depth)}
+                  agentMap={agentMap}
+                  showParentLabel
+                />
+              ))}
             </>
           )}
 
@@ -390,7 +327,6 @@ function TreeNode({
   const isCollapsed = collapsedNodes.has(agent.id);
   const subtreeTokens = hasChildren ? getSubtreeTokens(agent, agentMap) : 0;
   const subtreeCount = hasChildren ? getSubtreeAgentCount(agent, agentMap) : 0;
-  const depthColor = getDepthColor(depth);
 
   const sortedChildren = [...children].sort(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
@@ -407,8 +343,7 @@ function TreeNode({
             className="absolute top-0 bottom-0 w-px"
             style={{
               left: 10 + d * 16,
-              backgroundColor: getDepthColor(d),
-              opacity: 0.2,
+              backgroundColor: '#3d444d',
             }}
           />
         ))}
@@ -422,8 +357,7 @@ function TreeNode({
                 left: 10 + (depth - 1) * 16,
                 top: 0,
                 height: '50%',
-                backgroundColor: getDepthColor(depth - 1),
-                opacity: 0.3,
+                backgroundColor: '#3d444d',
               }}
             />
             <div
@@ -431,9 +365,8 @@ function TreeNode({
               style={{
                 left: 10 + (depth - 1) * 16,
                 top: '50%',
-                width: 12,
-                backgroundColor: getDepthColor(depth - 1),
-                opacity: 0.3,
+                width: 14,
+                backgroundColor: '#3d444d',
               }}
             />
           </>
@@ -475,8 +408,7 @@ function TreeNode({
               className="absolute top-0 bottom-0 w-px"
               style={{
                 left: 10 + (depth) * 16,
-                backgroundColor: depthColor,
-                opacity: 0.2,
+                backgroundColor: '#3d444d',
               }}
             />
           )}
@@ -578,7 +510,7 @@ function AgentRow({
           <div className="shrink-0 w-4" />
         )}
 
-        {/* Depth connector line (rounds mode) */}
+        {/* Depth connector line (sequence mode) */}
         {!treeMode && depth > 0 && (
           <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
             <div className="w-px h-full bg-[#30363d]" />
@@ -606,8 +538,8 @@ function AgentRow({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 mb-0.5">
-            <span className="text-xs font-semibold text-[#e6edf3] leading-tight shrink-0" title={name}>{name.length > 35 ? name.slice(0, 35) + '...' : name}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs font-semibold text-[#e6edf3] leading-tight truncate min-w-0 flex-1" title={name}>{name}</span>
             {hasChildren && treeMode && (
               <span
                 className="text-[9px] px-1 py-0 rounded font-mono shrink-0"
@@ -617,34 +549,36 @@ function AgentRow({
                 {subtreeCount}
               </span>
             )}
-            <span className={cn(
-              'text-[9px] px-1 py-0.5 rounded shrink-0 font-medium ml-auto',
-              agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-              agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-              agent.status === 'errored'   ? 'text-[#f85149] bg-[#f85149]/10' :
-              'text-[#8b949e] bg-[#21262d]'
-            )}>
-              {agent.status}
-            </span>
+            {(() => {
+              // Compact status dot — never clips, and green/amber/red still flags issues at a glance.
+              const st = getStatusDisplay(agent);
+              return (
+                <span
+                  className={cn('shrink-0 w-2 h-2 rounded-full', st.tone === 'running' && 'animate-pulse')}
+                  style={{ backgroundColor: st.hex }}
+                  title={st.title}
+                />
+              );
+            })()}
           </div>
 
-          {/* Parent attribution label */}
-          {(showParentLabel || treeMode) && parentAgent && (agent.depth > 0 || depth > 0) && (
-            <div className="flex items-center gap-1 mb-0.5">
-              <CornerDownRight className="h-2.5 w-2.5 shrink-0" style={{ color: getDepthColor(depth - 1) }} />
+          {/* Parent attribution — only in flat (Sequence/Search) views; the tree shows parentage structurally */}
+          {showParentLabel && !treeMode && parentAgent && agent.depth > 0 && (
+            <div className="flex items-center gap-1 mt-0.5">
+              <CornerDownRight className="h-2.5 w-2.5 shrink-0" style={{ color: getDepthColor(Math.max(0, depth - 1)) }} />
               <span
                 className="text-[9px] truncate"
-                style={{ color: getDepthColor(depth - 1) }}
+                style={{ color: getDepthColor(Math.max(0, depth - 1)) }}
               >
                 from {getParentLabel(parentAgent)}
               </span>
             </div>
           )}
 
-          <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9]">
-            <span className="font-mono">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
-            <span>{formatTokens(agent.tokenUsage.total)}</span>
-            <span>{formatDuration(agent.durationMs)}</span>
+          <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9] mt-0.5 whitespace-nowrap overflow-hidden">
+            <span className="font-mono shrink-0">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
+            <span className="shrink-0">{formatTokens(agent.tokenUsage.total)}</span>
+            <span className="shrink-0">{formatDuration(agent.durationMs)}</span>
           </div>
         </div>
 

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ArrowLeftRight } from 'lucide-react';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatTokens, formatDuration, formatCost, cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -63,7 +63,7 @@ function MetricsTab({ a, b }: { a: Agent; b: Agent }) {
       <SectionHeader label="Identity" />
       <DiffRow label="Type" a={a.subagentType || a.type} b={b.subagentType || b.type} />
       <DiffRow label="Model" a={a.model || '—'} b={b.model || '—'} />
-      <DiffRow label="Status" a={a.status} b={b.status} />
+      <DiffRow label="Status" a={getStatusDisplay(a).title} b={getStatusDisplay(b).title} />
       <DiffRow label="Depth" a={String(a.depth)} b={String(b.depth)} />
 
       <SectionHeader label="Timing" />

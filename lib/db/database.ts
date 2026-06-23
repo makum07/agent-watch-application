@@ -314,6 +314,21 @@ function runMigrations(db: Database.Database) {
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (9, ${Date.now()});`);
   }
 
+  if (currentVersion < 10) {
+    // Per-agent error/denial accounting so we can distinguish "came to rest"
+    // from "succeeded cleanly" (green should mean clean success).
+    // Nullable (no DEFAULT) so existing rows stay NULL → signals "not yet
+    // computed" and triggers a one-time re-index in the ingester.
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'error_tool_count')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN error_tool_count INTEGER;`);
+    }
+    if (!cols.find(c => c.name === 'denied_tool_count')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN denied_tool_count INTEGER;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (10, ${Date.now()});`);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

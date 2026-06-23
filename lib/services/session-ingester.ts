@@ -15,7 +15,7 @@ import {
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
 import type { Session, Agent, SkillInvocation } from '@/types/session';
-import { estimateAgentCost } from '@/lib/utils';
+import { estimateAgentCost, isPermissionDenial } from '@/lib/utils';
 import { registerSkillExecutions } from '@/lib/services/skill-registry';
 
 export interface DiscoveredSession {
@@ -99,10 +99,18 @@ export function ingestSession(sessionId: string): Session | null {
     }
   }
 
+  // Re-index once if error/denial accounting hasn't been computed yet (v10 gap)
+  const missingErrorCounts = cached
+    ? (db.prepare(
+        "SELECT 1 FROM agents WHERE session_id = ? AND denied_tool_count IS NULL LIMIT 1"
+      ).get(sessionId) != null)
+    : false;
+
   const shouldReindex = !cached ||
     new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
     missingPrompt ||
-    missingSkills;
+    missingSkills ||
+    missingErrorCounts;
 
   if (shouldReindex) {
     try {
@@ -144,8 +152,9 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       type, subagent_type, model, status, start_time, end_time, duration_ms,
       prompt, description, response, schema_json, isolation,
       message_count, tokens_input, tokens_output, tokens_cache_creation, tokens_cache_read, tokens_total,
-      tool_call_summary, children, depth, jsonl_path, skill_invocations
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tool_call_summary, children, depth, jsonl_path, skill_invocations,
+      error_tool_count, denied_tool_count
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertArtifact = db.prepare(`
@@ -185,6 +194,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
       const lastTimestamp = correlated.parsed.lastTimestamp;
 
       let totalInput = 0, totalOutput = 0, totalCacheCreate = 0, totalCacheRead = 0;
+      let errorToolCount = 0, deniedToolCount = 0;
       let model = correlated.agentToolCall?.model || 'claude-sonnet-4-6';
       const toolCounts = new Map<string, number>();
       const skillInvocations: SkillInvocation[] = [];
@@ -210,6 +220,14 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
             }
           }
           if (block.type === 'tool_result') {
+            if (block.is_error) {
+              errorToolCount++;
+              const resultText = block.content
+                .filter(b => b.type === 'text')
+                .map(b => (b as { type: 'text'; text: string }).text)
+                .join('\n');
+              if (isPermissionDenial(resultText)) deniedToolCount++;
+            }
             const pending = pendingSkills.get(block.tool_use_id);
             if (pending) {
               const startMs = new Date(pending.startTime).getTime();
@@ -289,7 +307,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         correlated.depth === 0 ? 'orchestrator' : (correlated.workflowRunId ? 'workflow' : 'subagent'),
         correlated.agentToolCall?.agentType ?? correlated.agentToolCall?.subagentType ?? null,
         model,
-        'completed',
+        (deniedToolCount > 0 || errorToolCount > 0) ? 'completed_with_errors' : 'completed',
         firstTimestamp ? new Date(firstTimestamp).getTime() : null,
         lastTimestamp ? new Date(lastTimestamp).getTime() : null,
         firstTimestamp && lastTimestamp
@@ -310,7 +328,9 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
         JSON.stringify(children),
         correlated.depth,
         correlated.filePath,
-        JSON.stringify(skillInvocations)
+        JSON.stringify(skillInvocations),
+        errorToolCount,
+        deniedToolCount
       );
 
       if (firstTimestamp) {
@@ -369,7 +389,9 @@ function buildSessionFromDb(sessionId: string, db: Database.Database): Session |
     type: row.type as 'orchestrator' | 'subagent' | 'workflow',
     subagentType: row.subagent_type as string | null,
     model: row.model as string || 'claude-sonnet-4-6',
-    status: row.status as 'completed',
+    status: (row.status as Agent['status']) || 'completed',
+    errorToolCount: (row.error_tool_count as number) || 0,
+    deniedToolCount: (row.denied_tool_count as number) || 0,
     startTime: row.start_time ? new Date(row.start_time as number).toISOString() : new Date().toISOString(),
     endTime: row.end_time ? new Date(row.end_time as number).toISOString() : null,
     durationMs: row.duration_ms as number || 0,

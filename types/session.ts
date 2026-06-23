@@ -32,7 +32,11 @@ export interface Agent {
   type: 'orchestrator' | 'subagent' | 'workflow';
   subagentType: string | null;
   model: string;
-  status: 'running' | 'completed' | 'errored' | 'unknown';
+  status: 'running' | 'completed' | 'completed_with_errors' | 'errored' | 'unknown';
+  /** Count of tool_result blocks flagged is_error (failed runtime calls). */
+  errorToolCount: number;
+  /** Count of tool calls the user explicitly denied (permission declined). */
+  deniedToolCount: number;
   startTime: string;
   endTime: string | null;
   durationMs: number;

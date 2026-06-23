@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { AgentView } from '@/components/agent/agent-view';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import type { PaneTab } from '@/types/workspace';
 
 interface PaneProps {
@@ -336,13 +336,18 @@ function AgentPickerDropdown({
                     {initials.slice(0, 2)}
                   </div>
                   <span className="text-xs text-[#c9d1d9] truncate flex-1">{shortName}</span>
-                  <span className={cn('text-[8px] px-1 rounded shrink-0',
-                    agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-                    agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-                    'text-[#8b949e] bg-[#21262d]'
-                  )}>
-                    {agent.status[0].toUpperCase()}
-                  </span>
+                  {(() => {
+                    const st = getStatusDisplay(agent);
+                    return (
+                      <span
+                        className="text-[8px] px-1 rounded shrink-0"
+                        style={{ color: st.hex, backgroundColor: `${st.hex}1a` }}
+                        title={st.title}
+                      >
+                        {st.label[0].toUpperCase()}
+                      </span>
+                    );
+                  })()}
                 </button>
               );
             })

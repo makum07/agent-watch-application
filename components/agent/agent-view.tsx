@@ -12,7 +12,7 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { findOtherPane, getFirstPaneId } from '@/lib/workspace-utils';
 import type { AgentSubTab } from '@/types/workspace';
 
@@ -58,6 +58,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
   }
 
   const { name, typeLabel, color } = getAgentDisplay(agent);
+  const status = getStatusDisplay(agent);
   const toolCount = agent.toolCalls.reduce((s, t) => s + t.count, 0);
   const artifactCount = agent.toolCalls
     .filter(t => t.name === 'Write' || t.name === 'Edit' || t.name === 'NotebookEdit')
@@ -75,13 +76,20 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
             className="w-2.5 h-2.5 rounded-sm shrink-0"
             style={{ backgroundColor: color.text, boxShadow: `0 0 6px ${color.text}60` }}
           />
-          {/* Agent name — prominent */}
-          <span
-            className="text-sm font-bold break-words flex-1 leading-snug"
-            style={{ color: color.text }}
-          >
-            {name}
-          </span>
+          {/* Agent identity — resolved agent name primary, task description secondary */}
+          <div className="flex-1 min-w-0">
+            <span
+              className="text-sm font-bold break-words leading-snug"
+              style={{ color: color.text }}
+            >
+              {name}
+            </span>
+            {agent.description && agent.description !== name && (
+              <div className="text-[11px] text-[#8b949e] truncate leading-snug" title={agent.description}>
+                {agent.description}
+              </div>
+            )}
+          </div>
           {/* Controls */}
           <div className="flex items-center gap-0.5 shrink-0 relative">
             {!isMaximized && (
@@ -195,18 +203,17 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           <span className="text-[#c9d1d9] font-mono">{agent.model?.replace('claude-', '') || '—'}</span>
           <span className="text-[#c9d1d9]">{formatTokens(agent.tokenUsage.total)}</span>
           <span className="text-[#c9d1d9]">{formatDuration(agent.durationMs)}</span>
-          <span className={cn(
-            'ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium',
-            agent.status === 'completed' ? 'text-[#3fb950] bg-[#3fb950]/10' :
-            agent.status === 'running'   ? 'text-[#58a6ff] bg-[#58a6ff]/10' :
-            'text-[#8b949e] bg-[#21262d]'
-          )}>
-            {agent.status}
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium"
+            style={{ color: status.hex, backgroundColor: `${status.hex}1a` }}
+            title={status.title}
+          >
+            {status.label}
           </span>
         </div>
 
-        {/* Tab rail */}
-        <div className="flex items-center px-1 bg-[#0d1117] border-t border-[#21262d]">
+        {/* Tab rail — scrolls horizontally when the pane is narrow instead of clipping */}
+        <div className="flex items-center px-1 bg-[#0d1117] border-t border-[#21262d] overflow-x-auto">
           {TABS.map(tab => {
             const isActive = activeSubTab === tab.id;
             const count = tab.id === 'tools' ? toolCount : tab.id === 'artifacts' ? artifactCount : 0;
@@ -215,7 +222,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
                 key={tab.id}
                 onClick={() => onSubTabChange?.(tab.id)}
                 className={cn(
-                  'flex items-center gap-1 px-3 py-2 text-xs transition-colors border-b-2',
+                  'flex items-center gap-1 px-3 py-2 text-xs transition-colors border-b-2 shrink-0 whitespace-nowrap',
                   isActive
                     ? 'border-b-2 font-medium'
                     : 'text-[#8b949e] border-transparent hover:text-[#e6edf3] hover:border-[#8b949e]'
