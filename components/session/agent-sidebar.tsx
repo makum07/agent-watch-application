@@ -108,8 +108,9 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
     return (
       <div className="flex flex-col items-center w-full h-full border-r border-[#30363d] bg-[#0d1117]">
         <button
-          onClick={() => panelRef?.current?.expand()}
+          onClick={() => { panelRef?.current?.expand(); setSidebarCollapsed(false); }}
           className="mt-3 p-1.5 text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] rounded"
+          title="Expand sidebar"
         >
           <ChevronRight className="h-4 w-4" />
         </button>

@@ -119,6 +119,14 @@ export default function WorkspacePage({ params }: Props) {
         setShowResumeChoice(true);
         // But also set the restored layout so it's ready
         setLayout(snapshot.layout);
+        // Sync the actual resizable panel to the restored collapse state (after
+        // it mounts) so the store + panel never disagree. Default to expanded.
+        requestAnimationFrame(() => {
+          const panel = sidebarPanelRef.current;
+          if (!panel) return;
+          if (snapshot.sidebarCollapsed) panel.collapse();
+          else panel.expand();
+        });
       } else if (rootAgent) {
         // No saved layout — open with root agent
         setLayout({
