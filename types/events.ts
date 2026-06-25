@@ -21,6 +21,11 @@ export type SessionEvent =
   | { type: 'skill_analysis_failed'; skillId: string; cycleId: string; error: string }
   | { type: 'skill_analysis_permission_request'; skillId: string; cycleId: string; requestId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: 'skill_analysis_permission_resolved'; skillId: string; cycleId: string; requestId: string; approved: boolean }
+  // Execution analysis events
+  | { type: 'execution_analysis_started'; sessionId: string; cycleId: string }
+  | { type: 'execution_analysis_stream_event'; sessionId: string; cycleId: string; event: StreamEvent }
+  | { type: 'execution_analysis_complete'; sessionId: string; cycleId: string; status: string }
+  | { type: 'execution_analysis_failed'; sessionId: string; cycleId: string; error: string }
   | { type: 'ping' };
 
 // Client-to-server messages (sent from browser via WebSocket)

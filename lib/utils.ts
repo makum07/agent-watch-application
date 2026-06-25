@@ -61,15 +61,17 @@ export function formatTime(iso: string): string {
   } catch { return iso; }
 }
 
-// Pricing per million tokens (USD) — Anthropic list prices as of 2026-06
+// Pricing per million tokens (USD) — Anthropic list prices as of 2026-06-24
 const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  opus:   { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  fable:  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
+  opus:   { input:  5.00, output: 25.00, cacheWrite:  6.25, cacheRead: 0.50 },
   sonnet: { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
-  haiku:  { input:  0.80, output:  4.00, cacheWrite:  1.00, cacheRead: 0.08 },
+  haiku:  { input:  1.00, output:  5.00, cacheWrite:  1.25, cacheRead: 0.10 },
 };
 
 function modelTier(model: string): keyof typeof MODEL_PRICING {
   const m = model.toLowerCase();
+  if (m.includes('fable'))  return 'fable';
   if (m.includes('opus'))   return 'opus';
   if (m.includes('haiku'))  return 'haiku';
   return 'sonnet';

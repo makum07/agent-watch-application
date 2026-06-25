@@ -329,6 +329,28 @@ function runMigrations(db: Database.Database) {
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (10, ${Date.now()});`);
   }
 
+  if (currentVersion < 11) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS execution_analysis_cycles (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        cycle_number INTEGER NOT NULL,
+        analysis_prompt TEXT NOT NULL,
+        analysis_response TEXT,
+        recommendations TEXT,
+        status TEXT DEFAULT 'pending',
+        stream_entries TEXT,
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        FOREIGN KEY (session_id) REFERENCES conversations(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_exec_analysis_session ON execution_analysis_cycles(session_id, created_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (11, ${Date.now()});
+    `);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

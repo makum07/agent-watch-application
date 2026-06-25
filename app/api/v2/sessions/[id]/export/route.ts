@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestSession } from '@/lib/services/session-ingester';
 import { analyzeSession, findCriticalPath } from '@/lib/services/debug-analyzer';
+import { computeExecutionFacts } from '@/lib/services/execution-facts';
 import { estimateAgentCost, formatTokens, formatDuration, formatCost } from '@/lib/utils';
 import type { Session, Agent } from '@/types/session';
 import type { DebugAlert } from '@/types/analytics';
@@ -135,6 +136,7 @@ export async function GET(
 
     const alerts = analyzeSession(session);
     const criticalPath = findCriticalPath(session);
+    const facts = computeExecutionFacts(session);
 
     if (format === 'markdown') {
       const md = generateMarkdown(session, alerts, criticalPath);
@@ -156,8 +158,8 @@ export async function GET(
       });
     }
 
-    // JSON
-    return new NextResponse(JSON.stringify({ session, alerts, criticalPath: criticalPath.map(a => a.id) }, null, 2), {
+    // JSON — include execution facts
+    return new NextResponse(JSON.stringify({ session, alerts, criticalPath: criticalPath.map(a => a.id), facts }, null, 2), {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Disposition': `attachment; filename="session-${id.slice(0, 8)}.json"`,
