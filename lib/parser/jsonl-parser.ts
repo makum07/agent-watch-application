@@ -108,6 +108,24 @@ export function parseJsonlFile(filePath: string): ParsedConversation {
       if (line.type !== 'user' && line.type !== 'assistant') continue;
       if (!line.message) continue;
 
+      // Detect skill base directory from injected skill content messages
+      if (line.type === 'user' && line.message.content) {
+        const rawContent = line.message.content;
+        const firstText = Array.isArray(rawContent)
+          ? (rawContent.find(b => b.type === 'text') as { type: 'text'; text: string } | undefined)?.text
+          : typeof rawContent === 'string' ? rawContent : undefined;
+        if (firstText) {
+          const bdMatch = firstText.match(/^Base directory for this skill:\s*(.+)/);
+          if (bdMatch) {
+            const skillDir = bdMatch[1].trim();
+            const skillName = skillDir.replace(/\\/g, '/').split('/').pop() || '';
+            if (skillName && !invokedSkills.some(s => s.name === skillName)) {
+              invokedSkills.push({ name: skillName, path: skillDir, timestamp: line.timestamp || null });
+            }
+          }
+        }
+      }
+
       // Detect skill attribution on assistant messages
       if (line.type === 'assistant' && line.attributionSkill) {
         const name = line.attributionSkill;
