@@ -17,17 +17,22 @@ export default async function HomePage() {
 
   let pinned: Awaited<ReturnType<typeof listSessionHistory>> = [];
   let recent: Awaited<ReturnType<typeof listSessionHistory>> = [];
+  let allHistory: Awaited<ReturnType<typeof listSessionHistory>> = [];
   let allDiscovered: Awaited<ReturnType<typeof discoverSessions>> = [];
 
   try {
-    [pinned, recent, allDiscovered] = await Promise.all([
+    [pinned, recent, allHistory, allDiscovered] = await Promise.all([
       listSessionHistory({ pinned: true, limit: 10 }, sourceId),
       listSessionHistory({ limit: 50 }, sourceId),
+      listSessionHistory({ limit: 10000 }, sourceId),
       discoverSessions(sourceId),
     ]);
   } catch {
     // DB may not be ready on first run
   }
+
+  // Build a full history map for O(1) lookups in "All Sessions by Project"
+  const historyMap = new Map(allHistory.map(s => [s.sessionId, s]));
 
   // Group discovered sessions by project display name
   const byProject = new Map<string, typeof allDiscovered>();
@@ -115,7 +120,7 @@ export default async function HomePage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                     {sessions.map(s => {
-                      const historyEntry = recent.find(r => r.sessionId === s.id);
+                      const historyEntry = historyMap.get(s.id);
                       if (historyEntry) {
                         return <SessionCard key={s.id} session={historyEntry} />;
                       }
