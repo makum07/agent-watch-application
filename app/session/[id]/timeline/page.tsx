@@ -33,27 +33,27 @@ export default function TimelinePage({ params }: Props) {
   const projectName = session.project.split(/[/\\]/).filter(Boolean).pop() || 'Session';
 
   return (
-    <div className="flex flex-col h-screen bg-[#0d1117]">
+    <div className="flex flex-col h-screen bg-[var(--aw-bg-0)]">
       {/* Page header */}
-      <header className="border-b border-[#21262d] shrink-0 bg-[#161b22]">
+      <header className="border-b border-[var(--aw-bg-2)] shrink-0 bg-[var(--aw-bg-1)]">
         <div className="px-4 py-2.5 flex items-center gap-2">
-          <Link href="/" className="text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+          <Link href="/" className="text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors">
             <Layers className="h-4 w-4" />
           </Link>
-          <span className="text-[#484f58]">/</span>
+          <span className="text-[var(--aw-text-4)]">/</span>
           <Link href={`/session/${id}/workspace`}
-            className="text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors truncate max-w-[200px]">
+            className="text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] text-sm transition-colors truncate max-w-[200px]">
             {projectName}
           </Link>
-          <span className="text-[#484f58]">/</span>
-          <span className="text-sm font-medium text-[#e6edf3] flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 text-[#58a6ff]" />
+          <span className="text-[var(--aw-text-4)]">/</span>
+          <span className="text-sm font-medium text-[var(--aw-text-0)] flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-[var(--aw-blue)]" />
             Timeline
           </span>
-          <div className="ml-auto flex items-center gap-3 text-xs text-[#6e7681]">
+          <div className="ml-auto flex items-center gap-3 text-xs text-[var(--aw-text-3)]">
             <span>{session.agents.length} agents</span>
             <Link href={`/session/${id}/workspace`}
-              className="px-2 py-1 rounded bg-[#21262d] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#30363d] transition-colors">
+              className="px-2 py-1 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-3)] transition-colors">
               Workspace →
             </Link>
           </div>

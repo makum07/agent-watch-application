@@ -47,7 +47,7 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-[#8b949e]">
+        <span className="text-xs text-[var(--aw-text-2)]">
           {total} execution{total !== 1 ? 's' : ''}
         </span>
         {totalPages > 1 && (
@@ -55,15 +55,15 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="p-1 rounded hover:bg-[#21262d] disabled:opacity-30"
+              className="p-1 rounded hover:bg-[var(--aw-bg-2)] disabled:opacity-30"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="text-xs text-[#8b949e]">{page + 1} / {totalPages}</span>
+            <span className="text-xs text-[var(--aw-text-2)]">{page + 1} / {totalPages}</span>
             <button
               onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="p-1 rounded hover:bg-[#21262d] disabled:opacity-30"
+              className="p-1 rounded hover:bg-[var(--aw-bg-2)] disabled:opacity-30"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -73,15 +73,15 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
 
       {loading ? (
         <div className="text-center py-8">
-          <div className="h-5 w-5 border-2 border-[#58a6ff] border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="h-5 w-5 border-2 border-[var(--aw-blue)] border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
       ) : executions.length === 0 ? (
-        <div className="text-center py-8 text-[#8b949e] text-xs">No executions found</div>
+        <div className="text-center py-8 text-[var(--aw-text-2)] text-xs">No executions found</div>
       ) : (
-        <div className="border border-[#30363d] rounded-lg overflow-hidden">
+        <div className="border border-[var(--aw-bg-3)] rounded-lg overflow-hidden">
           <table className="w-full text-xs">
             <thead>
-              <tr className="bg-[#161b22] text-[#8b949e]">
+              <tr className="bg-[var(--aw-bg-1)] text-[var(--aw-text-2)]">
                 <th className="text-left px-3 py-2 font-medium">Session</th>
                 <th className="text-left px-3 py-2 font-medium">Agent</th>
                 <th className="text-left px-3 py-2 font-medium">Timestamp</th>
@@ -91,29 +91,29 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
             </thead>
             <tbody>
               {executions.map(exec => (
-                <tr key={exec.id} className="border-t border-[#21262d] hover:bg-[#161b22]">
+                <tr key={exec.id} className="border-t border-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-1)]">
                   <td className="px-3 py-2">
                     <Link
                       href={`/session/${exec.sessionId}/workspace`}
-                      className="text-[#58a6ff] hover:underline font-mono"
+                      className="text-[var(--aw-blue)] hover:underline font-mono"
                     >
                       {exec.sessionId}
                     </Link>
                   </td>
-                  <td className="px-3 py-2 text-[#c9d1d9] max-w-[200px] truncate">
+                  <td className="px-3 py-2 text-[var(--aw-text-1)] max-w-[200px] truncate">
                     {exec.agentName || exec.agentId.slice(0, 12)}
                   </td>
-                  <td className="px-3 py-2 text-[#8b949e]">
+                  <td className="px-3 py-2 text-[var(--aw-text-2)]">
                     {formatRelativeTime(exec.timestamp)}
                   </td>
-                  <td className="px-3 py-2 text-right text-[#c9d1d9]">
+                  <td className="px-3 py-2 text-right text-[var(--aw-text-1)]">
                     {exec.durationMs != null ? formatDuration(exec.durationMs) : '—'}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {exec.feedbackCount > 0 ? (
-                      <span className="text-[#ffa657]">{exec.feedbackCount}</span>
+                      <span className="text-[var(--aw-orange-bright)]">{exec.feedbackCount}</span>
                     ) : (
-                      <span className="text-[#484f58]">0</span>
+                      <span className="text-[var(--aw-text-4)]">0</span>
                     )}
                   </td>
                 </tr>

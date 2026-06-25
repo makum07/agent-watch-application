@@ -12,9 +12,9 @@ interface DebugAlertsProps {
 }
 
 const SEVERITY_CONFIG: Record<AlertSeverity, { color: string; bg: string; border: string; icon: typeof XCircle }> = {
-  critical: { color: '#f85149', bg: '#f85149/10', border: '#f85149/30', icon: XCircle },
-  warning:  { color: '#d29922', bg: '#d29922/10', border: '#d29922/30', icon: AlertCircle },
-  info:     { color: '#58a6ff', bg: '#58a6ff/10', border: '#58a6ff/30', icon: Info },
+  critical: { color: 'var(--aw-red)', bg: 'var(--aw-red)/10', border: 'var(--aw-red)/30', icon: XCircle },
+  warning:  { color: 'var(--aw-yellow)', bg: 'var(--aw-yellow)/10', border: 'var(--aw-yellow)/30', icon: AlertCircle },
+  info:     { color: 'var(--aw-blue)', bg: 'var(--aw-blue)/10', border: 'var(--aw-blue)/30', icon: Info },
 };
 
 const CATEGORY_ICONS: Record<AlertCategory, typeof AlertTriangle> = {
@@ -65,7 +65,7 @@ export function DebugAlerts({ alerts, agentNames, onAgentClick }: DebugAlertsPro
 
   if (alerts.length === 0) {
     return (
-      <div className="flex items-center gap-2 px-4 py-6 text-xs text-[#3fb950]">
+      <div className="flex items-center gap-2 px-4 py-6 text-xs text-[var(--aw-green)]">
         <Info className="h-4 w-4" />
         No issues detected. Session looks healthy.
       </div>
@@ -87,7 +87,7 @@ export function DebugAlerts({ alerts, agentNames, onAgentClick }: DebugAlertsPro
                 'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all border',
                 active
                   ? `text-[${cfg.color}] border-[${cfg.color}]/30 bg-[${cfg.color}]/10`
-                  : 'text-[#484f58] border-[#21262d] bg-transparent'
+                  : 'text-[var(--aw-text-4)] border-[var(--aw-bg-2)] bg-transparent'
               )}
               style={active ? { color: cfg.color, borderColor: `${cfg.color}30`, backgroundColor: `${cfg.color}15` } : undefined}
             >
@@ -96,7 +96,7 @@ export function DebugAlerts({ alerts, agentNames, onAgentClick }: DebugAlertsPro
             </button>
           );
         })}
-        <span className="text-[10px] text-[#484f58] ml-auto">
+        <span className="text-[10px] text-[var(--aw-text-4)] ml-auto">
           {filtered.length} of {alerts.length} shown
         </span>
       </div>
@@ -120,9 +120,9 @@ export function DebugAlerts({ alerts, agentNames, onAgentClick }: DebugAlertsPro
                 <SeverityIcon className="h-4 w-4 shrink-0 mt-0.5" style={{ color: cfg.color }} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-semibold text-[#e6edf3]">{alert.title}</span>
+                    <span className="text-xs font-semibold text-[var(--aw-text-0)]">{alert.title}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-[#8b949e]">
+                  <div className="flex items-center gap-2 text-[10px] text-[var(--aw-text-2)]">
                     <span className="flex items-center gap-1">
                       <CategoryIcon className="h-3 w-3" />
                       {CATEGORY_LABELS[alert.category]}
@@ -143,14 +143,14 @@ export function DebugAlerts({ alerts, agentNames, onAgentClick }: DebugAlertsPro
 
                   {isExpanded && (
                     <div className="mt-2 space-y-2">
-                      <p className="text-xs text-[#c9d1d9] leading-relaxed">{alert.description}</p>
+                      <p className="text-xs text-[var(--aw-text-1)] leading-relaxed">{alert.description}</p>
                       {alert.agentIds.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {alert.agentIds.map(id => (
                             <button
                               key={id}
                               onClick={e => { e.stopPropagation(); onAgentClick?.(id); }}
-                              className="text-[10px] px-2 py-0.5 rounded bg-[#21262d] text-[#58a6ff] hover:bg-[#30363d] transition-colors"
+                              className="text-[10px] px-2 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-blue)] hover:bg-[var(--aw-bg-3)] transition-colors"
                             >
                               {agentNames?.get(id) || id.slice(0, 8)}
                             </button>

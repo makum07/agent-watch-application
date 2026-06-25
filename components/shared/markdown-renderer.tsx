@@ -68,19 +68,19 @@ function CodeBlock({ lang, codeText, children }: { lang: string; codeText: strin
   }, [codeText]);
 
   return (
-    <div className="my-3 rounded-lg overflow-hidden border border-[#30363d] bg-[#0d1117]">
-      <div className="flex items-center justify-between px-3.5 py-2 bg-[#161b22] border-b border-[#30363d]">
-        <span className="text-[11px] font-mono text-[#6e7681]">
+    <div className="my-3 rounded-lg overflow-hidden border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)]">
+      <div className="flex items-center justify-between px-3.5 py-2 bg-[var(--aw-bg-1)] border-b border-[var(--aw-bg-3)]">
+        <span className="text-[11px] font-mono text-[var(--aw-text-3)]">
           {lang || 'code'}
         </span>
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 text-[11px] text-[#6e7681] hover:text-[#c9d1d9] transition-colors"
+          className="flex items-center gap-1.5 text-[11px] text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] transition-colors"
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-[#3fb950]" />
-              <span className="text-[#3fb950]">Copied</span>
+              <Check className="h-3 w-3 text-[var(--aw-green)]" />
+              <span className="text-[var(--aw-green)]">Copied</span>
             </>
           ) : (
             <>
@@ -106,7 +106,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
     [highlightTerms?.join(',')]
   );
   const textSz  = isBase ? 'text-[14px]'  : 'text-[13px]';
-  const textClr  = 'text-[#c9d1d9]';
+  const textClr  = 'text-[var(--aw-text-1)]';
   const lineH   = isBase ? 'leading-[1.75]' : 'leading-relaxed';
   const mbPara  = isBase ? 'mb-3.5' : 'mb-2';
 
@@ -126,7 +126,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
             if (isInline) {
               return (
                 <code
-                  className="bg-[#1c2333] text-[#79c0ff] border border-[#2d3f55]/70 px-1.5 py-0.5 rounded-md font-mono text-[0.85em] align-baseline"
+                  className="bg-muted text-primary border border-border px-1.5 py-0.5 rounded-md font-mono text-[0.85em] align-baseline"
                   {...props}
                 >
                   {children}
@@ -135,7 +135,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
             }
             return (
               <code
-                className={cn('block font-mono text-[12.5px] text-[#c9d1d9]', cls)}
+                className={cn('block font-mono text-[12.5px] text-[var(--aw-text-1)]', cls)}
                 {...props}
               >
                 {children}
@@ -171,7 +171,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
             return (
               <a
                 href={href}
-                className="text-[#58a6ff] hover:text-[#79c0ff] underline underline-offset-2 decoration-[#58a6ff]/40 hover:decoration-[#79c0ff] transition-colors"
+                className="text-[var(--aw-blue)] hover:text-[var(--aw-blue-light)] underline underline-offset-2 decoration-[var(--aw-blue)]/40 hover:decoration-[var(--aw-blue-light)] transition-colors"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -206,28 +206,28 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
           // ── Headings ────────────────────────────────────────────────────
           h1({ children }) {
             return (
-              <h1 className="text-[18px] font-bold mt-6 mb-3 first:mt-0 text-[#e6edf3] pb-2 border-b border-[#21262d]">
+              <h1 className="text-[18px] font-bold mt-6 mb-3 first:mt-0 text-[var(--aw-text-0)] pb-2 border-b border-[var(--aw-bg-2)]">
                 {children}
               </h1>
             );
           },
           h2({ children }) {
             return (
-              <h2 className="text-[15px] font-bold mt-5 mb-2 first:mt-0 text-[#e6edf3]">
+              <h2 className="text-[15px] font-bold mt-5 mb-2 first:mt-0 text-[var(--aw-text-0)]">
                 {children}
               </h2>
             );
           },
           h3({ children }) {
             return (
-              <h3 className="text-[13px] font-semibold mt-4 mb-1.5 first:mt-0 text-[#e6edf3]">
+              <h3 className="text-[13px] font-semibold mt-4 mb-1.5 first:mt-0 text-[var(--aw-text-0)]">
                 {children}
               </h3>
             );
           },
           h4({ children }) {
             return (
-              <h4 className="text-[13px] font-medium mt-3 mb-1 first:mt-0 text-[#8b949e] uppercase tracking-wide">
+              <h4 className="text-[13px] font-medium mt-3 mb-1 first:mt-0 text-[var(--aw-text-2)] uppercase tracking-wide">
                 {children}
               </h4>
             );
@@ -236,7 +236,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
           // ── Blockquote — callout card ────────────────────────────────────
           blockquote({ children }) {
             return (
-              <blockquote className="relative border-l-[3px] border-[#388bfd] bg-[#0d1f35] pl-4 pr-4 py-3 rounded-r-lg my-3 text-[#8b949e] italic">
+              <blockquote className="relative border-l-[3px] border-primary bg-muted pl-4 pr-4 py-3 rounded-r-lg my-3 text-muted-foreground italic">
                 {children}
               </blockquote>
             );
@@ -244,21 +244,21 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
 
           // ── Emphasis ────────────────────────────────────────────────────
           strong({ children }) {
-            return <strong className="font-semibold text-[#e6edf3]">{children}</strong>;
+            return <strong className="font-semibold text-[var(--aw-text-0)]">{children}</strong>;
           },
           em({ children }) {
-            return <em className="italic text-[#8b949e]">{children}</em>;
+            return <em className="italic text-[var(--aw-text-2)]">{children}</em>;
           },
 
           // ── Horizontal rule ──────────────────────────────────────────────
           hr() {
-            return <hr className="border-[#21262d] my-5" />;
+            return <hr className="border-[var(--aw-bg-2)] my-5" />;
           },
 
           // ── Tables ──────────────────────────────────────────────────────
           table({ children }) {
             return (
-              <div className="overflow-x-auto my-4 rounded-lg border border-[#30363d]">
+              <div className="overflow-x-auto my-4 rounded-lg border border-[var(--aw-bg-3)]">
                 <table className="w-full border-collapse text-[13px]">
                   {children}
                 </table>
@@ -267,31 +267,31 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
           },
           thead({ children }) {
             return (
-              <thead className="bg-[#161b22] border-b border-[#30363d]">
+              <thead className="bg-[var(--aw-bg-1)] border-b border-[var(--aw-bg-3)]">
                 {children}
               </thead>
             );
           },
           tbody({ children }) {
-            return <tbody className="divide-y divide-[#21262d]">{children}</tbody>;
+            return <tbody className="divide-y divide-[var(--aw-bg-2)]">{children}</tbody>;
           },
           tr({ children }) {
             return (
-              <tr className="hover:bg-[#161b22]/60 transition-colors">
+              <tr className="hover:bg-[var(--aw-bg-1)]/60 transition-colors">
                 {children}
               </tr>
             );
           },
           th({ children }) {
             return (
-              <th className="text-left font-semibold text-[#8b949e] px-4 py-2.5 text-[11px] uppercase tracking-wider whitespace-nowrap">
+              <th className="text-left font-semibold text-[var(--aw-text-2)] px-4 py-2.5 text-[11px] uppercase tracking-wider whitespace-nowrap">
                 {children}
               </th>
             );
           },
           td({ children }) {
             return (
-              <td className="px-4 py-2.5 text-[#c9d1d9] align-top">
+              <td className="px-4 py-2.5 text-[var(--aw-text-1)] align-top">
                 {children}
               </td>
             );

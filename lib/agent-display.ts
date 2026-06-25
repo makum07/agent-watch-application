@@ -2,24 +2,24 @@ import type { Agent } from '@/types/session';
 
 // Named agent types with fixed colors
 const NAMED_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  Orchestrator: { bg: '#1c3556', text: '#58a6ff', border: '#2d5a8c' },
-  Explore:      { bg: '#1a3d1f', text: '#3fb950', border: '#2d6b35' },
-  Plan:         { bg: '#3d2a0e', text: '#f0883e', border: '#6b4a1a' },
-  'general-purpose': { bg: '#2d1f45', text: '#bc8cff', border: '#4d3470' },
-  'code-reviewer':   { bg: '#3d0e0e', text: '#f85149', border: '#6b1a1a' },
-  Workflow:     { bg: '#1a3d2a', text: '#39d353', border: '#2d6b47' },
+  Orchestrator: { bg: 'var(--aw-phase-blue)',       text: 'var(--aw-blue)',              border: 'var(--aw-blue-bg)' },
+  Explore:      { bg: 'var(--aw-green-bg)',          text: 'var(--aw-green)',             border: 'var(--aw-green-bg-2)' },
+  Plan:         { bg: 'var(--aw-phase-orange)',      text: 'var(--aw-orange)',            border: 'var(--aw-orange-bg)' },
+  'general-purpose': { bg: 'var(--aw-purple-bg-deep2)', text: 'var(--aw-purple)',        border: 'var(--aw-purple-border)' },
+  'code-reviewer':   { bg: 'var(--aw-code-reviewer-bg)', text: 'var(--aw-red)',          border: 'var(--aw-code-reviewer-border)' },
+  Workflow:     { bg: 'var(--aw-green-bg)',          text: 'var(--aw-green-bright)',      border: 'var(--aw-green-bg-2)' },
 };
 
 // Palette for dynamically-labeled agents (workflow subagents with free-form labels)
 const PALETTE = [
-  { bg: '#1c3556', text: '#58a6ff', border: '#2d5a8c' },  // blue
-  { bg: '#1a3d2a', text: '#39d353', border: '#2d6b47' },  // teal-green
-  { bg: '#3d2a0e', text: '#f0883e', border: '#6b4a1a' },  // orange
-  { bg: '#2d1f45', text: '#bc8cff', border: '#4d3470' },  // purple
-  { bg: '#3d1f1a', text: '#ff9a85', border: '#6b3530' },  // salmon
-  { bg: '#1a3038', text: '#56d3e0', border: '#2d5c67' },  // cyan
-  { bg: '#3d3314', text: '#e0b456', border: '#6b5920' },  // amber
-  { bg: '#1f3d20', text: '#6dde77', border: '#347a3b' },  // lime
+  { bg: 'var(--aw-phase-blue)',      text: 'var(--aw-blue)',         border: 'var(--aw-blue-bg)' },       // blue
+  { bg: 'var(--aw-green-bg)',        text: 'var(--aw-green-bright)', border: 'var(--aw-green-bg-2)' },    // teal-green
+  { bg: 'var(--aw-phase-orange)',    text: 'var(--aw-orange)',       border: 'var(--aw-orange-bg)' },      // orange
+  { bg: 'var(--aw-purple-bg-deep2)', text: 'var(--aw-purple)',       border: 'var(--aw-purple-border)' }, // purple
+  { bg: 'var(--aw-salmon-bg)',       text: 'var(--aw-red-light)',    border: 'var(--aw-salmon-border)' }, // salmon
+  { bg: 'var(--aw-teal-bg)',         text: 'var(--aw-cyan)',         border: 'var(--aw-teal-border)' },   // cyan
+  { bg: 'var(--aw-amber-bg)',        text: 'var(--aw-amber)',        border: 'var(--aw-amber-border)' },  // amber
+  { bg: 'var(--aw-lime-bg)',         text: 'var(--aw-lime)',         border: 'var(--aw-lime-border)' },   // lime
 ];
 
 /** Simple stable hash to pick a palette color for a given label */

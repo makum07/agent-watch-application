@@ -16,11 +16,11 @@ interface AgentExecutionCardProps {
 }
 
 const statusConfig: Record<string, { color: string; bg: string; label: string }> = {
-  completed:             { color: 'text-[#3fb950]', bg: 'bg-[#3fb950]/10', label: 'Completed' },
-  completed_with_errors: { color: 'text-[#d29922]', bg: 'bg-[#d29922]/10', label: 'Errors' },
-  errored:               { color: 'text-[#f85149]', bg: 'bg-[#f85149]/10', label: 'Errored' },
-  running:               { color: 'text-[#bc8cff]', bg: 'bg-[#bc8cff]/10', label: 'Running' },
-  unknown:               { color: 'text-[#8b949e]', bg: 'bg-[#21262d]',    label: 'Unknown' },
+  completed:             { color: 'text-[var(--aw-green)]', bg: 'bg-[var(--aw-green)]/10', label: 'Completed' },
+  completed_with_errors: { color: 'text-[var(--aw-yellow)]', bg: 'bg-[var(--aw-yellow)]/10', label: 'Errors' },
+  errored:               { color: 'text-[var(--aw-red)]', bg: 'bg-[var(--aw-red)]/10', label: 'Errored' },
+  running:               { color: 'text-[var(--aw-purple)]', bg: 'bg-[var(--aw-purple)]/10', label: 'Running' },
+  unknown:               { color: 'text-[var(--aw-text-2)]', bg: 'bg-[var(--aw-bg-2)]',    label: 'Unknown' },
 };
 
 export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExecutionCardProps) {
@@ -40,54 +40,54 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
   }, [expanded, sessionId, agent.agentId, toolTimeline, timelineLoading]);
 
   return (
-    <div className="rounded-md border border-[#21262d] bg-[#161b22] overflow-hidden">
+    <div className="rounded-md border border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] overflow-hidden">
       {/* ── Collapsed Row ──────────────────────────────────── */}
       <button
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[#21262d]/50 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--aw-bg-2)]/50 transition-colors"
       >
         {expanded
-          ? <ChevronDown className="h-3 w-3 text-[#6e7681] shrink-0" />
-          : <ChevronRight className="h-3 w-3 text-[#6e7681] shrink-0" />}
+          ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-3)] shrink-0" />
+          : <ChevronRight className="h-3 w-3 text-[var(--aw-text-3)] shrink-0" />}
 
         <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0', sc.bg, sc.color)}>
           {sc.label}
         </span>
 
-        <span className="text-xs text-[#c9d1d9] truncate flex-1">{agent.name}</span>
+        <span className="text-xs text-[var(--aw-text-1)] truncate flex-1">{agent.name}</span>
 
         {agent.subagentType && (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-[#21262d] text-[#8b949e] shrink-0">
+          <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-2)] shrink-0">
             {agent.subagentType}
           </span>
         )}
 
-        <span className="text-[9px] text-[#6e7681] shrink-0">{agent.model.replace('claude-', '')}</span>
+        <span className="text-[9px] text-[var(--aw-text-3)] shrink-0">{agent.model.replace('claude-', '')}</span>
 
-        <span className="text-[9px] text-[#8b949e] font-mono shrink-0 w-14 text-right">
+        <span className="text-[9px] text-[var(--aw-text-2)] font-mono shrink-0 w-14 text-right">
           {formatDuration(agent.durationMs)}
         </span>
 
-        <span className="text-[9px] text-[#8b949e] font-mono shrink-0 w-14 text-right">
+        <span className="text-[9px] text-[var(--aw-text-2)] font-mono shrink-0 w-14 text-right">
           {formatCost(agent.estimatedCost)}
         </span>
 
         <span className="text-[9px] font-mono shrink-0 w-12 text-right flex items-center justify-end gap-0.5">
-          <Wrench className="h-2.5 w-2.5 text-[#6e7681]" />
-          <span className="text-[#8b949e]">{agent.totalToolCalls}</span>
+          <Wrench className="h-2.5 w-2.5 text-[var(--aw-text-3)]" />
+          <span className="text-[var(--aw-text-2)]">{agent.totalToolCalls}</span>
           {agent.failedToolCalls > 0 && (
-            <span className="text-[#f85149]">/{agent.failedToolCalls}</span>
+            <span className="text-[var(--aw-red)]">/{agent.failedToolCalls}</span>
           )}
         </span>
 
-        <span className="text-[9px] text-[#8b949e] font-mono shrink-0 w-14 text-right">
+        <span className="text-[9px] text-[var(--aw-text-2)] font-mono shrink-0 w-14 text-right">
           {formatTokens(agent.tokenUsage.total)}
         </span>
       </button>
 
       {/* ── Expanded Details ───────────────────────────────── */}
       {expanded && (
-        <div className="border-t border-[#21262d]">
+        <div className="border-t border-[var(--aw-bg-2)]">
           <div className="px-3 py-3 grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Execution Info */}
             <div>
@@ -101,10 +101,10 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
                 <FactRow label="Depth" value={String(agent.depth)} />
                 {agent.parentId && (
                   <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="text-[#6e7681] w-20 shrink-0">Parent</span>
+                    <span className="text-[var(--aw-text-3)] w-20 shrink-0">Parent</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); onAgentClick(agent.parentId!); }}
-                      className="text-[#58a6ff] hover:underline truncate"
+                      className="text-[var(--aw-blue)] hover:underline truncate"
                     >
                       {agent.parentName || agent.parentId.slice(0, 12)}
                     </button>
@@ -138,8 +138,8 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
                     label="Failed"
                     value={String(agent.failedToolCalls)}
                     mono
-                    valueClass="text-[#f85149]"
-                    icon={<AlertTriangle className="h-2.5 w-2.5 text-[#f85149]" />}
+                    valueClass="text-[var(--aw-red)]"
+                    icon={<AlertTriangle className="h-2.5 w-2.5 text-[var(--aw-red)]" />}
                   />
                 )}
                 {agent.deniedToolCalls > 0 && (
@@ -147,8 +147,8 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
                     label="Denied"
                     value={String(agent.deniedToolCalls)}
                     mono
-                    valueClass="text-[#d29922]"
-                    icon={<Shield className="h-2.5 w-2.5 text-[#d29922]" />}
+                    valueClass="text-[var(--aw-yellow)]"
+                    icon={<Shield className="h-2.5 w-2.5 text-[var(--aw-yellow)]" />}
                   />
                 )}
               </div>
@@ -160,10 +160,10 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
               <div className="space-y-1 mt-1.5">
                 {agent.parentId && (
                   <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="text-[#6e7681] w-20 shrink-0">Parent</span>
+                    <span className="text-[var(--aw-text-3)] w-20 shrink-0">Parent</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); onAgentClick(agent.parentId!); }}
-                      className="text-[#58a6ff] hover:underline truncate"
+                      className="text-[var(--aw-blue)] hover:underline truncate"
                     >
                       {agent.parentName || agent.parentId.slice(0, 12)}
                     </button>
@@ -176,13 +176,13 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
                       <button
                         key={cid}
                         onClick={(e) => { e.stopPropagation(); onAgentClick(cid); }}
-                        className="text-[9px] text-[#58a6ff] hover:underline font-mono"
+                        className="text-[9px] text-[var(--aw-blue)] hover:underline font-mono"
                       >
                         {cid.slice(0, 8)}
                       </button>
                     ))}
                     {agent.childrenIds.length > 8 && (
-                      <span className="text-[9px] text-[#484f58]">+{agent.childrenIds.length - 8} more</span>
+                      <span className="text-[9px] text-[var(--aw-text-4)]">+{agent.childrenIds.length - 8} more</span>
                     )}
                   </div>
                 )}
@@ -190,13 +190,13 @@ export function AgentExecutionCard({ agent, sessionId, onAgentClick }: AgentExec
                 <FactRow label="Response" value={agent.responseLength > 0 ? `${agent.responseLength.toLocaleString()} chars` : 'None'} />
                 {agent.skillInvocations.length > 0 && (
                   <div className="mt-2">
-                    <span className="text-[9px] text-[#6e7681] uppercase tracking-wide">Skills Used</span>
+                    <span className="text-[9px] text-[var(--aw-text-3)] uppercase tracking-wide">Skills Used</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {agent.skillInvocations.map((si, i) => (
-                        <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[#21262d] text-[#8b949e]">
+                        <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]">
                           {si.skill}
                           {si.durationMs != null && (
-                            <span className="text-[#6e7681] ml-1">{formatDuration(si.durationMs)}</span>
+                            <span className="text-[var(--aw-text-3)] ml-1">{formatDuration(si.durationMs)}</span>
                           )}
                         </span>
                       ))}
@@ -234,30 +234,30 @@ function ToolTimeline({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border-t border-[#21262d] px-3 py-2">
+    <div className="border-t border-[var(--aw-bg-2)] px-3 py-2">
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-1.5 text-left"
       >
-        <span className="text-[#6e7681]">
+        <span className="text-[var(--aw-text-3)]">
           {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         </span>
-        <List className="h-3 w-3 text-[#6e7681]" />
-        <span className="text-[10px] font-semibold text-[#e6edf3] uppercase tracking-wide">Tool Execution Timeline</span>
-        <span className="text-[9px] text-[#8b949e] font-mono ml-1">{totalToolCalls} calls</span>
+        <List className="h-3 w-3 text-[var(--aw-text-3)]" />
+        <span className="text-[10px] font-semibold text-[var(--aw-text-0)] uppercase tracking-wide">Tool Execution Timeline</span>
+        <span className="text-[9px] text-[var(--aw-text-2)] font-mono ml-1">{totalToolCalls} calls</span>
         {failedToolCalls > 0 && (
-          <span className="text-[9px] text-[#f85149] font-mono">{failedToolCalls} failed</span>
+          <span className="text-[9px] text-[var(--aw-red)] font-mono">{failedToolCalls} failed</span>
         )}
-        {loading && <Loader2 className="h-3 w-3 animate-spin text-[#6e7681] ml-auto" />}
+        {loading && <Loader2 className="h-3 w-3 animate-spin text-[var(--aw-text-3)] ml-auto" />}
       </button>
       {open && loading && (
-        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-[#6e7681]">
+        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-[var(--aw-text-3)]">
           <Loader2 className="h-3 w-3 animate-spin" />
           Loading tool calls…
         </div>
       )}
       {open && timeline && timeline.length === 0 && (
-        <div className="mt-2 text-[10px] text-[#484f58]">No tool calls recorded.</div>
+        <div className="mt-2 text-[10px] text-[var(--aw-text-4)]">No tool calls recorded.</div>
       )}
       {open && timeline && timeline.length > 0 && (
         <div className="mt-2 space-y-0">
@@ -266,36 +266,36 @@ function ToolTimeline({
                     key={tc.id}
                     className={cn(
                       'flex items-start gap-2 py-1 px-1.5 rounded text-[10px]',
-                      tc.isError && 'bg-[#f85149]/5',
+                      tc.isError && 'bg-[var(--aw-red)]/5',
                     )}
                   >
-                    <span className="text-[#484f58] font-mono w-5 text-right shrink-0 pt-0.5">
+                    <span className="text-[var(--aw-text-4)] font-mono w-5 text-right shrink-0 pt-0.5">
                       {i + 1}
                     </span>
                     <div className="shrink-0 pt-0.5">
                       {tc.isError ? (
-                        <AlertTriangle className="h-3 w-3 text-[#f85149]" />
+                        <AlertTriangle className="h-3 w-3 text-[var(--aw-red)]" />
                       ) : tc.isAgentSpawn ? (
-                        <GitBranch className="h-3 w-3 text-[#bc8cff]" />
+                        <GitBranch className="h-3 w-3 text-[var(--aw-purple)]" />
                       ) : (
-                        <Terminal className="h-3 w-3 text-[#484f58]" />
+                        <Terminal className="h-3 w-3 text-[var(--aw-text-4)]" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className={cn(
                           'font-semibold',
-                          tc.isError ? 'text-[#f85149]' : 'text-[#c9d1d9]',
+                          tc.isError ? 'text-[var(--aw-red)]' : 'text-[var(--aw-text-1)]',
                         )}>
                           {tc.name}
                         </span>
                         {tc.durationMs != null && tc.durationMs > 0 && (
-                          <span className="text-[#484f58] font-mono">{formatDuration(tc.durationMs)}</span>
+                          <span className="text-[var(--aw-text-4)] font-mono">{formatDuration(tc.durationMs)}</span>
                         )}
                       </div>
-                      <div className="text-[#6e7681] truncate">{tc.inputSummary}</div>
+                      <div className="text-[var(--aw-text-3)] truncate">{tc.inputSummary}</div>
                       {tc.isError && tc.resultPreview && (
-                        <div className="text-[#f85149]/80 mt-0.5 whitespace-pre-wrap break-words text-[9px] leading-tight max-h-16 overflow-hidden">
+                        <div className="text-[var(--aw-red)]/80 mt-0.5 whitespace-pre-wrap break-words text-[9px] leading-tight max-h-16 overflow-hidden">
                           {tc.resultPreview}
                         </div>
                       )}
@@ -313,8 +313,8 @@ function ToolTimeline({
 function SectionLabel({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[#6e7681]">{icon}</span>
-      <span className="text-[10px] font-semibold text-[#e6edf3] uppercase tracking-wide">{label}</span>
+      <span className="text-[var(--aw-text-3)]">{icon}</span>
+      <span className="text-[10px] font-semibold text-[var(--aw-text-0)] uppercase tracking-wide">{label}</span>
     </div>
   );
 }
@@ -331,11 +331,11 @@ function FactRow({
 }) {
   return (
     <div className="flex items-center gap-1.5 text-[10px]">
-      <span className="text-[#6e7681] w-20 shrink-0">{label}</span>
+      <span className="text-[var(--aw-text-3)] w-20 shrink-0">{label}</span>
       {icon}
       <span className={cn(
         mono && 'font-mono',
-        highlight ? 'text-[#e6edf3]' : 'text-[#c9d1d9]',
+        highlight ? 'text-[var(--aw-text-0)]' : 'text-[var(--aw-text-1)]',
         valueClass,
       )}>
         {value}

@@ -16,6 +16,7 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { LayoutNode, WorkspaceSnapshot } from '@/types/workspace';
 import type { Session } from '@/types/session';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 // Below this content-area width, the Review panel floats over the workspace
 // instead of pushing it — otherwise three columns get unusably cramped.
@@ -253,21 +254,21 @@ export default function WorkspacePage({ params }: Props) {
           <AgentSidebar sessionId={id} panelRef={sidebarPanelRef} />
         </Panel>
 
-        <Separator className="shrink-0 bg-[#30363d] hover:bg-[#58a6ff]/50 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
+        <Separator className="shrink-0 bg-[var(--aw-bg-3)] hover:bg-[var(--aw-blue)]/50 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
 
         {/* Main content panel */}
         <Panel id="main-panel" minSize={300}>
           <div className="flex flex-col h-full overflow-hidden">
             {/* Workspace header — never wraps; breadcrumb truncates first, controls stay on one line */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#21262d] bg-[#161b22] shrink-0 overflow-x-auto overflow-y-hidden">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] shrink-0 overflow-x-auto overflow-y-hidden">
               {/* Breadcrumb cluster — shrinks/truncates before the controls do */}
               <div className="flex items-center gap-2 min-w-0 shrink">
-                <Link href="/" className="text-[#8b949e] hover:text-[#e6edf3] transition-colors shrink-0">
+                <Link href="/" className="text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors shrink-0">
                   <Layers className="h-4 w-4" />
                 </Link>
-                <span className="text-[#484f58] shrink-0">/</span>
-                <span className="text-sm font-semibold text-[#e6edf3] truncate">{projectName}</span>
-                <div className="flex items-center gap-1 ml-1 text-[11px] text-[#6e7681] shrink-0 hidden lg:flex whitespace-nowrap">
+                <span className="text-[var(--aw-text-4)] shrink-0">/</span>
+                <span className="text-sm font-semibold text-[var(--aw-text-0)] truncate">{projectName}</span>
+                <div className="flex items-center gap-1 ml-1 text-[11px] text-[var(--aw-text-3)] shrink-0 hidden lg:flex whitespace-nowrap">
                   <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span className="font-mono">{id.slice(0, 8)}…</span>
@@ -284,37 +285,38 @@ export default function WorkspacePage({ params }: Props) {
                     setTimeout(() => setIsRefreshing(false), 800);
                   }}
                   title="Refresh session data"
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors shrink-0"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors shrink-0"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
                 </button>
                 <LayoutPresets session={session} setLayout={setLayout} />
                 <SavedLayouts sessionId={id} />
-                <div className="flex items-center gap-1 border-l border-[#30363d] pl-2">
-                  <Link href={`/session/${id}/timeline`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors whitespace-nowrap">
+                <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">
+                  <Link href={`/session/${id}/timeline`} className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
                     Timeline
                   </Link>
-                  <Link href={`/session/${id}/analytics`} className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors whitespace-nowrap">
+                  <Link href={`/session/${id}/analytics`} className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
                     Analytics
                   </Link>
-                  <Link href="/skills" className="text-xs text-[#c9d1d9] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] transition-colors whitespace-nowrap">
+                  <Link href="/skills" className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
                     Skills
                   </Link>
                 </div>
-                <div className="flex items-center gap-1 border-l border-[#30363d] pl-2">
+                <ThemeToggle />
+                <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">
                   <button
                     onClick={() => setPanelOpen(!isPanelOpen)}
                     className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors whitespace-nowrap ${
                       isPanelOpen
-                        ? 'bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30'
-                        : 'text-[#c9d1d9] hover:text-white hover:bg-[#21262d]'
+                        ? 'bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] border border-[var(--aw-blue)]/30'
+                        : 'text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-2)]'
                     }`}
                     title="Feedback Review"
                   >
                     <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                     <span>Review</span>
                     {items.length > 0 && (
-                      <span className={`text-[10px] px-1 rounded-full font-medium ${isPanelOpen ? 'bg-[#58a6ff]/30 text-[#58a6ff]' : 'bg-[#21262d] text-[#8b949e]'}`}>
+                      <span className={`text-[10px] px-1 rounded-full font-medium ${isPanelOpen ? 'bg-[var(--aw-blue)]/30 text-[var(--aw-blue)]' : 'bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]'}`}>
                         {items.length}
                       </span>
                     )}
@@ -344,9 +346,9 @@ export default function WorkspacePage({ params }: Props) {
                     {/* Drag handle */}
                     <div
                       onMouseDown={startFeedbackResize}
-                      className="w-1 shrink-0 bg-[#30363d] hover:bg-[#58a6ff]/50 cursor-col-resize transition-colors"
+                      className="w-1 shrink-0 bg-[var(--aw-bg-3)] hover:bg-[var(--aw-blue)]/50 cursor-col-resize transition-colors"
                     />
-                    <div className="flex-1 overflow-hidden bg-[#0d1117] border-l border-[#21262d]">
+                    <div className="flex-1 overflow-hidden bg-[var(--aw-bg-0)] border-l border-[var(--aw-bg-2)]">
                       <FeedbackPanel sessionId={id} onClose={() => setPanelOpen(false)} />
                     </div>
                   </div>
@@ -434,8 +436,8 @@ function LayoutPresets({ session, setLayout }: {
   ];
 
   return (
-    <div className="flex items-center gap-0.5 bg-[#21262d]/60 rounded-md px-1 py-0.5 shrink-0">
-      <span className="text-[10px] text-[#c9d1d9] mr-1 pl-1 whitespace-nowrap hidden md:inline">Layout:</span>
+    <div className="flex items-center gap-0.5 bg-[var(--aw-bg-2)]/60 rounded-md px-1 py-0.5 shrink-0">
+      <span className="text-[10px] text-[var(--aw-text-1)] mr-1 pl-1 whitespace-nowrap hidden md:inline">Layout:</span>
       {presets.map(p => {
         const l = p.layout();
         return (
@@ -444,7 +446,7 @@ function LayoutPresets({ session, setLayout }: {
             onClick={() => l && setLayout(l)}
             disabled={!l}
             title={p.label}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 whitespace-nowrap"
           >
             {p.icon}
             <span className="hidden lg:inline">{p.label}</span>
@@ -511,7 +513,7 @@ function SavedLayouts({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="relative shrink-0">
-      <div className="flex items-center gap-0.5 bg-[#21262d]/60 rounded-md px-1 py-0.5">
+      <div className="flex items-center gap-0.5 bg-[var(--aw-bg-2)]/60 rounded-md px-1 py-0.5">
         {showSaveInput ? (
           <div className="flex items-center gap-1 px-1">
             <input
@@ -520,21 +522,21 @@ function SavedLayouts({ sessionId }: { sessionId: string }) {
               onChange={e => setSaveName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveLayout(); if (e.key === 'Escape') setShowSaveInput(false); }}
               placeholder="Layout name…"
-              className="text-[11px] bg-[#0d1117] border border-[#30363d] rounded px-2 py-0.5 text-[#e6edf3] placeholder-[#484f58] outline-none w-28 focus:border-[#58a6ff]/50"
+              className="text-[11px] bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded px-2 py-0.5 text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none w-28 focus:border-[var(--aw-blue)]/50"
             />
             <button
               onClick={saveLayout}
               disabled={isSaving || !saveName.trim()}
-              className="text-[11px] px-2 py-0.5 rounded bg-[#58a6ff]/15 text-[#58a6ff] hover:bg-[#58a6ff]/25 disabled:opacity-40 transition-colors"
+              className="text-[11px] px-2 py-0.5 rounded bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] hover:bg-[var(--aw-blue)]/25 disabled:opacity-40 transition-colors"
             >
               {isSaving ? '…' : 'Save'}
             </button>
-            <button onClick={() => setShowSaveInput(false)} className="text-[#6e7681] hover:text-[#c9d1d9] text-[11px] px-1">✕</button>
+            <button onClick={() => setShowSaveInput(false)} className="text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] text-[11px] px-1">✕</button>
           </div>
         ) : (
           <button
             onClick={() => setShowSaveInput(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors shrink-0 whitespace-nowrap"
             title="Save current layout"
           >
             <Save className="h-3 w-3 shrink-0" />
@@ -545,11 +547,11 @@ function SavedLayouts({ sessionId }: { sessionId: string }) {
         {named.length > 0 && (
           <button
             onClick={() => setIsOpen(o => !o)}
-            className="flex items-center gap-0.5 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors"
+            className="flex items-center gap-0.5 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors"
             title="Saved layouts"
           >
             <BookOpen className="h-3 w-3" />
-            <span className="text-[10px] bg-[#30363d] rounded-full px-1">{named.length}</span>
+            <span className="text-[10px] bg-[var(--aw-bg-3)] rounded-full px-1">{named.length}</span>
             <ChevronDown className="h-3 w-3" />
           </button>
         )}
@@ -558,19 +560,19 @@ function SavedLayouts({ sessionId }: { sessionId: string }) {
       {isOpen && named.length > 0 && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl w-52 py-1">
-            <div className="px-3 py-1.5 text-[10px] text-[#6e7681] font-medium uppercase tracking-wide">Saved Layouts</div>
+          <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-52 py-1">
+            <div className="px-3 py-1.5 text-[10px] text-[var(--aw-text-3)] font-medium uppercase tracking-wide">Saved Layouts</div>
             {named.map(s => (
-              <div key={s.id} className="flex items-center gap-1 px-2 py-1 hover:bg-[#21262d] group">
+              <div key={s.id} className="flex items-center gap-1 px-2 py-1 hover:bg-[var(--aw-bg-2)] group">
                 <button
                   onClick={() => { setLayout(s.layout); setIsOpen(false); }}
-                  className="flex-1 text-left text-xs text-[#c9d1d9] hover:text-[#e6edf3] truncate"
+                  className="flex-1 text-left text-xs text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] truncate"
                 >
                   {s.name}
                 </button>
                 <button
                   onClick={() => deleteSnapshot(s.id)}
-                  className="opacity-0 group-hover:opacity-100 text-[#6e7681] hover:text-red-400 transition-all p-0.5 rounded"
+                  className="opacity-0 group-hover:opacity-100 text-[var(--aw-text-3)] hover:text-red-400 transition-all p-0.5 rounded"
                   title="Delete"
                 >
                   <Trash2 className="h-3 w-3" />

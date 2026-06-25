@@ -50,7 +50,7 @@ export function SkillList() {
         <button
           onClick={() => syncSkills()}
           disabled={isSyncing}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] transition-colors font-medium disabled:opacity-50"
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-0)] transition-colors font-medium disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
           {isSyncing ? 'Syncing...' : 'Sync Skills'}
@@ -59,7 +59,7 @@ export function SkillList() {
         <select
           value={projectFilter}
           onChange={e => setProjectFilter(e.target.value)}
-          className="text-xs px-2 py-1.5 rounded bg-[#21262d] border border-[#30363d] text-[#e6edf3]"
+          className="text-xs px-2 py-1.5 rounded bg-[var(--aw-bg-2)] border border-[var(--aw-bg-3)] text-[var(--aw-text-0)]"
         >
           <option value="all">All Projects</option>
           {projects.map(p => (
@@ -68,11 +68,11 @@ export function SkillList() {
         </select>
 
         <div className="flex items-center gap-1">
-          <ArrowUpDown className="h-3.5 w-3.5 text-[#8b949e]" />
+          <ArrowUpDown className="h-3.5 w-3.5 text-[var(--aw-text-2)]" />
           <select
             value={sortKey}
             onChange={e => setSortKey(e.target.value as SortKey)}
-            className="text-xs px-2 py-1.5 rounded bg-[#21262d] border border-[#30363d] text-[#e6edf3]"
+            className="text-xs px-2 py-1.5 rounded bg-[var(--aw-bg-2)] border border-[var(--aw-bg-3)] text-[var(--aw-text-0)]"
           >
             <option value="executions">Most Executions</option>
             <option value="feedback">Most Feedback</option>
@@ -84,7 +84,7 @@ export function SkillList() {
 
       {isLoading ? (
         <div className="text-center py-16 text-muted-foreground">
-          <div className="h-6 w-6 border-2 border-[#58a6ff] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="h-6 w-6 border-2 border-[var(--aw-blue)] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-sm">Loading skills...</p>
         </div>
       ) : sorted.length === 0 ? (

@@ -98,28 +98,31 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
 
   // Color coding — denials get a distinct amber so they don't read as a generic
   // runtime error (or, worse, a normal step).
-  const borderColor = isDenied ? '#d29922'
-    : isError ? '#f85149'
-    : isAgentSpawn ? '#58a6ff'
-    : name === 'Bash' ? '#39d353'
-    : '#30363d';
+  const borderColor = isDenied ? 'var(--aw-yellow)'
+    : isError ? 'var(--aw-red)'
+    : isAgentSpawn ? 'var(--aw-blue)'
+    : name === 'Bash' ? 'var(--aw-green-bright)'
+    : 'var(--aw-bg-3)';
 
-  const iconColor = isDenied ? '#d29922'
-    : isError ? '#f85149'
-    : isAgentSpawn ? '#58a6ff'
-    : name === 'Bash' ? '#39d353'
-    : name === 'Read' ? '#79c0ff'
-    : '#c9d1d9';
+  const iconColor = isDenied ? 'var(--aw-yellow)'
+    : isError ? 'var(--aw-red)'
+    : isAgentSpawn ? 'var(--aw-blue)'
+    : name === 'Bash' ? 'var(--aw-green-bright)'
+    : name === 'Read' ? 'var(--aw-blue-light)'
+    : 'var(--aw-text-1)';
 
   return (
     <div
       className={cn('rounded border overflow-hidden', compact ? 'text-[11px]' : 'text-xs')}
-      style={{ borderColor: compact ? `${borderColor}60` : borderColor, backgroundColor: `${borderColor}${compact ? '05' : '08'}` }}
+      style={{
+        borderColor: `color-mix(in oklch, ${borderColor} ${compact ? 20 : 30}%, transparent)`,
+        backgroundColor: `color-mix(in oklch, ${borderColor} 6%, transparent)`,
+      }}
     >
       {/* Header — always visible */}
       <button
         className={cn(
-          'w-full flex items-center gap-2 hover:bg-[#161b22] transition-colors text-left',
+          'w-full flex items-center gap-2 hover:bg-[var(--aw-bg-1)] transition-colors text-left',
           compact ? 'px-2 py-1' : 'px-3 py-2',
         )}
         onClick={() => setExpanded(!expanded)}
@@ -127,28 +130,28 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
         <span style={{ color: compact ? `${iconColor}99` : iconColor }}>
           <ToolIcon name={name} />
         </span>
-        <span className={cn('font-semibold', compact ? 'text-[#8b949e]' : 'text-[#e6edf3]')}>{name}</span>
+        <span className={cn('font-semibold', compact ? 'text-[var(--aw-text-2)]' : 'text-[var(--aw-text-0)]')}>{name}</span>
         {summary && (
-          <span className={cn('font-mono truncate flex-1', compact ? 'text-[#6e7681] text-[10px]' : 'text-[#c9d1d9] text-[11px]')}>{summary}</span>
+          <span className={cn('font-mono truncate flex-1', compact ? 'text-[var(--aw-text-3)] text-[10px]' : 'text-[var(--aw-text-1)] text-[11px]')}>{summary}</span>
         )}
         {resultBadge && (
           <span
             className="text-[10px] font-medium shrink-0 px-1.5 py-0.5 rounded inline-flex items-center gap-1"
             style={
               isDenied
-                ? { color: '#d29922', backgroundColor: '#d2992218' }
+                ? { color: 'var(--aw-yellow)', backgroundColor: 'var(--aw-yellow)18' }
                 : isError
-                ? { color: '#f85149', backgroundColor: '#f8514914' }
+                ? { color: 'var(--aw-red)', backgroundColor: 'var(--aw-red)14' }
                 : isAgentSpawn
-                ? { color: '#58a6ff', backgroundColor: '#58a6ff14' }
-                : { color: compact ? '#484f58' : '#6e7681' }
+                ? { color: 'var(--aw-blue)', backgroundColor: 'var(--aw-blue)14' }
+                : { color: compact ? 'var(--aw-text-4)' : 'var(--aw-text-3)' }
             }
           >
             {isDenied && <Lock className="h-2.5 w-2.5" />}
             {resultBadge}
           </span>
         )}
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-[#6e7681] transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 shrink-0 text-[var(--aw-text-3)] transition-transform', expanded && 'rotate-90')} />
       </button>
 
       {/* Expanded: input + result */}
@@ -156,8 +159,8 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
         <div className="border-t px-3 py-2 space-y-2" style={{ borderColor: `${borderColor}30` }}>
           {/* Input */}
           <div>
-            <div className="text-[10px] text-[#6e7681] font-semibold mb-1 uppercase tracking-wider">Input</div>
-            <pre className="text-[11px] font-mono text-[#c9d1d9] bg-[#0d1117] rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap">
+            <div className="text-[10px] text-[var(--aw-text-3)] font-semibold mb-1 uppercase tracking-wider">Input</div>
+            <pre className="text-[11px] font-mono text-[var(--aw-text-1)] bg-[var(--aw-bg-0)] rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap">
               {formatInput(name, input)}
             </pre>
           </div>
@@ -167,13 +170,13 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
             <div>
               <div className={cn(
                 'text-[10px] font-semibold mb-1 uppercase tracking-wider',
-                isDenied ? 'text-[#d29922]' : isError ? 'text-[#f85149]' : 'text-[#3fb950]'
+                isDenied ? 'text-[var(--aw-yellow)]' : isError ? 'text-[var(--aw-red)]' : 'text-[var(--aw-green)]'
               )}>
                 {isDenied ? 'Permission denied' : isError ? 'Error' : 'Output'}
               </div>
               <pre className={cn(
                 'text-[11px] font-mono rounded p-2 overflow-x-auto max-h-48 whitespace-pre-wrap',
-                isDenied ? 'text-[#e3b341] bg-[#d29922]/5' : isError ? 'text-[#f85149] bg-[#f85149]/5' : 'text-[#c9d1d9] bg-[#0d1117]'
+                isDenied ? 'text-[var(--aw-yellow)] bg-[var(--aw-yellow)]/5' : isError ? 'text-[var(--aw-red)] bg-[var(--aw-red)]/5' : 'text-[var(--aw-text-1)] bg-[var(--aw-bg-0)]'
               )}>
                 {resultText || '(empty)'}
               </pre>

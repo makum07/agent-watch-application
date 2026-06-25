@@ -56,7 +56,7 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
       <div
         className={cn(
           'group flex items-center gap-1.5 py-1.5 pr-2 cursor-pointer select-none',
-          'hover:bg-[#21262d] rounded mx-1 transition-colors'
+          'hover:bg-[var(--aw-bg-2)] rounded mx-1 transition-colors'
         )}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
         draggable
@@ -64,14 +64,14 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
         onClick={openInPane}
       >
         {/* Drag handle */}
-        <GripVertical className="h-3 w-3 text-[#484f58] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
+        <GripVertical className="h-3 w-3 text-[var(--aw-text-4)] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
 
         {/* Collapse toggle */}
         {hasChildren ? (
           <CollapsibleTrigger asChild onClick={e => e.stopPropagation()}>
             <button className="shrink-0 p-0">
               <ChevronRight className={cn(
-                'h-3 w-3 text-[#6e7681] transition-transform',
+                'h-3 w-3 text-[var(--aw-text-3)] transition-transform',
                 isOpen && 'rotate-90'
               )} />
             </button>
@@ -92,7 +92,7 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
               {label}
             </span>
             {shortDesc && (
-              <span className="text-[11px] text-[#c9d1d9] truncate">{shortDesc}</span>
+              <span className="text-[11px] text-[var(--aw-text-1)] truncate">{shortDesc}</span>
             )}
             {status.tone !== 'ok' && status.tone !== 'idle' && (
               <span
@@ -104,11 +104,11 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {agent.model && (
-              <span className="text-[10px] text-[#6e7681] font-mono truncate">
+              <span className="text-[10px] text-[var(--aw-text-3)] font-mono truncate">
                 {agent.model.replace('claude-', '').slice(0, 12)}
               </span>
             )}
-            <span className="text-[10px] text-[#6e7681]">{formatTokens(agent.tokenUsage.total)}</span>
+            <span className="text-[10px] text-[var(--aw-text-3)]">{formatTokens(agent.tokenUsage.total)}</span>
           </div>
         </div>
       </div>

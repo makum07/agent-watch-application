@@ -166,37 +166,37 @@ export function ExportHierarchyMenu({ rootAgent, agentMap, collapsedNodes, title
         title="Export hierarchy"
         className={cn(
           'flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border transition-colors',
-          'border-[#30363d] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] disabled:opacity-40 disabled:cursor-not-allowed',
-          open && 'bg-[#21262d] text-[#e6edf3]',
+          'border-[var(--aw-bg-3)] text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] disabled:opacity-40 disabled:cursor-not-allowed',
+          open && 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]',
         )}
       >
-        {copied ? <Check className="h-3 w-3 text-[#3fb950]" /> : <Download className="h-3 w-3" />}
+        {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Download className="h-3 w-3" />}
         <span>{copied ? 'Copied' : 'Export'}</span>
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-44 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl py-1">
-          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[#6e7681]">Export hierarchy</div>
+        <div className="absolute right-0 top-full mt-1 z-50 w-44 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl py-1">
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--aw-text-3)]">Export hierarchy</div>
           <button
             onClick={handlePreview}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-[#e6edf3] transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-[var(--aw-text-0)] transition-colors text-left"
           >
-            <Eye className="h-3.5 w-3.5 shrink-0 text-[#8b949e]" />
+            <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--aw-text-2)]" />
             Preview…
           </button>
           <button
             onClick={handleCopy}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-[#e6edf3] transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-[var(--aw-text-0)] transition-colors text-left"
           >
-            <Copy className="h-3.5 w-3.5 shrink-0 text-[#8b949e]" />
+            <Copy className="h-3.5 w-3.5 shrink-0 text-[var(--aw-text-2)]" />
             Copy as text
           </button>
           <button
             onClick={handlePng}
             disabled={busy}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-[#e6edf3] transition-colors text-left disabled:opacity-50"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-[var(--aw-text-0)] transition-colors text-left disabled:opacity-50"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[#8b949e]" />}
+            {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[var(--aw-text-2)]" />}
             Export as PNG
           </button>
         </div>
@@ -254,37 +254,37 @@ function HierarchyPreviewModal({
       onClick={onClose}
     >
       <div
-        className="flex flex-col w-full max-w-3xl max-h-[85vh] bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden"
+        className="flex flex-col w-full max-w-3xl max-h-[85vh] bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded-xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#21262d] shrink-0">
-          <Download className="h-4 w-4 text-[#8b949e] shrink-0" />
-          <span className="text-sm font-semibold text-[#e6edf3] shrink-0">Export hierarchy</span>
-          <span className="text-xs text-[#6e7681] truncate">· {title} · {nodeCount} node{nodeCount !== 1 ? 's' : ''}</span>
-          <div className="ml-auto flex items-center gap-0.5 p-0.5 rounded bg-[#161b22] border border-[#21262d] shrink-0">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--aw-bg-2)] shrink-0">
+          <Download className="h-4 w-4 text-[var(--aw-text-2)] shrink-0" />
+          <span className="text-sm font-semibold text-[var(--aw-text-0)] shrink-0">Export hierarchy</span>
+          <span className="text-xs text-[var(--aw-text-3)] truncate">· {title} · {nodeCount} node{nodeCount !== 1 ? 's' : ''}</span>
+          <div className="ml-auto flex items-center gap-0.5 p-0.5 rounded bg-[var(--aw-bg-1)] border border-[var(--aw-bg-2)] shrink-0">
             {(['text', 'image'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={cn(
                   'px-2.5 py-1 rounded text-[11px] font-medium transition-colors capitalize',
-                  tab === t ? 'bg-[#21262d] text-[#e6edf3]' : 'text-[#6e7681] hover:text-[#c9d1d9]',
+                  tab === t ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]',
                 )}
               >
                 {t}
               </button>
             ))}
           </div>
-          <button onClick={onClose} className="shrink-0 p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors">
+          <button onClick={onClose} className="shrink-0 p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-auto bg-[#010409] p-4">
+        <div className="flex-1 overflow-auto bg-[var(--aw-bg-4)] p-4">
           {tab === 'text' ? (
-            <pre className="text-[12px] leading-relaxed font-mono text-[#c9d1d9] whitespace-pre">{text}</pre>
+            <pre className="text-[12px] leading-relaxed font-mono text-[var(--aw-text-1)] whitespace-pre">{text}</pre>
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={svgDataUrl} alt="Agent hierarchy" width={width} height={height} className="max-w-none rounded-md" />
@@ -292,20 +292,20 @@ function HierarchyPreviewModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-[#21262d] shrink-0">
-          <span className="text-[11px] text-[#6e7681]">Reflects the current tree, order &amp; expand/collapse state.</span>
+        <div className="flex items-center gap-2 px-4 py-3 border-t border-[var(--aw-bg-2)] shrink-0">
+          <span className="text-[11px] text-[var(--aw-text-3)]">Reflects the current tree, order &amp; expand/collapse state.</span>
           <div className="flex-1" />
           <button
             onClick={onCopy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-[#30363d] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-[var(--aw-bg-3)] text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-[var(--aw-green)]" /> : <Copy className="h-3.5 w-3.5" />}
             {copied ? 'Copied' : 'Copy as text'}
           </button>
           <button
             onClick={onDownloadPng}
             disabled={busy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1f6feb] text-white hover:bg-[#388bfd] disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--aw-blue-action)] text-white hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-50 transition-colors"
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
             Download PNG

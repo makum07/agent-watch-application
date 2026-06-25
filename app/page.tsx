@@ -8,7 +8,8 @@ import { SessionSearch } from '@/components/home/session-search';
 import { OpenById } from '@/components/home/open-by-id';
 import { LocalDate } from '@/components/home/local-date';
 import { SourceSwitcher } from '@/components/source-switcher';
-import { Pin, Activity, Layers, FolderOpen, Sparkles } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { Pin, Activity, Layers, FolderOpen, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -56,9 +57,9 @@ export default async function HomePage() {
           </div>
           <Link
             href="/skills"
-            className="flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#e6edf3] px-2 py-1 rounded hover:bg-[#21262d] transition-colors"
+            className="flex items-center gap-1.5 text-xs text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors"
           >
-            <Sparkles className="h-3.5 w-3.5 text-[#d2a8ff]" />
+            <Wand2 className="h-3.5 w-3.5 text-primary" />
             Skills
           </Link>
           <SourceSwitcher initialSourceId={sourceId} />
@@ -69,6 +70,7 @@ export default async function HomePage() {
             <Activity className="h-3.5 w-3.5" />
             <span>{allDiscovered.length} sessions discovered</span>
           </div>
+          <ThemeToggle />
         </div>
       </header>
 

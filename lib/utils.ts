@@ -40,12 +40,6 @@ export function truncate(text: string, maxLength: number): string {
   return text.slice(0, maxLength - 3) + '...';
 }
 
-/**
- * Detects whether a tool_result error is a permission denial (the user declined
- * the tool call) rather than a runtime failure. Claude Code emits a stable
- * "Permission to use <Tool> has been denied" message for denials, plus the
- * "requested permissions ... but ... haven't granted it" variant.
- */
 export function isPermissionDenial(resultText: string): boolean {
   if (!resultText) return false;
   return (
@@ -61,7 +55,6 @@ export function formatTime(iso: string): string {
   } catch { return iso; }
 }
 
-// Pricing per million tokens (USD) — Anthropic list prices as of 2026-06-24
 const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   fable:  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
   opus:   { input:  5.00, output: 25.00, cacheWrite:  6.25, cacheRead: 0.50 },
@@ -82,9 +75,9 @@ export function estimateAgentCost(usage: {
 }, model: string): number {
   const p = MODEL_PRICING[modelTier(model)];
   return (
-    usage.input        * p.input      / 1_000_000 +
-    usage.output       * p.output     / 1_000_000 +
+    usage.input         * p.input      / 1_000_000 +
+    usage.output        * p.output     / 1_000_000 +
     usage.cacheCreation * p.cacheWrite / 1_000_000 +
-    usage.cacheRead    * p.cacheRead  / 1_000_000
+    usage.cacheRead     * p.cacheRead  / 1_000_000
   );
 }

@@ -101,18 +101,18 @@ function generateHtml(session: Session, alerts: DebugAlert[], criticalPath: Agen
   <meta charset="utf-8">
   <title>Session Report — ${session.project}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; max-width: 900px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-    h1 { color: #e6edf3; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
-    h2 { color: #e6edf3; margin-top: 32px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--aw-bg-0); color: var(--aw-text-1); max-width: 900px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+    h1 { color: var(--aw-text-0); border-bottom: 1px solid var(--aw-bg-2); padding-bottom: 8px; }
+    h2 { color: var(--aw-text-0); margin-top: 32px; }
     table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-    th, td { text-align: left; padding: 6px 12px; border: 1px solid #21262d; font-size: 13px; }
-    th { background: #161b22; color: #8b949e; font-weight: 600; }
-    td { background: #0d1117; }
-    strong { color: #e6edf3; }
-    code { background: #161b22; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
-    hr { border: none; border-top: 1px solid #21262d; margin: 32px 0; }
+    th, td { text-align: left; padding: 6px 12px; border: 1px solid var(--aw-bg-2); font-size: 13px; }
+    th { background: var(--aw-bg-1); color: var(--aw-text-2); font-weight: 600; }
+    td { background: var(--aw-bg-0); }
+    strong { color: var(--aw-text-0); }
+    code { background: var(--aw-bg-1); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    hr { border: none; border-top: 1px solid var(--aw-bg-2); margin: 32px 0; }
     li { margin: 4px 0; }
-    a { color: #58a6ff; }
+    a { color: var(--aw-blue); }
   </style>
 </head>
 <body>

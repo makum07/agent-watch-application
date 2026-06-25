@@ -151,22 +151,22 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
   const selectedParent = selectedEdge ? agentMap.get(selectedEdge.parentId) : null;
 
   if (!session) {
-    return <div className="flex items-center justify-center h-full text-[#6e7681] text-sm"><GitFork className="h-5 w-5 mr-2 opacity-40" /> No session loaded</div>;
+    return <div className="flex items-center justify-center h-full text-[var(--aw-text-3)] text-sm"><GitFork className="h-5 w-5 mr-2 opacity-40" /> No session loaded</div>;
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
+    <div className="flex flex-col h-full overflow-hidden bg-[var(--aw-bg-0)]">
       {isSingleTab && paneId && (
-        <div className="shrink-0 border-b border-[#21262d]">
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-[#161b22]">
-            <GitFork className="h-4 w-4 text-[#39d353] shrink-0" />
-            <span className="text-sm font-bold text-[#e6edf3] flex-1">Context Flow</span>
-            <span className="text-[11px] text-[#6e7681]">{session.agents.length} agents</span>
+        <div className="shrink-0 border-b border-[var(--aw-bg-2)]">
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-[var(--aw-bg-1)]">
+            <GitFork className="h-4 w-4 text-[var(--aw-green-bright)] shrink-0" />
+            <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Context Flow</span>
+            <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)} className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors">
+              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)} className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
                 {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }} className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors">
+              <button onClick={() => { restorePane(); closePane(paneId); }} className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -175,20 +175,20 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#21262d] bg-[#0d1117] shrink-0">
-        <span className="text-[11px] text-[#6e7681] flex-1">
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)] shrink-0">
+        <span className="text-[11px] text-[var(--aw-text-3)] flex-1">
           Click an edge to inspect prompt/response · Click a node to open agent
         </span>
-        <button onClick={() => doZoom(1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
-        <button onClick={() => doZoom(1 / 1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
-        <button onClick={resetView} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Reset view"><RotateCcw className="h-3 w-3" /></button>
-        <span className="text-[10px] font-mono text-[#484f58] w-10 text-right">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => doZoom(1.3)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
+        <button onClick={() => doZoom(1 / 1.3)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
+        <button onClick={resetView} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Reset view"><RotateCcw className="h-3 w-3" /></button>
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] w-10 text-right">{Math.round(zoom * 100)}%</span>
       </div>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Graph canvas */}
         <div
-          className="flex-1 relative overflow-hidden bg-[#060a0f]"
+          className="flex-1 relative overflow-hidden bg-[var(--aw-canvas-deep)]"
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -200,7 +200,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
           <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
             <defs>
               <pattern id="cf-grid" x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)} width={20 * zoom} height={20 * zoom} patternUnits="userSpaceOnUse">
-                <circle cx="1" cy="1" r="0.8" fill="#1c2128" />
+                <circle cx="1" cy="1" r="0.8" fill="var(--aw-bg-5)" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#cf-grid)" />
@@ -246,7 +246,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                     <path
                       d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`}
                       fill="none"
-                      stroke={isSelected ? '#39d353' : isHovered ? '#58a6ff' : '#30363d'}
+                      stroke={isSelected ? 'var(--aw-green-bright)' : isHovered ? 'var(--aw-blue)' : 'var(--aw-bg-3)'}
                       strokeWidth={isSelected ? 2 : isHovered ? 1.5 : 1}
                       opacity={isHovered || isSelected ? 1 : 0.5}
                       style={{ pointerEvents: 'none' }}
@@ -254,7 +254,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                     {/* Arrow head */}
                     <polygon
                       points={`${x2},${y2} ${x2 - 3},${y2 - 5} ${x2 + 3},${y2 - 5}`}
-                      fill={isSelected ? '#39d353' : isHovered ? '#58a6ff' : '#30363d'}
+                      fill={isSelected ? 'var(--aw-green-bright)' : isHovered ? 'var(--aw-blue)' : 'var(--aw-bg-3)'}
                       opacity={isHovered || isSelected ? 1 : 0.5}
                       style={{ pointerEvents: 'none' }}
                     />
@@ -262,13 +262,13 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                     {(isHovered || isSelected) && childAgent && (
                       <g>
                         {/* Input tokens (going down) */}
-                        <rect x={midX - 28} y={midY - 18} width={56} height={14} rx={3} fill="#1c2333" stroke="#2d3f55" strokeWidth={0.5} />
-                        <text x={midX} y={midY - 8} textAnchor="middle" fill="#58a6ff" fontSize={8} fontFamily="monospace">
+                        <rect x={midX - 28} y={midY - 18} width={56} height={14} rx={3} fill="var(--aw-navy)" stroke="var(--aw-navy-border)" strokeWidth={0.5} />
+                        <text x={midX} y={midY - 8} textAnchor="middle" fill="var(--aw-blue)" fontSize={8} fontFamily="monospace">
                           ↓ {inputTok}
                         </text>
                         {/* Output tokens (going up) */}
-                        <rect x={midX - 28} y={midY + 5} width={56} height={14} rx={3} fill="#1c2333" stroke="#2d3f55" strokeWidth={0.5} />
-                        <text x={midX} y={midY + 15} textAnchor="middle" fill="#3fb950" fontSize={8} fontFamily="monospace">
+                        <rect x={midX - 28} y={midY + 5} width={56} height={14} rx={3} fill="var(--aw-navy)" stroke="var(--aw-navy-border)" strokeWidth={0.5} />
+                        <text x={midX} y={midY + 15} textAnchor="middle" fill="var(--aw-green)" fontSize={8} fontFamily="monospace">
                           ↑ {outputTok}
                         </text>
                       </g>
@@ -292,7 +292,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                   className="absolute rounded-lg border transition-all cursor-pointer select-none"
                   style={{
                     left: node.x, top: node.y, width: NODE_W, height: NODE_H,
-                    backgroundColor: isSelectedNode ? color.bg : '#161b22',
+                    backgroundColor: isSelectedNode ? color.bg : 'var(--aw-bg-1)',
                     borderColor: isSelectedNode ? color.text : color.border,
                     boxShadow: isRoot ? `0 0 10px ${color.text}30` : isSelectedNode ? `0 0 6px ${color.text}20` : 'none',
                     zIndex: isSelectedNode ? 10 : 1,
@@ -306,10 +306,10 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                       {initials.slice(0, 2)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-semibold truncate leading-tight" style={{ color: isSelectedNode ? color.text : '#e6edf3' }}>
+                      <div className="text-[11px] font-semibold truncate leading-tight" style={{ color: isSelectedNode ? color.text : 'var(--aw-text-0)' }}>
                         {shortName}
                       </div>
-                      <div className="text-[9px] text-[#6e7681] font-mono truncate leading-tight">
+                      <div className="text-[9px] text-[var(--aw-text-3)] font-mono truncate leading-tight">
                         {formatTokens(agent.tokenUsage.total)} · {formatDuration(agent.durationMs)}
                       </div>
                     </div>
@@ -337,9 +337,9 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
 
         {/* Edge detail drawer */}
         {selectedEdge && selectedChild && (
-          <div className="w-72 shrink-0 border-l border-[#21262d] bg-[#0d1117] flex flex-col overflow-hidden">
+          <div className="w-72 shrink-0 border-l border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)] flex flex-col overflow-hidden">
             {/* Drawer header */}
-            <div className="shrink-0 px-3 py-2.5 border-b border-[#21262d] bg-[#161b22] flex items-center gap-2">
+            <div className="shrink-0 px-3 py-2.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] flex items-center gap-2">
               {selectedParent && (() => {
                 const { shortName, color, initials } = getAgentDisplay(selectedParent);
                 return (
@@ -348,7 +348,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                   </span>
                 );
               })()}
-              <ChevronRight className="w-3 h-3 text-[#484f58] shrink-0" />
+              <ChevronRight className="w-3 h-3 text-[var(--aw-text-4)] shrink-0" />
               {(() => {
                 const { shortName, color, initials } = getAgentDisplay(selectedChild);
                 return (
@@ -358,48 +358,48 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
                 );
               })()}
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-[#e6edf3] truncate">{getAgentDisplay(selectedChild).shortName}</div>
+                <div className="text-xs font-medium text-[var(--aw-text-0)] truncate">{getAgentDisplay(selectedChild).shortName}</div>
               </div>
-              <button onClick={() => setSelectedEdge(null)} className="p-1 rounded text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors shrink-0">
+              <button onClick={() => setSelectedEdge(null)} className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors shrink-0">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
 
             {/* Token summary */}
-            <div className="shrink-0 px-3 py-2 border-b border-[#21262d] flex gap-4 text-[11px]">
-              <div><span className="text-[#6e7681]">In:</span> <span className="text-[#58a6ff] font-mono">{formatTokens(selectedChild.tokenUsage.input)}</span></div>
-              <div><span className="text-[#6e7681]">Out:</span> <span className="text-[#3fb950] font-mono">{formatTokens(selectedChild.tokenUsage.output)}</span></div>
-              <div><span className="text-[#6e7681]">Dur:</span> <span className="text-[#f0883e] font-mono">{formatDuration(selectedChild.durationMs)}</span></div>
+            <div className="shrink-0 px-3 py-2 border-b border-[var(--aw-bg-2)] flex gap-4 text-[11px]">
+              <div><span className="text-[var(--aw-text-3)]">In:</span> <span className="text-[var(--aw-blue)] font-mono">{formatTokens(selectedChild.tokenUsage.input)}</span></div>
+              <div><span className="text-[var(--aw-text-3)]">Out:</span> <span className="text-[var(--aw-green)] font-mono">{formatTokens(selectedChild.tokenUsage.output)}</span></div>
+              <div><span className="text-[var(--aw-text-3)]">Dur:</span> <span className="text-[var(--aw-orange)] font-mono">{formatDuration(selectedChild.durationMs)}</span></div>
             </div>
 
             {/* Prompt / response content */}
             <div className="flex-1 overflow-y-auto">
               {selectedChild.prompt && (
-                <div className="p-3 border-b border-[#21262d]">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#6e7681] mb-1.5">Prompt</div>
-                  <div className="text-[12px] text-[#c9d1d9] leading-relaxed line-clamp-12 font-mono">
+                <div className="p-3 border-b border-[var(--aw-bg-2)]">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Prompt</div>
+                  <div className="text-[12px] text-[var(--aw-text-1)] leading-relaxed line-clamp-12 font-mono">
                     {selectedChild.prompt.slice(0, 800)}{selectedChild.prompt.length > 800 ? '…' : ''}
                   </div>
                 </div>
               )}
               {selectedChild.response && (
                 <div className="p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#6e7681] mb-1.5">Response</div>
-                  <div className="text-[12px] text-[#c9d1d9] leading-relaxed line-clamp-12 font-mono">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Response</div>
+                  <div className="text-[12px] text-[var(--aw-text-1)] leading-relaxed line-clamp-12 font-mono">
                     {selectedChild.response.slice(0, 800)}{selectedChild.response.length > 800 ? '…' : ''}
                   </div>
                 </div>
               )}
               {!selectedChild.prompt && !selectedChild.response && (
-                <div className="p-4 text-[12px] text-[#484f58] italic">No prompt/response recorded for this agent</div>
+                <div className="p-4 text-[12px] text-[var(--aw-text-4)] italic">No prompt/response recorded for this agent</div>
               )}
             </div>
 
             {/* Open agent button */}
-            <div className="shrink-0 px-3 py-2 border-t border-[#21262d]">
+            <div className="shrink-0 px-3 py-2 border-t border-[var(--aw-bg-2)]">
               <button
                 onClick={() => openAgent(selectedChild.id)}
-                className="w-full text-xs py-1.5 rounded border border-[#30363d] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#161b22] transition-colors"
+                className="w-full text-xs py-1.5 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-1)] transition-colors"
               >
                 Open agent →
               </button>

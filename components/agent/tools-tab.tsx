@@ -39,22 +39,22 @@ export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#21262d] shrink-0 bg-[#0d1117]">
-        <Search className="h-3.5 w-3.5 text-[#484f58] shrink-0" />
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--aw-bg-2)] shrink-0 bg-[var(--aw-bg-0)]">
+        <Search className="h-3.5 w-3.5 text-[var(--aw-text-4)] shrink-0" />
         <input
           type="text"
           value={filter}
           onChange={e => setFilter(e.target.value)}
           placeholder="Filter tool calls…"
-          className="flex-1 text-xs bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none"
+          className="flex-1 text-xs bg-transparent text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none"
         />
         {filter && (
-          <button onClick={() => setFilter('')} className="text-[#6e7681] hover:text-[#c9d1d9]">
+          <button onClick={() => setFilter('')} className="text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]">
             <X className="h-3 w-3" />
           </button>
         )}
         {filter && filtered.length !== toolUses.length && (
-          <span className="text-[10px] text-[#484f58] shrink-0">{filtered.length}/{toolUses.length}</span>
+          <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{filtered.length}/{toolUses.length}</span>
         )}
       </div>
 
@@ -62,12 +62,12 @@ export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
         <div className="p-3 space-y-1.5">
           {isLoading && toolUses.length === 0 && (
             <div className="flex items-center justify-center h-24">
-              <Loader2 className="h-5 w-5 animate-spin text-[#6e7681]" />
+              <Loader2 className="h-5 w-5 animate-spin text-[var(--aw-text-3)]" />
             </div>
           )}
 
           {!isLoading && filtered.length === 0 && (
-            <div className="text-sm text-[#6e7681] text-center py-8">
+            <div className="text-sm text-[var(--aw-text-3)] text-center py-8">
               {filter ? 'No matching tool calls' : 'No tool calls recorded'}
             </div>
           )}
@@ -93,7 +93,7 @@ export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
               onClick={loadMore}
               disabled={isLoading}
               className={cn(
-                'w-full text-xs py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#58a6ff]/40 transition-colors',
+                'w-full text-xs py-2 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:border-[var(--aw-blue)]/40 transition-colors',
                 isLoading && 'opacity-50 cursor-not-allowed'
               )}
             >

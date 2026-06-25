@@ -18,33 +18,33 @@ interface AnalysisHistoryProps {
 }
 
 const STATUS_CONFIG: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
-  pending: { color: '#8b949e', icon: <Clock className="h-3 w-3" />, label: 'Pending' },
-  analyzing: { color: '#d2a8ff', icon: <Loader2 className="h-3 w-3 animate-spin" />, label: 'Analyzing' },
-  awaiting_review: { color: '#ffa657', icon: <AlertTriangle className="h-3 w-3" />, label: 'Awaiting Review' },
-  applying: { color: '#58a6ff', icon: <Loader2 className="h-3 w-3 animate-spin" />, label: 'Applying' },
-  completed: { color: '#3fb950', icon: <Check className="h-3 w-3" />, label: 'Completed' },
-  failed: { color: '#ff7b72', icon: <X className="h-3 w-3" />, label: 'Failed' },
+  pending: { color: 'var(--aw-text-2)', icon: <Clock className="h-3 w-3" />, label: 'Pending' },
+  analyzing: { color: 'var(--aw-purple-light)', icon: <Loader2 className="h-3 w-3 animate-spin" />, label: 'Analyzing' },
+  awaiting_review: { color: 'var(--aw-orange-bright)', icon: <AlertTriangle className="h-3 w-3" />, label: 'Awaiting Review' },
+  applying: { color: 'var(--aw-blue)', icon: <Loader2 className="h-3 w-3 animate-spin" />, label: 'Applying' },
+  completed: { color: 'var(--aw-green)', icon: <Check className="h-3 w-3" />, label: 'Completed' },
+  failed: { color: 'var(--aw-red-bright)', icon: <X className="h-3 w-3" />, label: 'Failed' },
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'border-l-[#ff7b72] bg-[#ff7b72]/5',
-  high: 'border-l-[#ffa657] bg-[#ffa657]/5',
-  medium: 'border-l-[#d2a8ff] bg-[#d2a8ff]/5',
-  low: 'border-l-[#8b949e] bg-[#8b949e]/5',
+  critical: 'border-l-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/5',
+  high: 'border-l-[var(--aw-orange-bright)] bg-[var(--aw-orange-bright)]/5',
+  medium: 'border-l-[var(--aw-purple-light)] bg-[var(--aw-purple-light)]/5',
+  low: 'border-l-[var(--aw-text-2)] bg-[var(--aw-text-2)]/5',
 };
 
 const TOOL_COLORS: Record<string, { border: string; icon: string }> = {
-  Bash:  { border: '#39d353', icon: '#39d353' },
-  Read:  { border: '#79c0ff', icon: '#79c0ff' },
-  Edit:  { border: '#f0883e', icon: '#f0883e' },
-  Write: { border: '#f0883e', icon: '#f0883e' },
-  Grep:  { border: '#d2a8ff', icon: '#d2a8ff' },
-  Glob:  { border: '#d2a8ff', icon: '#d2a8ff' },
-  Agent: { border: '#58a6ff', icon: '#58a6ff' },
+  Bash:  { border: 'var(--aw-green-bright)', icon: 'var(--aw-green-bright)' },
+  Read:  { border: 'var(--aw-blue-light)', icon: 'var(--aw-blue-light)' },
+  Edit:  { border: 'var(--aw-orange)', icon: 'var(--aw-orange)' },
+  Write: { border: 'var(--aw-orange)', icon: 'var(--aw-orange)' },
+  Grep:  { border: 'var(--aw-purple-light)', icon: 'var(--aw-purple-light)' },
+  Glob:  { border: 'var(--aw-purple-light)', icon: 'var(--aw-purple-light)' },
+  Agent: { border: 'var(--aw-blue)', icon: 'var(--aw-blue)' },
 };
 
 function getToolColor(name: string) {
-  return TOOL_COLORS[name] ?? { border: '#30363d', icon: '#c9d1d9' };
+  return TOOL_COLORS[name] ?? { border: 'var(--aw-bg-3)', icon: 'var(--aw-text-1)' };
 }
 
 function getToolSummaryText(toolName: string, toolInput: Record<string, unknown>): string {
@@ -140,16 +140,16 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
     return (
       <div className="space-y-3">
         {/* Editor header */}
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-t-lg bg-[#161b22] border border-[#30363d]">
-          <FileText className="h-3.5 w-3.5 text-[#d2a8ff] shrink-0" />
-          <span className="text-xs font-semibold text-[#e6edf3] flex-1">Review & Edit Analysis Prompt</span>
-          <span className="shrink-0 text-[10px] text-[#484f58] font-mono tabular-nums">
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-t-lg bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)]">
+          <FileText className="h-3.5 w-3.5 text-[var(--aw-purple-light)] shrink-0" />
+          <span className="text-xs font-semibold text-[var(--aw-text-0)] flex-1">Review & Edit Analysis Prompt</span>
+          <span className="shrink-0 text-[10px] text-[var(--aw-text-4)] font-mono tabular-nums">
             {promptDraft.length.toLocaleString()} chars
           </span>
         </div>
 
         {/* Hint */}
-        <div className="px-3 py-1.5 bg-[#0d1117] border border-[#21262d] rounded text-[10px] text-[#484f58] leading-snug">
+        <div className="px-3 py-1.5 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-2)] rounded text-[10px] text-[var(--aw-text-4)] leading-snug">
           This prompt will be sent to Claude for deep skill analysis. It includes all improvement cycles,
           open/closed feedback items, fix history, and analysis instructions. Edit freely — changes apply only to this cycle.
         </div>
@@ -158,7 +158,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
         <textarea
           value={promptDraft}
           onChange={e => setPromptDraft(e.target.value)}
-          className="w-full h-[500px] px-3 py-2.5 bg-[#0d1117] border border-[#30363d] rounded text-[11px] text-[#c9d1d9] font-mono leading-relaxed focus:outline-none focus:border-[#d2a8ff]/50 resize-y"
+          className="w-full h-[500px] px-3 py-2.5 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded text-[11px] text-[var(--aw-text-1)] font-mono leading-relaxed focus:outline-none focus:border-[var(--aw-purple-light)]/50 resize-y"
           onKeyDown={e => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTrigger();
             if (e.key === 'Escape') setPromptStep('idle');
@@ -170,14 +170,14 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
           <button
             onClick={handleTrigger}
             disabled={!promptDraft.trim() || isAnalyzing}
-            className="flex items-center gap-1.5 px-4 py-2 rounded bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
           >
             {isAnalyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             {isAnalyzing ? 'Analyzing...' : 'Run Analysis'}
           </button>
           <button
             onClick={() => setPromptStep('idle')}
-            className="px-4 py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-xs transition-colors"
+            className="px-4 py-2 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] text-xs transition-colors"
           >
             Cancel
           </button>
@@ -189,14 +189,14 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#8b949e]">
+        <span className="text-xs text-[var(--aw-text-2)]">
           {cycles.length} analysis cycle{cycles.length !== 1 ? 's' : ''}
         </span>
         <div className="flex items-center gap-2">
           <button
             onClick={handlePreview}
             disabled={isAnalyzing || promptStep === 'loading'}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-[#30363d] bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] transition-colors font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-1)] transition-colors font-medium disabled:opacity-50"
           >
             {promptStep === 'loading' ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -208,7 +208,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
           <button
             onClick={() => triggerAnalysis(skillId)}
             disabled={isAnalyzing}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white transition-colors font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white transition-colors font-medium disabled:opacity-50"
           >
             {isAnalyzing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -222,11 +222,11 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
 
       {/* Live stream viewer during analysis */}
       {isAnalyzing && streamEntries.length > 0 && (
-        <div className="border border-[#d2a8ff]/30 rounded-lg bg-[#0d1117] overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 bg-[#d2a8ff]/5 border-b border-[#d2a8ff]/20">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[#d2a8ff]" />
-            <span className="text-xs font-medium text-[#d2a8ff]">Live Analysis Stream</span>
-            <span className="text-[10px] text-[#484f58] ml-auto">{streamEntries.length} events</span>
+        <div className="border border-[var(--aw-purple-light)]/30 rounded-lg bg-[var(--aw-bg-0)] overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 bg-[var(--aw-purple-light)]/5 border-b border-[var(--aw-purple-light)]/20">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--aw-purple-light)]" />
+            <span className="text-xs font-medium text-[var(--aw-purple-light)]">Live Analysis Stream</span>
+            <span className="text-[10px] text-[var(--aw-text-4)] ml-auto">{streamEntries.length} events</span>
           </div>
           <div className="p-3">
             <StreamLog entries={streamEntries} isLive />
@@ -235,7 +235,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
       )}
 
       {isAnalyzing && streamEntries.length === 0 && (
-        <div className="border border-[#d2a8ff]/30 rounded-lg bg-[#0d1117] p-4 flex items-center gap-2 text-xs text-[#d2a8ff]">
+        <div className="border border-[var(--aw-purple-light)]/30 rounded-lg bg-[var(--aw-bg-0)] p-4 flex items-center gap-2 text-xs text-[var(--aw-purple-light)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Starting analysis...
         </div>
@@ -262,10 +262,10 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
       ))}
 
       {cycles.length === 0 && !isAnalyzing && (
-        <div className="text-center py-12 text-[#484f58]">
+        <div className="text-center py-12 text-[var(--aw-text-4)]">
           <Brain className="h-8 w-8 mx-auto mb-3 opacity-30" />
-          <p className="text-xs font-medium text-[#8b949e]">No analysis cycles yet</p>
-          <p className="text-[11px] mt-1 text-[#484f58]">
+          <p className="text-xs font-medium text-[var(--aw-text-2)]">No analysis cycles yet</p>
+          <p className="text-[11px] mt-1 text-[var(--aw-text-4)]">
             Click "Preview Prompt" to review the generated analysis prompt, or "Quick Analysis" to start immediately.
           </p>
         </div>
@@ -321,15 +321,15 @@ function AnalysisCycleCard({
     >
       {/* Header */}
       <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[#161b22] transition-colors"
+        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[var(--aw-bg-1)] transition-colors"
         onClick={onToggle}
       >
         {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-[#8b949e] shrink-0" />
+          <ChevronDown className="h-3.5 w-3.5 text-[var(--aw-text-2)] shrink-0" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-[#8b949e] shrink-0" />
+          <ChevronRight className="h-3.5 w-3.5 text-[var(--aw-text-2)] shrink-0" />
         )}
-        <span className="text-xs font-bold text-[#e6edf3]">Cycle #{cycle.cycleNumber}</span>
+        <span className="text-xs font-bold text-[var(--aw-text-0)]">Cycle #{cycle.cycleNumber}</span>
         <span
           className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
           style={{ color: status.color, background: `${status.color}18` }}
@@ -337,14 +337,14 @@ function AnalysisCycleCard({
           {status.icon}
           {status.label}
         </span>
-        <span className="text-[11px] text-[#484f58] ml-auto">
+        <span className="text-[11px] text-[var(--aw-text-4)] ml-auto">
           {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'}
           {' · '}
           {date}
         </span>
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="p-1 rounded hover:bg-[#21262d] text-[#484f58] hover:text-[#ff7b72]"
+          className="p-1 rounded hover:bg-[var(--aw-bg-2)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)]"
           title="Delete cycle"
         >
           <Trash2 className="h-3 w-3" />
@@ -353,35 +353,35 @@ function AnalysisCycleCard({
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="border-t border-[#21262d]">
+        <div className="border-t border-[var(--aw-bg-2)]">
           {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 px-3 py-2 text-xs bg-[#0d1117]">
+          <div className="grid grid-cols-2 gap-4 px-3 py-2 text-xs bg-[var(--aw-bg-0)]">
             <div>
-              <span className="text-[#8b949e]">Sessions analyzed:</span>{' '}
-              <span className="text-[#c9d1d9] font-medium">{cycle.sessionsAnalyzed.length}</span>
+              <span className="text-[var(--aw-text-2)]">Sessions analyzed:</span>{' '}
+              <span className="text-[var(--aw-text-1)] font-medium">{cycle.sessionsAnalyzed.length}</span>
             </div>
             <div>
-              <span className="text-[#8b949e]">Feedback analyzed:</span>{' '}
-              <span className="text-[#c9d1d9] font-medium">{cycle.feedbackAnalyzed.length}</span>
+              <span className="text-[var(--aw-text-2)]">Feedback analyzed:</span>{' '}
+              <span className="text-[var(--aw-text-1)] font-medium">{cycle.feedbackAnalyzed.length}</span>
             </div>
           </div>
 
           {/* Generated Prompt (collapsible) */}
-          <div className="border-t border-[#21262d]">
+          <div className="border-t border-[var(--aw-bg-2)]">
             <button
               onClick={e => { e.stopPropagation(); setShowPrompt(v => !v); }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[#8b949e] hover:bg-[#161b22] transition-colors text-left"
+              className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
             >
               {showPrompt
                 ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
                 : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-              <FileText className="h-3 w-3 shrink-0 text-[#d2a8ff]" />
+              <FileText className="h-3 w-3 shrink-0 text-[var(--aw-purple-light)]" />
               <span className="font-medium">Generated Prompt</span>
-              <span className="text-[#484f58] ml-auto font-mono">{cycle.analysisPrompt.length.toLocaleString()} chars</span>
+              <span className="text-[var(--aw-text-4)] ml-auto font-mono">{cycle.analysisPrompt.length.toLocaleString()} chars</span>
             </button>
             {showPrompt && (
               <div className="px-3 pb-3">
-                <pre className="text-[10px] text-[#8b949e] whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono bg-[#010409] p-3 rounded border border-[#21262d] leading-relaxed">
+                <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono bg-[var(--aw-bg-4)] p-3 rounded border border-[var(--aw-bg-2)] leading-relaxed">
                   {cycle.analysisPrompt}
                 </pre>
               </div>
@@ -390,21 +390,21 @@ function AnalysisCycleCard({
 
           {/* Stream / Activity Log (collapsible) */}
           {(hasStream || streamEntries.length > 0) && (
-            <div className="border-t border-[#21262d]">
+            <div className="border-t border-[var(--aw-bg-2)]">
               <button
                 onClick={e => { e.stopPropagation(); setShowStream(v => !v); }}
-                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[#8b949e] hover:bg-[#161b22] transition-colors text-left"
+                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
               >
                 {showStream
                   ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
                   : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-                <Terminal className="h-3 w-3 shrink-0 text-[#58a6ff]" />
+                <Terminal className="h-3 w-3 shrink-0 text-[var(--aw-blue)]" />
                 <span className="font-medium">
                   {cycle.status === 'analyzing' && isAnalyzing ? 'Live Stream' : 'Activity Log'}
                 </span>
-                <span className="text-[#484f58] ml-1">({streamEntries.length} events)</span>
+                <span className="text-[var(--aw-text-4)] ml-1">({streamEntries.length} events)</span>
                 {cycle.status === 'analyzing' && isAnalyzing && (
-                  <Loader2 className="h-2.5 w-2.5 animate-spin text-[#58a6ff] ml-auto" />
+                  <Loader2 className="h-2.5 w-2.5 animate-spin text-[var(--aw-blue)] ml-auto" />
                 )}
               </button>
               {showStream && (
@@ -420,20 +420,20 @@ function AnalysisCycleCard({
 
           {/* Analysis Response (collapsible) */}
           {cycle.analysisResponse && (
-            <div className="border-t border-[#21262d]">
+            <div className="border-t border-[var(--aw-bg-2)]">
               <button
                 onClick={e => { e.stopPropagation(); setShowResponse(v => !v); }}
-                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[#8b949e] hover:bg-[#161b22] transition-colors text-left"
+                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
               >
                 {showResponse
                   ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
                   : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-                <MessageSquare className="h-3 w-3 shrink-0 text-[#3fb950]" />
+                <MessageSquare className="h-3 w-3 shrink-0 text-[var(--aw-green)]" />
                 <span className="font-medium">Analysis Report</span>
               </button>
               {showResponse && (
                 <div className="px-3 pb-3">
-                  <div className="max-h-[600px] overflow-y-auto bg-[#010409] rounded border border-[#21262d] p-4">
+                  <div className="max-h-[600px] overflow-y-auto bg-[var(--aw-bg-4)] rounded border border-[var(--aw-bg-2)] p-4">
                     <MarkdownRenderer content={cycle.analysisResponse} size="sm" />
                   </div>
                 </div>
@@ -443,8 +443,8 @@ function AnalysisCycleCard({
 
           {/* Recommendations */}
           {cycle.recommendations && cycle.recommendations.length > 0 && (
-            <div className="border-t border-[#21262d] px-3 py-3">
-              <div className="text-[11px] font-medium text-[#8b949e] mb-2 uppercase tracking-wider">
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
+              <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2 uppercase tracking-wider">
                 Recommendations ({cycle.recommendations.length})
               </div>
               <div className="space-y-2">
@@ -457,16 +457,16 @@ function AnalysisCycleCard({
 
           {/* Fix Prompt */}
           {cycle.fixPrompt && (
-            <div className="border-t border-[#21262d] px-3 py-3">
-              <div className="text-[11px] font-medium text-[#8b949e] mb-2">Fix Prompt</div>
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
+              <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2">Fix Prompt</div>
               {editingFixPrompt === cycle.id ? (
                 <textarea
                   value={fixPromptText}
                   onChange={e => onFixPromptChange(e.target.value)}
-                  className="w-full h-40 text-[11px] bg-[#010409] border border-[#30363d] rounded p-2.5 text-[#c9d1d9] font-mono resize-y focus:outline-none focus:border-[#58a6ff]/50"
+                  className="w-full h-40 text-[11px] bg-[var(--aw-bg-4)] border border-[var(--aw-bg-3)] rounded p-2.5 text-[var(--aw-text-1)] font-mono resize-y focus:outline-none focus:border-[var(--aw-blue)]/50"
                 />
               ) : (
-                <pre className="bg-[#010409] rounded border border-[#21262d] p-3 text-[10px] text-[#c9d1d9] max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+                <pre className="bg-[var(--aw-bg-4)] rounded border border-[var(--aw-bg-2)] p-3 text-[10px] text-[var(--aw-text-1)] max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
                   {cycle.fixPrompt}
                 </pre>
               )}
@@ -475,19 +475,19 @@ function AnalysisCycleCard({
 
           {/* Actions for awaiting_review */}
           {cycle.status === 'awaiting_review' && cycle.fixPrompt && (
-            <div className="border-t border-[#21262d] px-3 py-2.5 flex items-center gap-2 bg-[#ffa657]/5">
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-2.5 flex items-center gap-2 bg-[var(--aw-orange-bright)]/5">
               {editingFixPrompt === cycle.id ? (
                 <>
                   <button
                     onClick={onApprove}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white font-medium"
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white font-medium"
                   >
                     <Check className="h-3.5 w-3.5" />
                     Apply Edited Prompt
                   </button>
                   <button
                     onClick={onCancelEditFixPrompt}
-                    className="text-xs px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9]"
+                    className="text-xs px-3 py-1.5 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-1)]"
                   >
                     Cancel
                   </button>
@@ -496,14 +496,14 @@ function AnalysisCycleCard({
                 <>
                   <button
                     onClick={onApprove}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white font-medium"
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white font-medium"
                   >
                     <Check className="h-3.5 w-3.5" />
                     Approve & Apply
                   </button>
                   <button
                     onClick={() => onStartEditFixPrompt(cycle.fixPrompt!)}
-                    className="text-xs px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9]"
+                    className="text-xs px-3 py-1.5 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-1)]"
                   >
                     Edit Fix Prompt
                   </button>
@@ -514,7 +514,7 @@ function AnalysisCycleCard({
 
           {/* Completed timestamp */}
           {cycle.completedAt && (
-            <div className="border-t border-[#21262d] px-3 py-2 text-[10px] text-[#484f58]">
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-2 text-[10px] text-[var(--aw-text-4)]">
               Completed {new Date(cycle.completedAt).toLocaleString([], {
                 month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
               })}
@@ -537,7 +537,7 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
 
   if (entries.length === 0 && isLive) {
     return (
-      <div className="flex items-center gap-2 text-[11px] text-[#58a6ff]">
+      <div className="flex items-center gap-2 text-[11px] text-[var(--aw-blue)]">
         <Loader2 className="h-3 w-3 animate-spin" /> Starting analysis...
       </div>
     );
@@ -560,7 +560,7 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
       {entries.map(entry => {
         if (entry.kind === 'system') {
           return (
-            <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-[#484f58]">
+            <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-[var(--aw-text-4)]">
               <Terminal className="h-3 w-3 shrink-0" />
               <span>{entry.text}</span>
             </div>
@@ -584,7 +584,7 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
             <div key={entry.id} className="pl-4">
               <div className={cn(
                 'text-[10px] font-mono rounded px-2 py-1 max-h-20 overflow-y-auto',
-                isError ? 'text-[#ff7b72] bg-[#3d0a0a]/30' : 'text-[#8b949e] bg-[#0d1117]',
+                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-diff-del-bg)]/30' : 'text-[var(--aw-text-2)] bg-[var(--aw-bg-0)]',
               )}>
                 {content.length > 300 ? content.slice(0, 300) + '...' : content}
               </div>
@@ -599,7 +599,7 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
         return null;
       })}
       {isLive && (
-        <div className="flex items-center gap-2 text-[11px] text-[#d2a8ff] pt-1">
+        <div className="flex items-center gap-2 text-[11px] text-[var(--aw-purple-light)] pt-1">
           <Loader2 className="h-3 w-3 animate-spin" /> Processing...
         </div>
       )}
@@ -616,21 +616,21 @@ function ThinkingEntry({ entry }: { entry: StreamEntry }) {
   const preview = hasContent ? text.slice(0, 80) + (text.length > 80 ? '...' : '') : 'Thinking...';
 
   return (
-    <div className="rounded border border-[#d2a8ff]/20 bg-[#d2a8ff]/5 overflow-hidden">
+    <div className="rounded border border-[var(--aw-purple-light)]/20 bg-[var(--aw-purple-light)]/5 overflow-hidden">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#d2a8ff]/10 transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-purple-light)]/10 transition-colors text-left"
         onClick={() => hasContent && setExpanded(v => !v)}
       >
-        <Brain className="h-3 w-3 text-[#d2a8ff] shrink-0" />
-        <span className="text-[10px] font-semibold text-[#d2a8ff]">Thinking</span>
-        <span className="text-[10px] text-[#8b949e] italic truncate flex-1">{preview}</span>
+        <Brain className="h-3 w-3 text-[var(--aw-purple-light)] shrink-0" />
+        <span className="text-[10px] font-semibold text-[var(--aw-purple-light)]">Thinking</span>
+        <span className="text-[10px] text-[var(--aw-text-2)] italic truncate flex-1">{preview}</span>
         {hasContent && (
-          <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
         )}
       </button>
       {expanded && hasContent && (
-        <div className="border-t border-[#d2a8ff]/15 px-2 py-1.5">
-          <pre className="text-[10px] text-[#c9d1d9] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+        <div className="border-t border-[var(--aw-purple-light)]/15 px-2 py-1.5">
+          <pre className="text-[10px] text-[var(--aw-text-1)] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
             {text}
           </pre>
         </div>
@@ -660,28 +660,28 @@ function ToolCallEntry({ entry, result }: { entry: StreamEntry; result?: StreamE
   return (
     <div className="rounded border overflow-hidden" style={{ borderColor: `${colors.border}40`, backgroundColor: `${colors.border}08` }}>
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#161b22] transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
         <ToolIcon className="h-3 w-3 shrink-0" style={{ color: colors.icon }} />
         <span className="text-[10px] font-semibold" style={{ color: colors.icon }}>{toolName}</span>
-        <span className="text-[10px] text-[#8b949e] font-mono truncate flex-1">{summary}</span>
+        <span className="text-[10px] text-[var(--aw-text-2)] font-mono truncate flex-1">{summary}</span>
         {resultBadge && (
           <span className={cn(
             'text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0',
-            isError ? 'text-[#ff7b72] bg-[#ff7b72]/10' : 'text-[#3fb950] bg-[#3fb950]/10',
+            isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/10' : 'text-[var(--aw-green)] bg-[var(--aw-green)]/10',
           )}>
             {resultBadge}
           </span>
         )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
 
       {expanded && (
         <div className="border-t space-y-1.5 px-2 py-1.5" style={{ borderColor: `${colors.border}20` }}>
           <div>
-            <div className="text-[9px] text-[#6e7681] font-semibold uppercase tracking-wider mb-0.5">Input</div>
-            <pre className="text-[10px] font-mono text-[#c9d1d9] bg-[#0d1117] rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed">
+            <div className="text-[9px] text-[var(--aw-text-3)] font-semibold uppercase tracking-wider mb-0.5">Input</div>
+            <pre className="text-[10px] font-mono text-[var(--aw-text-1)] bg-[var(--aw-bg-0)] rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed">
               {formatToolInput(toolName, toolInput)}
             </pre>
           </div>
@@ -689,13 +689,13 @@ function ToolCallEntry({ entry, result }: { entry: StreamEntry; result?: StreamE
             <div>
               <div className={cn(
                 'text-[9px] font-semibold uppercase tracking-wider mb-0.5',
-                isError ? 'text-[#ff7b72]' : 'text-[#3fb950]',
+                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-green)]',
               )}>
                 {isError ? 'Error' : 'Output'}
               </div>
               <pre className={cn(
                 'text-[10px] font-mono rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed',
-                isError ? 'text-[#ff7b72] bg-[#f85149]/5' : 'text-[#c9d1d9] bg-[#0d1117]',
+                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red)]/5' : 'text-[var(--aw-text-1)] bg-[var(--aw-bg-0)]',
               )}>
                 {resultContent.length > 2000 ? resultContent.slice(0, 2000) + '\n...(truncated)' : resultContent || '(empty)'}
               </pre>
@@ -713,21 +713,21 @@ function TextEntry({ entry }: { entry: StreamEntry }) {
   const isLong = text.length > 300;
 
   return (
-    <div className="rounded border border-[#21262d] bg-[#161b22] overflow-hidden">
+    <div className="rounded border border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] overflow-hidden">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#21262d]/50 transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <MessageSquare className="h-3 w-3 text-[#c9d1d9] shrink-0" />
-        <span className="text-[10px] font-semibold text-[#c9d1d9]">Response</span>
+        <MessageSquare className="h-3 w-3 text-[var(--aw-text-1)] shrink-0" />
+        <span className="text-[10px] font-semibold text-[var(--aw-text-1)]">Response</span>
         {!expanded && (
-          <span className="text-[10px] text-[#8b949e] truncate flex-1">{text.slice(0, 60)}...</span>
+          <span className="text-[10px] text-[var(--aw-text-2)] truncate flex-1">{text.slice(0, 60)}...</span>
         )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
-        <div className="border-t border-[#21262d] px-2 py-1.5">
-          <div className={cn('text-[11px] text-[#c9d1d9]', isLong && 'max-h-80 overflow-y-auto')}>
+        <div className="border-t border-[var(--aw-bg-2)] px-2 py-1.5">
+          <div className={cn('text-[11px] text-[var(--aw-text-1)]', isLong && 'max-h-80 overflow-y-auto')}>
             <MarkdownRenderer content={text} size="sm" />
           </div>
         </div>
@@ -745,22 +745,22 @@ function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
   return (
     <div className={cn('border-l-2 rounded-r overflow-hidden', colorClass)}>
       <button
-        className="w-full flex items-center gap-2 p-3 hover:bg-[#161b22]/50 transition-colors text-left"
+        className="w-full flex items-center gap-2 p-3 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <span className="text-[10px] uppercase font-semibold tracking-wider text-[#8b949e] shrink-0 w-14">
+        <span className="text-[10px] uppercase font-semibold tracking-wider text-[var(--aw-text-2)] shrink-0 w-14">
           {rec.severity}
         </span>
-        <span className="text-xs font-medium text-[#e6edf3] flex-1">{rec.title}</span>
-        <ChevronRight className={cn('h-3 w-3 text-[#484f58] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        <span className="text-xs font-medium text-[var(--aw-text-0)] flex-1">{rec.title}</span>
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
-        <div className="px-3 pb-3 space-y-1.5 text-[11px] text-[#c9d1d9]">
-          <div><span className="text-[#8b949e] font-medium">Root cause:</span> {rec.rootCause}</div>
-          <div><span className="text-[#8b949e] font-medium">Component:</span> {rec.affectedComponent}</div>
-          <div><span className="text-[#8b949e] font-medium">Proposed change:</span> {rec.proposedChange}</div>
+        <div className="px-3 pb-3 space-y-1.5 text-[11px] text-[var(--aw-text-1)]">
+          <div><span className="text-[var(--aw-text-2)] font-medium">Root cause:</span> {rec.rootCause}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">Component:</span> {rec.affectedComponent}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">Proposed change:</span> {rec.proposedChange}</div>
           {rec.selfCorrectionSignal && (
-            <div><span className="text-[#8b949e] font-medium">Self-correction:</span> {rec.selfCorrectionSignal}</div>
+            <div><span className="text-[var(--aw-text-2)] font-medium">Self-correction:</span> {rec.selfCorrectionSignal}</div>
           )}
         </div>
       )}
