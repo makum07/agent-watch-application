@@ -1,7 +1,7 @@
 import { getDatabase } from '@/lib/db/database';
 import type { SessionHistory, SessionHistoryUpdate } from '@/types/history';
 import type { Session } from '@/types/session';
-import { extractAiTitle } from '@/lib/parser/agent-correlator';
+import { extractAiTitle, extractFirstUserMessage } from '@/lib/parser/agent-correlator';
 import { discoverSessions } from './session-ingester';
 
 function rowToHistory(row: Record<string, unknown>): SessionHistory {
@@ -39,8 +39,11 @@ export function recordSessionOpen(session: Session, sourceId?: string): SessionH
   const title = generateTitle(session, sourceId);
 
   if (existing) {
+    const existingTitle = existing.title as string;
+    const titleUpdate = isMeaninglessTitle(existingTitle) ? title : existingTitle;
     db.prepare(`
       UPDATE session_history SET
+        title = ?,
         last_opened = ?,
         open_count = open_count + 1,
         agent_count = ?,
@@ -54,10 +57,16 @@ export function recordSessionOpen(session: Session, sourceId?: string): SessionH
         last_indexed = ?
       WHERE session_id = ?
     `).run(
-      now, session.totalAgents, 0, session.totalTokens, session.totalToolCalls,
+      titleUpdate, now, session.totalAgents, 0, session.totalTokens, session.totalToolCalls,
       session.duration.wallClock, session.primaryModel, session.estimatedCost.total,
       now, session.id
     );
+    if (titleUpdate !== existingTitle) {
+      db.prepare(`
+        INSERT OR REPLACE INTO session_history_fts (session_id, title, summary, project, tags)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(session.id, titleUpdate, existing.summary, existing.project, existing.tags || '');
+    }
   } else {
     db.prepare(`
       INSERT INTO session_history (
@@ -171,17 +180,24 @@ export function updateSessionHistory(sessionId: string, update: SessionHistoryUp
 }
 
 function generateTitle(session: Session, sourceId?: string): string {
-  // Try ai-title from the JSONL file first
   try {
     const discovered = discoverSessions(sourceId);
     const found = discovered.find(s => s.id === session.id);
     if (found) {
       const aiTitle = extractAiTitle(found.filePath);
       if (aiTitle) return aiTitle;
+      const firstMsg = extractFirstUserMessage(found.filePath);
+      if (firstMsg) return firstMsg;
     }
   } catch {}
-  // Fallback to project + agent count
   const projectName = session.project.split(/[/\\]/).filter(Boolean).pop() || 'Project';
   const agentStr = session.totalAgents > 0 ? ` — ${session.totalAgents} agent${session.totalAgents !== 1 ? 's' : ''}` : '';
   return `${projectName}${agentStr}`;
+}
+
+function isMeaninglessTitle(title: string): boolean {
+  if (!title) return true;
+  if (/^[0-9a-f]{8}/i.test(title)) return true;
+  if (/ — \d+ agents?$/.test(title)) return true;
+  return false;
 }

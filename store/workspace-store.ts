@@ -109,8 +109,10 @@ export interface WorkspaceStore {
   activeFilters: FilterState;
   scrollSyncEnabled: boolean;
   scrollSyncTimestamp: string | null;
+  refreshToken: number;
 
   setSessionId: (id: string) => void;
+  incrementRefreshToken: () => void;
   setLayout: (layout: LayoutNode | null) => void;
   splitPane: (paneId: string, direction: 'horizontal' | 'vertical', content: PaneTab) => void;
   closePane: (paneId: string) => void;
@@ -146,8 +148,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     activeFilters: { agentTypes: [], tools: [], timeRange: null, messageRoles: [] },
     scrollSyncEnabled: false,
     scrollSyncTimestamp: null,
+    refreshToken: 0,
 
     setSessionId: (id) => set({ sessionId: id }),
+    incrementRefreshToken: () => set(s => ({ refreshToken: s.refreshToken + 1 })),
 
     setLayout: (layout) => set({ layout }),
 

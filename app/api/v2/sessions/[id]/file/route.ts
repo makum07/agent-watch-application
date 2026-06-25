@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import path from 'path';
 import fs from 'fs';
 
@@ -35,8 +36,8 @@ function findProjectDirBySlug(slug: string): string | null {
   return search(startDir, 6);
 }
 
-function resolveProjectCwd(sessionId: string): string {
-  const db = getDatabase();
+function resolveProjectCwd(sessionId: string, sourceId?: string): string {
+  const db = getDatabase(sourceId);
   let projectCwd = process.cwd();
   try {
     const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
@@ -60,7 +61,8 @@ export async function GET(
       return NextResponse.json({ error: 'Missing ?path= parameter' }, { status: 400 });
     }
 
-    const projectCwd = resolveProjectCwd(sessionId);
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const projectCwd = resolveProjectCwd(sessionId, sourceId);
     const abs = path.isAbsolute(filePath) ? filePath : path.join(projectCwd, filePath);
 
     // Security: ensure the resolved path is within the project directory

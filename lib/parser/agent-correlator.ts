@@ -325,3 +325,35 @@ export function extractAiTitle(filePath: string): string | null {
   } catch {}
   return null;
 }
+
+/**
+ * Extracts the first human-typed user message from a session JSONL file,
+ * truncated to 80 characters. Used as a readable session title fallback.
+ */
+export function extractFirstUserMessage(filePath: string, maxLength = 80): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type !== 'user' || !obj.message?.content) continue;
+        const msgContent = obj.message.content;
+        let text: string | null = null;
+        if (typeof msgContent === 'string') {
+          text = msgContent.trim();
+        } else if (Array.isArray(msgContent)) {
+          // Skip pure tool_result messages — find first block with actual text
+          const hasToolResult = msgContent.some((b: { type: string }) => b.type === 'tool_result');
+          if (hasToolResult) continue;
+          const textBlock = msgContent.find((b: { type: string; text?: string }) => b.type === 'text' && b.text?.trim());
+          text = textBlock?.text?.trim() ?? null;
+        }
+        if (!text) continue;
+        return text.length > maxLength ? text.slice(0, maxLength) + '…' : text;
+      } catch {}
+    }
+  } catch {}
+  return null;
+}

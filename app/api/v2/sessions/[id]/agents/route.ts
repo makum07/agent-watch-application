@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestSession } from '@/lib/services/session-ingester';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 export async function GET(
   req: NextRequest,
@@ -7,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const sourceId = await resolveSessionSource(req, id);
     const session = ingestSession(id, sourceId);
 
     if (!session) {

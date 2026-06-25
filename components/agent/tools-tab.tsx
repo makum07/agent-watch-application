@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useAgentMessages } from '@/hooks/use-agent-messages';
+import { useWorkspaceStore } from '@/store/workspace-store';
 import { ToolCallCard } from './tool-call-card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Search, X } from 'lucide-react';
@@ -15,7 +16,8 @@ interface ToolsTabProps {
 const SPAWN_TOOLS = new Set(['Agent', 'Task', 'Workflow']);
 
 export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
-  const { messages, loadMore, hasMore, isLoading } = useAgentMessages(sessionId, agentId);
+  const refreshToken = useWorkspaceStore(s => s.refreshToken);
+  const { messages, loadMore, hasMore, isLoading } = useAgentMessages(sessionId, agentId, refreshToken);
   const [filter, setFilter] = useState('');
 
   // Collect tool calls in execution order (message order → content order within message)

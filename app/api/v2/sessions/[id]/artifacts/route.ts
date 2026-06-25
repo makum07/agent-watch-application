@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: sessionId } = await params;
   try {
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const rows = db.prepare(`
-      SELECT id, file_path, tool_name, type, timestamp, content_size, agent_id
+      SELECT id, file_path, tool_name, type, timestamp, content_size, agent_id, content_preview
       FROM artifacts
       WHERE session_id = ?
       ORDER BY timestamp ASC
@@ -21,6 +23,7 @@ export async function GET(
       timestamp: number | null;
       content_size: number;
       agent_id: string;
+      content_preview: string | null;
     }[];
 
     return NextResponse.json({ artifacts: rows });

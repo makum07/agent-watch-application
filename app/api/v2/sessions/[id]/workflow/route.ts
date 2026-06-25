@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import { parseJsonlFile } from '@/lib/parser/jsonl-parser';
 import { extractWorkflowMeta, assignAgentsToPhases } from '@/lib/services/workflow-parser';
 import type { WorkflowInfo } from '@/lib/services/workflow-parser';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
 
   try {
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, id);
+    const db = getDatabase(sourceId);
 
     // Find all agents and their JSONL paths for this session
     const agentRows = db.prepare(

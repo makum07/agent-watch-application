@@ -10,7 +10,7 @@ interface MessagesResponse {
   page: number;
 }
 
-export function useAgentMessages(sessionId: string, agentId: string) {
+export function useAgentMessages(sessionId: string, agentId: string, refreshToken?: number) {
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -21,7 +21,7 @@ export function useAgentMessages(sessionId: string, agentId: string) {
   const pageRef = useRef(0);
   const loadingRef = useRef(false);
 
-  // Reset when agent changes
+  // Reset when agent changes or refresh requested
   useEffect(() => {
     if (!agentId) return;
     setMessages([]);
@@ -31,13 +31,13 @@ export function useAgentMessages(sessionId: string, agentId: string) {
     fetchedAgentRef.current = '';
     pageRef.current = 0;
     loadingRef.current = false;
-  }, [sessionId, agentId]);
+  }, [sessionId, agentId, refreshToken]);
 
   // Auto-load first page after reset
   useEffect(() => {
     if (!agentId || !sessionId) return;
     fetchPage(sessionId, agentId, 0);
-  }, [sessionId, agentId]);
+  }, [sessionId, agentId, refreshToken]);
 
   const fetchPage = useCallback(async (sid: string, aid: string, page: number) => {
     if (loadingRef.current) return;

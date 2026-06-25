@@ -20,6 +20,7 @@ interface ArtifactRow {
   timestamp: number | null;
   content_size: number;
   agent_id: string;
+  content_preview: string | null;
 }
 
 interface FileEntry {
@@ -32,6 +33,7 @@ interface FileEntry {
   latestTimestamp: number | null;
   contentSize: number;
   isNotebook: boolean;
+  contentPreview: string | null;
 }
 
 type FilterMode = 'all' | 'created' | 'modified';
@@ -58,7 +60,7 @@ interface SessionArtifactsPaneProps {
 }
 
 export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: SessionArtifactsPaneProps) {
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane, maximizePane, restorePane, maximizedPaneId, refreshToken } = useWorkspaceStore();
   const { agentMap } = useSessionStore();
   const isMaximized = maximizedPaneId === paneId;
 
@@ -76,7 +78,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
       .then(d => setArtifacts(d.artifacts ?? []))
       .catch(() => setArtifacts([]))
       .finally(() => setIsLoading(false));
-  }, [sessionId]);
+  }, [sessionId, refreshToken]);
 
   // Deduplicate by file path, merging operations per file
   const fileEntries = useMemo((): FileEntry[] => {
@@ -89,6 +91,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
         if (a.timestamp && (!existing.latestTimestamp || a.timestamp > existing.latestTimestamp)) {
           existing.latestTimestamp = a.timestamp;
           existing.contentSize = a.content_size;
+          if (a.content_preview) existing.contentPreview = a.content_preview;
         }
         if (a.tool_name === 'NotebookEdit') existing.isNotebook = true;
       } else {
@@ -105,6 +108,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
           latestTimestamp: a.timestamp,
           contentSize: a.content_size,
           isNotebook: a.tool_name === 'NotebookEdit',
+          contentPreview: a.content_preview ?? null,
         });
       }
     }
@@ -363,7 +367,7 @@ function FileRow({
 
       {/* Inline file viewer */}
       {isExpanded && (
-        <FileViewer sessionId={sessionId} filePath={entry.filePath} lang={detectLang(entry.filePath)} />
+        <FileViewer sessionId={sessionId} filePath={entry.filePath} lang={detectLang(entry.filePath)} contentPreview={entry.contentPreview} />
       )}
     </div>
   );
@@ -371,25 +375,39 @@ function FileRow({
 
 // ─── Inline File Viewer ────────────────────────────────────────────────────────
 
-function FileViewer({ sessionId, filePath, lang }: { sessionId: string; filePath: string; lang: string }) {
+function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: string; filePath: string; lang: string; contentPreview: string | null }) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isPreviewOnly, setIsPreviewOnly] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setContent(null);
     setError(null);
+    setIsPreviewOnly(false);
     fetch(`/api/v2/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`)
       .then(async r => {
         const d = await r.json();
-        if (!r.ok) setError(d.error || `HTTP ${r.status}`);
-        else setContent(d.content);
+        if (!r.ok) {
+          // Fall back to stored content preview from JSONL
+          if (contentPreview) {
+            setContent(contentPreview);
+            setIsPreviewOnly(true);
+          } else {
+            setError(d.error || `HTTP ${r.status}`);
+          }
+        } else {
+          setContent(d.content);
+        }
       })
-      .catch(e => setError(String(e)))
+      .catch(() => {
+        if (contentPreview) { setContent(contentPreview); setIsPreviewOnly(true); }
+        else setError('Could not load file');
+      })
       .finally(() => setLoading(false));
-  }, [sessionId, filePath]);
+  }, [sessionId, filePath, contentPreview]);
 
   const copy = () => {
     if (!content) return;

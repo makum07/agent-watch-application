@@ -8,7 +8,7 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2 } from 'lucide-react';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -28,8 +28,9 @@ interface Props {
 export default function WorkspacePage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
-  const { session, isLoading, error } = useSession(id);
-  const { setSessionId, setLayout, setSidebarCollapsed } = useWorkspaceStore();
+  const { session, isLoading, error, reload } = useSession(id);
+  const { setSessionId, setLayout, setSidebarCollapsed, incrementRefreshToken } = useWorkspaceStore();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const sidebarPanelRef = usePanelRef();
   const sidebarCollapsedRef = useRef(false);
   const { restoreSnapshot } = useWorkspacePersistence(id);
@@ -275,6 +276,18 @@ export default function WorkspacePage({ params }: Props) {
               <div className="flex-1 min-w-2" />
               {/* Controls cluster — fixed, never compresses */}
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={async () => {
+                    setIsRefreshing(true);
+                    reload();
+                    incrementRefreshToken();
+                    setTimeout(() => setIsRefreshing(false), 800);
+                  }}
+                  title="Refresh session data"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition-colors shrink-0"
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
+                </button>
                 <LayoutPresets session={session} setLayout={setLayout} />
                 <SavedLayouts sessionId={id} />
                 <div className="flex items-center gap-1 border-l border-[#30363d] pl-2">

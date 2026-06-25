@@ -22,7 +22,11 @@
       "Bash(wsl -d docker-desktop -e sh -c \"ls /mnt/wsl/ 2>&1\")",
       "Bash(wsl -d docker-desktop -e sh -c \"cat /proc/mounts | grep -v '^overlay\\\\|^proc\\\\|^sysfs\\\\|^devpts\\\\|^tmpfs\\\\|^cgroup\\\\|^mqueue\\\\|^hugetlb' 2>&1\")",
       "Bash(wsl -d Ubuntu-24.04 bash /mnt/c/Users/sarat/agent-watch-application/start.sh)",
-      "Bash(wsl -d Ubuntu-24.04 -- bash -c \"cd /mnt/c/Users/sarat/agent-watch-application && docker compose down && docker compose up -d\")"
+      "Bash(wsl -d Ubuntu-24.04 -- bash -c \"cd /mnt/c/Users/sarat/agent-watch-application && docker compose down && docker compose up -d\")",
+      "Bash(npx tsc *)",
+      "Bash(docker-compose up *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ]
   }
 }

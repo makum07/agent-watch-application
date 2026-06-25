@@ -1,10 +1,12 @@
 import { cookies } from 'next/headers';
 import { listSessionHistory } from '@/lib/services/session-history';
 import { discoverSessions } from '@/lib/services/session-ingester';
+import { extractFirstUserMessage } from '@/lib/parser/agent-correlator';
 import { getDefaultSource } from '@/lib/sources';
 import { SessionCard } from '@/components/home/session-card';
 import { SessionSearch } from '@/components/home/session-search';
 import { OpenById } from '@/components/home/open-by-id';
+import { LocalDate } from '@/components/home/local-date';
 import { SourceSwitcher } from '@/components/source-switcher';
 import { Pin, Activity, Layers, FolderOpen, Sparkles } from 'lucide-react';
 import Link from 'next/link';
@@ -124,14 +126,15 @@ export default async function HomePage() {
                       if (historyEntry) {
                         return <SessionCard key={s.id} session={historyEntry} />;
                       }
+                      const label = extractFirstUserMessage(s.filePath) ?? `${s.id.slice(0, 8)}…`;
                       return (
                         <Link key={s.id} href={`/session/${s.id}/workspace`}>
                           <div className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer group">
-                            <div className="text-xs font-mono text-muted-foreground truncate group-hover:text-foreground">
-                              {s.id.slice(0, 8)}…
+                            <div className="text-xs text-muted-foreground truncate group-hover:text-foreground">
+                              {label}
                             </div>
                             <div className="text-xs text-muted-foreground mt-0.5">
-                              {new Date(s.lastModified).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              <LocalDate iso={s.lastModified} />
                             </div>
                           </div>
                         </Link>

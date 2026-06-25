@@ -97,7 +97,8 @@ function buildTurns(messages: ParsedMessage[]): ConversationTurn[] {
 }
 
 export function ConversationTab({ sessionId, agentId, paneId = '' }: ConversationTabProps) {
-  const { messages, loadMore, hasMore, isLoading, total } = useAgentMessages(sessionId, agentId);
+  const refreshToken = useWorkspaceStore(s => s.refreshToken);
+  const { messages, loadMore, hasMore, isLoading, total } = useAgentMessages(sessionId, agentId, refreshToken);
   const { agentMap } = useSessionStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentMessages } from '@/lib/services/session-ingester';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 // Flat route: GET /api/v2/sessions/:id/agent-messages?agentId=...&page=0&limit=50
 // Avoids double dynamic segments which Turbopack doesn't handle well
@@ -18,7 +19,7 @@ export async function GET(
       return NextResponse.json({ error: 'agentId is required' }, { status: 400 });
     }
 
-    const sourceId = url.searchParams.get('source') ?? undefined;
+    const sourceId = await resolveSessionSource(req, id);
     const result = getAgentMessages(id, agentId, page, Math.min(limit, 100), sourceId);
 
     if (!result) {

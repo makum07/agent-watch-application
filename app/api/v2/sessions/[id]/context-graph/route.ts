@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 export interface AgentContextInfo {
   round: number | null;
@@ -58,13 +59,14 @@ function containsExcerpt(source: string, target: string, windowSize = 60, step =
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
 
   try {
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, id);
+    const db = getDatabase(sourceId);
 
     // Load every non-root agent with timing + content fields
     const rows = db.prepare(`

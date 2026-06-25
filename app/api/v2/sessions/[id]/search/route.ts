@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import { parseJsonlFile } from '@/lib/parser/jsonl-parser';
 import type { SearchResult } from '@/types/session';
 import type { ParsedMessage } from '@/lib/parser/jsonl-parser';
@@ -58,7 +59,8 @@ export async function GET(
   if (!q) return NextResponse.json({ results: [], total: 0, hasMore: false });
 
   try {
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, id);
+    const db = getDatabase(sourceId);
 
     let sql = 'SELECT id, type, subagent_type, description, jsonl_path FROM agents WHERE session_id = ?';
     const args: unknown[] = [id];
