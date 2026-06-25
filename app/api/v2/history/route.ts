@@ -10,8 +10,10 @@ export async function GET(req: NextRequest) {
     const pinned = url.searchParams.get('pinned');
     const favorite = url.searchParams.get('favorite');
 
+    const sourceId = url.searchParams.get('source') ?? undefined;
+
     if (q) {
-      const results = searchSessionHistory(q, limit);
+      const results = searchSessionHistory(q, limit, sourceId);
       return NextResponse.json({ sessions: results, total: results.length });
     }
 
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
       offset,
       pinned: pinned === 'true' ? true : pinned === 'false' ? false : undefined,
       favorite: favorite === 'true' ? true : favorite === 'false' ? false : undefined,
-    });
+    }, sourceId);
 
     return NextResponse.json({ sessions, total: sessions.length });
   } catch (err) {

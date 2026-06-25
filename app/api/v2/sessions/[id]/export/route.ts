@@ -127,7 +127,8 @@ export async function GET(
   try {
     const { id } = await params;
     const format = req.nextUrl.searchParams.get('format') || 'json';
-    const session = ingestSession(id);
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const session = ingestSession(id, sourceId);
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

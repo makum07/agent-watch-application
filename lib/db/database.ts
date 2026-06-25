@@ -2,25 +2,29 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-let db: Database.Database | null = null;
+const dbs = new Map<string, Database.Database>();
 
-export function getDatabase(): Database.Database {
-  if (db) return db;
+export function getDatabase(sourceId?: string): Database.Database {
+  const key = sourceId ?? 'default';
+  if (dbs.has(key)) return dbs.get(key)!;
 
-  const dbPath = process.env.CLAUDE_DB_PATH || path.join(process.cwd(), 'data', 'agentwatch.db');
+  const baseDbPath = process.env.CLAUDE_DB_PATH || path.join(process.cwd(), 'data', 'agentwatch.db');
+  const dbPath = sourceId && sourceId !== 'default'
+    ? baseDbPath.replace(/\.db$/, `-${sourceId}.db`)
+    : baseDbPath;
   const dbDir = path.dirname(dbPath);
 
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
 
-  db = new Database(dbPath);
+  const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('cache_size = -64000');
 
   runMigrations(db);
-
+  dbs.set(key, db);
   return db;
 }
 
@@ -337,7 +341,12 @@ function runMigrations(db: Database.Database) {
   }
 }
 
-export function closeDatabase() {
-  db?.close();
-  db = null;
+export function closeDatabase(sourceId?: string) {
+  if (sourceId) {
+    dbs.get(sourceId)?.close();
+    dbs.delete(sourceId);
+  } else {
+    dbs.forEach(d => d.close());
+    dbs.clear();
+  }
 }

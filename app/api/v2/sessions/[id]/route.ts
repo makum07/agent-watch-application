@@ -3,18 +3,19 @@ import { ingestSession, forceReindex } from '@/lib/services/session-ingester';
 import { recordSessionOpen } from '@/lib/services/session-history';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const session = ingestSession(id);
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const session = ingestSession(id, sourceId);
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    recordSessionOpen(session);
+    recordSessionOpen(session, sourceId);
 
     return NextResponse.json(session);
   } catch (err) {
@@ -23,12 +24,13 @@ export async function GET(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const session = forceReindex(id);
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const session = forceReindex(id, sourceId);
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

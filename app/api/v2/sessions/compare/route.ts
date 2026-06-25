@@ -111,8 +111,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Both ?a= and ?b= session IDs are required' }, { status: 400 });
     }
 
-    const sessionA = ingestSession(idA);
-    const sessionB = ingestSession(idB);
+    const sourceId = req.nextUrl.searchParams.get('source') ?? undefined;
+    const sessionA = ingestSession(idA, sourceId);
+    const sessionB = ingestSession(idB, sourceId);
 
     if (!sessionA) return NextResponse.json({ error: `Session A (${idA}) not found` }, { status: 404 });
     if (!sessionB) return NextResponse.json({ error: `Session B (${idB}) not found` }, { status: 404 });
