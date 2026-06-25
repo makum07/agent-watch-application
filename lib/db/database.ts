@@ -224,6 +224,117 @@ function runMigrations(db: Database.Database) {
     }
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (4, ${Date.now()});`);
   }
+
+  if (currentVersion < 5) {
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'skill_invocations')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN skill_invocations TEXT DEFAULT '[]';`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (5, ${Date.now()});`);
+  }
+
+  if (currentVersion < 6) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'file_changes')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN file_changes TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (6, ${Date.now()});`);
+  }
+
+  if (currentVersion < 7) {
+    const cols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'stream_entries')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN stream_entries TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (7, ${Date.now()});`);
+  }
+
+  if (currentVersion < 8) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        version INTEGER DEFAULT 1,
+        self_healing_enabled INTEGER DEFAULT 0,
+        self_healing_mode TEXT DEFAULT 'analysis_only',
+        self_healing_threshold INTEGER DEFAULT 5,
+        executions_since_last_cycle INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(project, name)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project);
+      CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
+
+      CREATE TABLE IF NOT EXISTS skill_executions (
+        id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        invocation_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        duration_ms INTEGER,
+        args TEXT,
+        feedback_count INTEGER DEFAULT 0,
+        FOREIGN KEY (skill_id) REFERENCES skills(id),
+        FOREIGN KEY (session_id) REFERENCES conversations(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_skill_exec_skill ON skill_executions(skill_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_skill_exec_session ON skill_executions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_skill_exec_invocation ON skill_executions(invocation_id);
+
+      CREATE TABLE IF NOT EXISTS skill_analysis_cycles (
+        id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        cycle_number INTEGER NOT NULL,
+        trigger_type TEXT NOT NULL DEFAULT 'manual',
+        sessions_analyzed TEXT DEFAULT '[]',
+        feedback_analyzed TEXT DEFAULT '[]',
+        analysis_prompt TEXT NOT NULL,
+        analysis_response TEXT,
+        fix_prompt TEXT,
+        recommendations TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        FOREIGN KEY (skill_id) REFERENCES skills(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_skill_analysis_skill ON skill_analysis_cycles(skill_id, created_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (8, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 9) {
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (9, ${Date.now()});`);
+  }
+
+  if (currentVersion < 10) {
+    // Per-agent error/denial accounting so we can distinguish "came to rest"
+    // from "succeeded cleanly" (green should mean clean success).
+    // Nullable (no DEFAULT) so existing rows stay NULL → signals "not yet
+    // computed" and triggers a one-time re-index in the ingester.
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!cols.find(c => c.name === 'error_tool_count')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN error_tool_count INTEGER;`);
+    }
+    if (!cols.find(c => c.name === 'denied_tool_count')) {
+      db.exec(`ALTER TABLE agents ADD COLUMN denied_tool_count INTEGER;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (10, ${Date.now()});`);
+  }
+
+  // Fixup: ensure stream_entries column exists on skill_analysis_cycles
+  // (v9 migration may have recorded success without actually adding the column)
+  const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'stream_entries')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN stream_entries TEXT;`);
+  }
 }
 
 export function closeDatabase() {

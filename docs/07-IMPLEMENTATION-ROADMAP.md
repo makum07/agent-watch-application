@@ -3,7 +3,9 @@
 ## AgentWatch v2.0
 
 **Amendment:** Phase effort and feature lists updated per `08-REFINEMENT-AGENT-PANES-SESSION-HISTORY-WORKSPACE-PERSISTENCE.md`
-**Status:** Phase 1 MVP complete as of 2026-06-01
+**Amendment:** Phase 1.5 (Improvement Loop) added per `10-IMPROVEMENT-LOOP.md`
+**Amendment:** Phase 5 (Skill Intelligence) added for cross-session skill analysis and self-healing.
+**Status:** Phase 1 MVP complete as of 2026-06-01. Phase 1.5 Improvement Loop complete as of 2026-06-08. Phase 2 COMPLETE (2026-06-08). Phase 3 COMPLETE (2026-06-08). Phase 4 COMPLETE (2026-06-09). Phase 5 COMPLETE (2026-06-09).
 
 ---
 
@@ -12,21 +14,21 @@
 The implementation is divided into four phases, each building on the previous. Each phase produces a usable, shippable increment. Phase 1 is expanded to include foundational session history, workspace persistence, and the agent pane tab rail, as these are critical to daily usability.
 
 ```
-Phase 1: MVP                     Phase 2: Advanced Viz           Phase 3: Multi-Agent        Phase 4: Analytics
-(8-12 weeks)                     (6-8 weeks)                     Analysis (5-7 weeks)        & Debugging (4.5-6.5 wks)
-                                                                                              
-+---------------------------+    +-------------------------+     +------------------------+  +------------------------+
-| Session ingestion         |    | Execution timeline      |     | Context flow view      |  | Debug alerts           |
-| Agent graph construction  |    | Agent hierarchy graph   |     | Context tab (in pane)  |  | Bottleneck detection   |
-| Multi-pane workspace      |    | Artifact explorer       |     | Artifact lineage       |  | Duplicate work detect  |
-| Agent pane tab rail       |    | Timeline zoom/pan       |     | Cross-agent search     |  | Cost breakdown         |
-| Inline artifact cards     |    | Agent graph interaction |     | Invocation navigation  |  | Session comparison     |
-| Basic agent sidebar       |    | Tool call markers       |     | Workflow visualization |  | Export/reporting       |
-| Drag-and-drop to panes    |    | Concurrent execution    |     | Scroll sync            |  | Performance profiling  |
-| Layout presets            |    | Per-agent artifacts tab |     | Agent diff view        |  | Pattern detection      |
-| Home dashboard (basic)    |    | Per-agent tools tab     |     | Session tagging        |  | Advanced session search|
-| Session history tracking  |    | Pinning and favorites   |     | Artifact lineage strip |  | History pruning        |
-| Auto-save workspace      |    | Named layout saves      |     +------------------------+  +------------------------+
+Phase 1: MVP                     Phase 2: Advanced Viz           Phase 3: Multi-Agent        Phase 4: Analytics        Phase 5: Skill
+(8-12 weeks)                     (6-8 weeks)                     Analysis (5-7 weeks)        & Debugging (4.5-6.5 wks) Intelligence (2-3 wks)
+                                                                                                                        
++---------------------------+    +-------------------------+     +------------------------+  +------------------------+ +----------------------+
+| Session ingestion         |    | Execution timeline      |     | Context flow view      |  | Debug alerts           | | Skills dashboard      |
+| Agent graph construction  |    | Agent hierarchy graph   |     | Context tab (in pane)  |  | Bottleneck detection   | | Skill detail page     |
+| Multi-pane workspace      |    | Artifact explorer       |     | Artifact lineage       |  | Duplicate work detect  | | Skill registry        |
+| Agent pane tab rail       |    | Timeline zoom/pan       |     | Cross-agent search     |  | Cost breakdown         | | Cross-session analysis|
+| Inline artifact cards     |    | Agent graph interaction |     | Invocation navigation  |  | Session comparison     | | Deep analysis prompt  |
+| Basic agent sidebar       |    | Tool call markers       |     | Workflow visualization |  | Export/reporting       | | Prompt preview/edit   |
+| Drag-and-drop to panes    |    | Concurrent execution    |     | Scroll sync            |  | Performance profiling  | | Live stream log       |
+| Layout presets            |    | Per-agent artifacts tab |     | Agent diff view        |  | Pattern detection      | | Self-healing config   |
+| Home dashboard (basic)    |    | Per-agent tools tab     |     | Session tagging        |  | Advanced session search| | Feedback analytics    |
+| Session history tracking  |    | Pinning and favorites   |     | Artifact lineage strip |  | History pruning        | | Execution history     |
+| Auto-save workspace      |    | Named layout saves      |     +------------------------+  +------------------------+ +----------------------+
 | Resume dialog             |    +-------------------------+
 | Session search (basic)    |
 +---------------------------+
@@ -135,7 +137,65 @@ A user can:
 
 ---
 
-## Phase 2: Advanced Visualization (6-8 weeks)
+## Phase 1.5: Improvement Loop ✅ COMPLETE (2026-06-08)
+
+> Full specification: `10-IMPROVEMENT-LOOP.md`
+
+### Goal
+
+A user can review a session, collect categorized feedback on agent behavior, and apply improvements by resuming the session via Claude Code's structured streaming protocol — with real-time visibility into Claude's thinking, tool calls, and an approval gate for file edits. All activity is persisted and viewable in a collapsible stream log matching the session/agent observation style.
+
+### Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Feedback Collection** | Per-agent categorized notes (10 categories), inline edit/delete, grouped by agent | ✅ |
+| **Prompt Generation** | Aggregates feedback into structured improvement prompt, editable before sending | ✅ |
+| **Structured Streaming** | `--output-format stream-json` piped through WebSocket to browser in real time | ✅ |
+| **Edit Approval Gate** | `--permission-mode default` auto-denies Edit/Write; browser shows diff + approve/deny | ✅ |
+| **Rewind** | Truncate session JSONL to pre-cycle snapshot, re-apply with refined prompt | ✅ |
+| **Collapsible Activity Log** | Thinking, tool calls (with input/output), text responses — all expandable, color-coded by tool type | ✅ |
+| **Persistent Stream Entries** | Full stream log (thinking text, tool calls, results) stored in DB with cycle | ✅ |
+| **Files Touched Summary** | Extracted from stream entries, shows files with tool name + approved/denied badge | ✅ |
+| **File Content Viewer** | View any project file from within the cycle card (API: path-traversal protected, 500KB cap) | ✅ |
+| **File Changes (git diff)** | Captures unstaged + staged + untracked changes at cycle completion | ✅ |
+| **Files Referenced (fallback)** | For legacy cycles without stream data: regex-extracts file paths from response text | ✅ |
+
+### Architecture Changes
+
+| Component | Change |
+|-----------|--------|
+| Database | Schema v7: `stream_entries TEXT` column on `improvement_cycles` |
+| Database | Schema v6: `file_changes TEXT` column on `improvement_cycles` |
+| API | `app/api/v2/sessions/[id]/improvements/route.ts` — POST spawns Claude CLI with stream-json, manages approval gate, persists stream log |
+| API | `app/api/v2/sessions/[id]/file/route.ts` — GET returns file content (path-traversal protected) |
+| WebSocket | `lib/websocket/ws-server.ts` — duck-type check for Turbopack compatibility |
+| Server | `server.ts` — initializes WsServer, stores on `globalThis.__wss` |
+| Store | `store/feedback-store.ts` — Zustand store for feedback, cycles, live stream entries, approvals |
+| UI | `components/session/feedback-panel.tsx` — collapsible stream log, approval cards, file viewers |
+| Hook | `hooks/use-websocket.ts` — auto-reconnecting WebSocket client |
+| Types | `types/feedback.ts` — StreamEntry, ImprovementCycle (with streamEntries field) |
+| Types | `types/events.ts` — SessionEvent, StreamEvent, ContentBlock, ClientMessage |
+
+### Deliverables
+
+- [x] Feedback collection with 10 categories, inline edit, per-agent grouping
+- [x] Prompt preview and editor
+- [x] Real-time structured streaming via WebSocket (Claude stream-json → browser)
+- [x] Edit approval gate with diff preview and file viewer
+- [x] Multi-turn continuation (approved edits → continuation message → next turn)
+- [x] Rewind with JSONL truncation and prompt re-editing
+- [x] Collapsible activity log (ThinkingEntry, ToolCallEntry, TextEntry components)
+- [x] Tool call pairing with tool_result (input/output in one card)
+- [x] Files Touched summary with approved/denied badges
+- [x] File content viewer API with security checks
+- [x] Git diff capture (unstaged + staged + untracked)
+- [x] Persistent stream entries in DB (schema v7)
+- [x] Fallback file reference extraction for legacy cycles
+
+---
+
+## Phase 2: Advanced Visualization ✅ COMPLETE (2026-06-08)
 
 ### Goal
 
@@ -143,32 +203,41 @@ Rich visual representations of session execution: interactive timeline, agent hi
 
 ### Features
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| **Execution Timeline** | Canvas-based horizontal timeline with agent bars, zoom, pan, viewport culling | 2 weeks |
-| **Agent Hierarchy Graph** | SVG-based tree/DAG layout with force-directed positioning, zoom, pan | 1.5 weeks |
-| **Session Artifact Explorer** | Detect file Write/Edit operations, build file tree, show content with syntax highlighting | 1.5 weeks |
-| **Per-Agent Artifacts Tab** | Produced/consumed file lists within the agent pane, preview panel, filters | 0.5 weeks |
-| **Per-Agent Tools Tab** | Grouped, filterable tool call log within the agent pane | 0.5 weeks |
-| **Timeline Markers** | Tool call diamonds and artifact creation squares on timeline bars | 0.5 weeks |
-| **Concurrent Execution Lanes** | Swim lanes showing agents running in parallel | 0.5 weeks |
-| **Named Layout Saves** | Save/restore named layouts per session, layout dropdown with presets | 0.5 weeks |
-| **Pinning and Favorites** | Pin/favorite actions on session cards, filtered views on home dashboard | 0.5 weeks |
-| **Graph Interactions** | Click node to open agent, hover for tooltip, collapse subtrees | 0.5 weeks |
-| **Pane Maximize/Restore** | Double-click title bar to maximize a pane | 0.25 weeks |
-| **Pane Tab Management** | Tab bar, reorder tabs, close tab, add tab | 0.5 weeks |
+| Feature | Description | Effort | Status |
+|---------|-------------|--------|--------|
+| **Execution Timeline** | Zoom/pan horizontal timeline with agent bars, viewport culling, hover tooltips | 2 weeks | ✅ |
+| **Agent Hierarchy Graph** | SVG tree/DAG with bezier edges, zoom/pan, dot-grid canvas, click-to-open | 1.5 weeks | ✅ |
+| **Session Artifact Explorer** | Session-wide file tree grouped by directory, inline viewer, filter, agent badges | 1.5 weeks | ✅ |
+| **Per-Agent Artifacts Tab** | DB-backed artifact list with filter (all/created/modified), inline file viewer, dedup by path | 0.5 weeks | ✅ |
+| **Per-Agent Tools Tab** | Chronological flat list with search filter, load-more pagination | 0.5 weeks | ✅ |
+| **Timeline Markers** | Artifact triangles on agent bars (green=create, orange=edit), toggleable, with hover tooltip | 0.5 weeks | ✅ |
+| **Concurrent Execution Lanes** | "Lanes" mode toggle — swim lane layout via greedy interval algorithm, multiple agents per row | 0.5 weeks | ✅ |
+| **Named Layout Saves** | Save/restore named layouts per session, inline name input, dropdown with delete | 0.5 weeks | ✅ |
+| **Pinning and Favorites** | Interactive pin/star buttons on session cards, optimistic update via PUT history API | 0.5 weeks | ✅ |
+| **Graph Interactions** | Click node to open agent, hover for tooltip, collapse subtrees | 0.5 weeks | ✅ |
+| **Pane Maximize/Restore** | Maximize button in pane header fills workspace; restore button to return | 0.25 weeks | ✅ |
+| **Pane Tab Management** | "+" tab button in multi-tab bar with searchable agent picker dropdown | 0.5 weeks | ✅ |
 
 ### Architecture Changes
 
 | Component | Change |
 |-----------|--------|
-| Backend | New `src/services/ArtifactTracker.js` |
-| Backend | New `src/routes/artifacts.js` |
-| Backend | `timeline_events` table populated during ingestion |
-| Frontend | New `src/analytics-web/components/visualization/` directory |
-| Frontend | Canvas rendering engine for timeline |
-| Frontend | SVG rendering for agent graph |
-| Frontend | Prism.js added for syntax highlighting |
+| API | New `GET /api/v2/sessions/[id]/agents/[agentId]/artifacts` — queries DB artifacts table directly | ✅ |
+| API | New `GET /api/v2/sessions/[id]/artifacts` — session-wide artifacts for explorer + timeline markers | ✅ |
+| API | New `DELETE /api/v2/workspaces/[sessionId]/[snapshotId]` — delete named layout snapshot | ✅ |
+| Store | `workspace-store.ts` — added `maximizedPaneId`, `maximizePane`, `restorePane` | ✅ |
+| UI | `components/agent/artifacts-tab.tsx` — rewritten to use DB endpoint; inline file viewer | ✅ |
+| UI | `components/agent/tools-tab.tsx` — chronological flat list with search filter | ✅ |
+| UI | `components/agent/agent-view.tsx` — artifact count badge; maximize/restore button | ✅ |
+| UI | `components/workspace/workspace-shell.tsx` — maximized pane mode | ✅ |
+| UI | `components/workspace/pane.tsx` — timeline/graph/artifacts pane types; "+" tab picker | ✅ |
+| UI | `components/home/session-card.tsx` — interactive pin/favorite toggle buttons | ✅ |
+| UI | `components/session/session-artifacts-pane.tsx` — new session file explorer pane | ✅ |
+| UI | `components/session/execution-timeline.tsx` — Gantt timeline, swim lanes, artifact markers, click-to-open (with router fallback for standalone page) | ✅ |
+| UI | `components/session/agent-hierarchy-graph.tsx` — SVG tree with bezier edges, zoom/pan, click-to-open | ✅ |
+| UI | `components/session/agent-sidebar.tsx` — Timeline/Graph/Files buttons in footer | ✅ |
+| UI | `app/session/[id]/workspace/page.tsx` — SavedLayouts component in workspace header | ✅ |
+| UI | `app/session/[id]/timeline/page.tsx` — full-page wrapper for ExecutionTimeline; clicking bar navigates to workspace | ✅ |
 
 ### Technical Risks
 
@@ -180,14 +249,28 @@ Rich visual representations of session execution: interactive timeline, agent hi
 
 ### Deliverables
 
-- [ ] Interactive execution timeline (Canvas)
-- [ ] Agent hierarchy graph (SVG)
-- [ ] Artifact explorer with file tree
-- [ ] Timeline markers (tool calls, artifacts)
-- [ ] Concurrent execution lanes
-- [ ] Layout save/restore
-- [ ] Pane maximize/restore
-- [ ] Tab management within panes
+- [x] Interactive execution timeline — zoom/pan, row-per-agent, hover tooltips, click-to-open
+- [x] Agent hierarchy graph — SVG tree with bezier edges, dot-grid canvas, zoom/pan
+- [x] Session artifact explorer — file tree by directory, inline viewer, filter, agent badges
+- [x] Timeline markers — artifact triangles on agent bars, toggleable Markers button, legend
+- [x] Concurrent execution lanes — Lanes toggle in toolbar, greedy swim lane assignment
+- [x] Pane tab management — "+" button in tab bar with searchable agent/view picker
+- [x] Per-agent artifacts tab — DB-backed, filter by type, inline file viewer (click to expand)
+- [x] Per-agent tools tab — chronological flat list, search filter, load-more
+- [x] Named layout saves — save/restore/delete via workspace header
+- [x] Pinning and favorites — interactive toggle on session cards
+- [x] Pane maximize/restore — maximize button fills workspace area
+- [x] Graph interactions — click node opens agent, hover tooltip, status indicators
+
+> **Implementation notes:**
+> - Artifacts tab reads from `artifacts` DB table via new API endpoint (not message scan), fixing badge/content count mismatch
+> - Tools tab shows tool calls in execution order (message order), not grouped
+> - Artifact count badge in tab rail counts `Write + Edit + NotebookEdit` (matches `artifact-extractor.ts`)
+> - Pane maximize stores `maximizedPaneId` in workspace store; workspace shell renders only that pane when set
+> - Named layout saves use existing `workspace_snapshots` table (`is_auto_save = 0`); delete route added
+> - Timeline/graph click-to-open: in a workspace pane, `findOtherPane` opens the agent in a sibling pane (not the timeline pane itself); on the standalone `/timeline` page, sets layout then `router.push` to workspace
+> - Timeline markers use artifact timestamps from the `artifacts` table (populated during ingestion); `timeline_events` table has `tool_call` event type defined but not yet populated — tool call markers deferred to a future cycle
+> - Swim lanes use greedy interval scheduling: each agent assigned to the earliest lane whose last occupant has already ended, minimising lane count
 
 ### Definition of Done
 
@@ -202,7 +285,7 @@ A user can:
 
 ---
 
-## Phase 3: Multi-Agent Analysis (4-6 weeks)
+## Phase 3: Multi-Agent Analysis ✅ COMPLETE (2026-06-08)
 
 ### Goal
 
@@ -243,14 +326,21 @@ Deep analysis of multi-agent coordination: context flow tracking, cross-agent se
 
 ### Deliverables
 
-- [ ] Context flow DAG visualization
-- [ ] Context inspector panel per agent
-- [ ] Advanced search with filters
-- [ ] Invocation navigation (jump to parent)
-- [ ] Workflow structure visualization
-- [ ] Optional scroll synchronization
-- [ ] Agent comparison view
-- [ ] Cross-pane search highlighting
+- [x] Context flow DAG visualization (`components/session/context-flow.tsx` — token-annotated edges, edge-click drawer, new `context-flow` pane type)
+- [x] Context inspector panel per agent — `context-tab.tsx` enhanced with parent link, invocation chain breadcrumb, toolUseId
+- [x] Advanced search with filters (`app/api/v2/sessions/[id]/search/route.ts` + `components/session/cross-agent-search.tsx` — role/type filters, scroll-to-message)
+- [x] Invocation navigation (jump to parent) — "Called from" badge in Context tab; `session-store.getAncestors()` chain
+- [x] Workflow structure visualization — phase overlay toggle on `agent-hierarchy-graph.tsx`; `lib/services/workflow-parser.ts`; `app/api/v2/sessions/[id]/workflow/route.ts`
+- [x] Optional scroll synchronization — `scrollSyncEnabled`/`broadcastScrollTimestamp` in workspace store; sync line in timeline; IntersectionObserver emit in conversation tab
+- [x] Agent comparison view — `components/agent/comparison-view.tsx`; Compare button + picker in agent-view header; new `comparison` pane type
+- [x] Cross-pane search highlighting — `highlightTerms` prop in `MarkdownRenderer` via rehype plugin; wired to `globalSearchQuery` in conversation tab
+
+> **Implementation notes:**
+> - Search API reads JSONL files on demand (no message FTS table); filters by agentTypes and message roles
+> - Context flow reuses `buildSubtree`/`assignX` layout algorithm from hierarchy graph; adds edge token labels + side drawer
+> - Workflow phase assignment uses regex extraction of `meta.phases` titles + agent description heuristic matching
+> - Scroll sync uses `scrollSyncEnabled` flag in workspace store; conversation tab uses `IntersectionObserver` approach via top-visible-message detection; timeline shows a blue dashed sync line at the current timestamp
+> - Agent comparison pane type includes `agentAId`/`agentBId`; accessible via Compare button (Columns2 icon) in agent-view header
 
 ### Definition of Done
 
@@ -265,7 +355,7 @@ A user can:
 
 ---
 
-## Phase 4: Analytics and Debugging (4-6 weeks)
+## Phase 4: Analytics and Debugging ✅ COMPLETE (2026-06-09)
 
 ### Goal
 
@@ -273,46 +363,63 @@ Automated analysis and debugging insights: bottleneck detection, duplicate work 
 
 ### Features
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| **Session Analytics Dashboard** | Summary metrics: duration, tokens, cost, parallelism factor, model breakdown | 1 week |
-| **Debug Analyzer** | Automated detection of bottlenecks, loops, duplicate work, excessive tool usage, context bloat | 2 weeks |
-| **Debug Alerts UI** | Alert cards with severity, description, and navigation to relevant agent | 0.5 weeks |
-| **Cost Breakdown** | Detailed cost by agent, by model, by phase, with pie/bar charts | 1 week |
-| **Session Comparison** | Compare two sessions side-by-side: metrics, agent topology, cost | 1 week |
-| **Export** | Export session data as JSON, Markdown, or HTML report | 0.5 weeks |
-| **Performance Profiling** | Identify critical path agents (longest chain from root to leaf) | 0.5 weeks |
-| **Pattern Detection** | Identify common agent orchestration patterns across sessions | 1 week |
+| Feature | Description | Effort | Status |
+|---------|-------------|--------|--------|
+| **Session Analytics Dashboard** | Summary metrics: duration, tokens, cost, parallelism factor, model breakdown, cache efficiency | 1 week | ✅ |
+| **Debug Analyzer** | Automated detection of bottlenecks, loops, duplicate work, excessive tool usage, context bloat, long chains | 2 weeks | ✅ |
+| **Debug Alerts UI** | Alert cards with severity, description, and navigation to relevant agent | 0.5 weeks | ✅ |
+| **Cost Breakdown** | Detailed cost by agent, by model, by phase, with recharts pie/bar charts | 1 week | ✅ |
+| **Session Comparison** | Compare two sessions side-by-side: metrics, alerts, cost deltas | 1 week | ✅ |
+| **Export** | Export session data as JSON, Markdown, or HTML report | 0.5 weeks | ✅ |
+| **Performance Profiling** | Critical path identification (longest chain from root to leaf) | 0.5 weeks | ✅ |
+| **Pattern Detection** | Cross-session pattern detection: tool sequences, topologies, cost outliers, regressions | 1 week | ✅ |
 
 ### Architecture Changes
 
-| Component | Change |
-|-----------|--------|
-| Backend | New `src/services/DebugAnalyzer.js` |
-| Backend | New `src/routes/analytics.js` (v2 analytics) |
-| Backend | Session comparison endpoint |
-| Backend | Export endpoint (JSON, Markdown, HTML) |
-| Frontend | New `src/analytics-web/components/analytics/` directory |
-| Frontend | Chart library (or reuse existing Charts.js) |
+| Component | Change | Status |
+|-----------|--------|--------|
+| Backend | New `lib/services/debug-analyzer.ts` — 6 detection functions + critical path finder | ✅ |
+| Backend | New `lib/services/pattern-detector.ts` — cross-session pattern detection (4 types) | ✅ |
+| API | New `GET /api/v2/sessions/[id]/analytics` — computed SessionAnalytics endpoint | ✅ |
+| API | New `GET /api/v2/sessions/[id]/export?format=json|markdown|html` — session export | ✅ |
+| API | New `GET /api/v2/sessions/compare?a=X&b=Y` — session comparison | ✅ |
+| API | New `GET /api/v2/sessions/patterns` — cross-session patterns | ✅ |
+| Frontend | New `components/session/analytics-dashboard.tsx` — main analytics pane component | ✅ |
+| Frontend | New `components/session/debug-alerts.tsx` — filterable alert cards with agent navigation | ✅ |
+| Frontend | New `components/session/cost-breakdown.tsx` — recharts pie + bar charts (by model/agent/phase) | ✅ |
+| Frontend | New `app/session/compare/page.tsx` — session comparison page with picker + deltas | ✅ |
+| Frontend | Modified `components/workspace/pane.tsx` — analytics pane type + picker entry | ✅ |
+| Frontend | Modified `components/session/agent-sidebar.tsx` — Analytics button in footer | ✅ |
+| Types | New `types/analytics.ts` — DebugAlert, SessionAnalytics, SessionComparisonData, CrossSessionPattern | ✅ |
 
 ### Technical Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| **Duplicate work detection** | Determining if two agents did "duplicate" work is imprecise. Similar tool calls don't always mean redundancy. | Use multiple signals: same tool + same arguments, same file reads, similar prompt text. Report as "potential" with confidence score. |
-| **Loop detection** | Agent loops may be intentional (iterative refinement) or accidental. | Detect repeated similar prompts within a session. Flag only when > 3 iterations with high prompt similarity (> 90% by Jaccard). |
-| **Cost estimation accuracy** | Model pricing changes over time. | Make pricing configurable (JSON config file). Display "estimated" with clear caveats. |
+| **Duplicate work detection** | Determining if two agents did "duplicate" work is imprecise. Similar tool calls don't always mean redundancy. | Use Jaccard similarity on tool call sets. Report as "potential" with overlap percentage. |
+| **Loop detection** | Agent loops may be intentional (iterative refinement) or accidental. | Threshold at 10+ calls of same tool per agent. Flag as warning, not error. |
+| **Cost estimation accuracy** | Model pricing changes over time. | Pricing table in `lib/utils.ts` and `lib/services/session-ingester.ts`. Display as "estimated". |
+| **Cross-session perf** | Loading 15 sessions for pattern detection could be slow. | Cap at 15 sessions. Patterns computed on-demand via API (not persisted). |
 
 ### Deliverables
 
-- [ ] Session analytics dashboard with summary metrics
-- [ ] Debug analyzer with 6 detection types
-- [ ] Debug alerts UI with severity and navigation
-- [ ] Cost breakdown charts
-- [ ] Session comparison view
-- [ ] Export to JSON/Markdown/HTML
-- [ ] Critical path identification
-- [ ] Cross-session pattern detection
+- [x] Session analytics dashboard with summary metrics (`components/session/analytics-dashboard.tsx` — 8 stat cards, sortable agent table, critical path visualization, export buttons)
+- [x] Debug analyzer with 6 detection types (`lib/services/debug-analyzer.ts` — bottleneck, loop, duplicate-work, excessive-tools, context-bloat, long-chain)
+- [x] Debug alerts UI with severity and navigation (`components/session/debug-alerts.tsx` — severity/category filters, expandable cards, click-to-navigate agent links)
+- [x] Cost breakdown charts (`components/session/cost-breakdown.tsx` — recharts PieChart by model, BarChart by agent top-15, BarChart by phase/round)
+- [x] Session comparison view (`app/session/compare/page.tsx` + `app/api/v2/sessions/compare/route.ts` — session picker, side-by-side metrics, delta cards)
+- [x] Export to JSON/Markdown/HTML (`app/api/v2/sessions/[id]/export/route.ts` — Content-Disposition download, dark-themed HTML)
+- [x] Critical path identification (`lib/services/debug-analyzer.ts:findCriticalPath` — longest duration chain root→leaf, visualized in dashboard)
+- [x] Cross-session pattern detection (`lib/services/pattern-detector.ts` — common tool sequences, recurring topologies, cost outliers, performance regressions)
+
+> **Implementation notes:**
+> - Analytics dashboard works both as standalone page (`/session/{id}/analytics`) and as a workspace pane (analytics tab type)
+> - Debug analyzer is pure-function: takes Session, returns DebugAlert[]. No DB writes, no side effects.
+> - Cost breakdown uses recharts v3 (first usage in codebase): PieChart for model split, horizontal BarChart for top agents, vertical BarChart for round/phase costs
+> - Session comparison is a standalone page at `/session/compare?a=X&b=Y` (not a pane — spans two sessions)
+> - Pattern detection loads last 15 sessions via `discoverSessions()` + `ingestSession()`. Four detectors: tool bigram frequency, topology hash grouping, cost z-score outliers, same-project regression analysis
+> - Export markdown/HTML includes summary table, agents table sorted by cost, critical path chain, and debug alerts with severity icons
+> - Analytics button added to sidebar footer (BarChart3 icon, pink accent) and to pane tab picker dropdown
 
 ### Definition of Done
 
@@ -324,6 +431,99 @@ A user can:
 5. Compare two sessions side-by-side
 6. Export a session report as HTML
 7. See the critical path through the agent hierarchy
+
+---
+
+## Phase 5: Skill Intelligence and Self-Healing ✅ COMPLETE (2026-06-09)
+
+### Goal
+
+Cross-session skill intelligence: skills become first-class entities with their own dashboard, aggregated feedback analytics, execution history, deep analysis via Claude (with rich prompt generation, live streaming, and stream persistence), and configurable self-healing behavior.
+
+### Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Skill Registry** | Deterministic skill identity (`sha256(project:name).slice(0,16)`), auto-registration on session open, bulk sync | ✅ |
+| **Skills Dashboard** | `/skills` page with project grouping, sort/filter, sync button, skill cards with stats | ✅ |
+| **Skill Detail Page** | `/skills/[skillId]` with Radix Tabs: Overview, Executions, Feedback, Analysis | ✅ |
+| **Self-Healing Config** | Toggle + mode selector (analysis_only / analysis_and_fix / fully_automatic) + threshold input | ✅ |
+| **Execution History** | Paginated table of skill executions across sessions with agent, timestamp, duration, feedback count | ✅ |
+| **Feedback Analytics** | Recharts bar chart by category, top agents table, open/closed feedback breakdown | ✅ |
+| **Deep Analysis Prompt** | ~30K+ char structured prompt with: improvement cycles, open/closed feedback, recurring issue hints, temporal analysis objectives | ✅ |
+| **Prompt Preview & Edit** | Full-screen editor with character count, Ctrl+Enter shortcut, Run/Cancel buttons | ✅ |
+| **Live Stream Log** | Real-time Claude stream events (thinking, tool calls, text) via WebSocket, matching session improvement loop patterns | ✅ |
+| **Stream Entry Persistence** | Full stream log stored in `stream_entries` column (schema v9) for post-hoc review | ✅ |
+| **Analysis Report** | Markdown-rendered Claude response with expandable recommendation cards (severity, root cause, component, proposed change) | ✅ |
+| **Fix Prompt Workflow** | Editable fix prompt for `awaiting_review` cycles, approve & apply button | ✅ |
+
+### Architecture Changes
+
+| Component | Change | Status |
+|-----------|--------|--------|
+| Database | Schema v8: `skills`, `skill_executions`, `skill_analysis_cycles` tables with indexes | ✅ |
+| Database | Schema v9: `stream_entries TEXT` column on `skill_analysis_cycles` | ✅ |
+| Backend | New `lib/services/skill-registry.ts` — skill CRUD, execution tracking, aggregation queries | ✅ |
+| Backend | New `lib/services/self-healing-controller.ts` — prompt generation, Claude spawning, stream handling | ✅ |
+| Backend | Modified `lib/services/session-ingester.ts` — calls `registerSkillExecutions()` after indexing | ✅ |
+| API | New `app/api/v2/skills/route.ts` — GET list, POST sync | ✅ |
+| API | New `app/api/v2/skills/[skillId]/route.ts` — GET detail, PATCH config | ✅ |
+| API | New `app/api/v2/skills/[skillId]/executions/route.ts` — GET paginated executions | ✅ |
+| API | New `app/api/v2/skills/[skillId]/analysis/route.ts` — GET cycles, GET preview, POST trigger | ✅ |
+| API | New `app/api/v2/skills/[skillId]/analysis/[cycleId]/route.ts` — GET/POST/DELETE cycle | ✅ |
+| Store | New `store/skill-store.ts` — Zustand store with WebSocket event handling for live streaming | ✅ |
+| UI | New `app/skills/page.tsx` — skills dashboard with project grouping | ✅ |
+| UI | New `app/skills/[skillId]/page.tsx` — 4-tab skill detail page | ✅ |
+| UI | New `components/skills/` — skill-card, skill-list, self-healing-config, execution-history, feedback-analytics, analysis-history | ✅ |
+| Types | New `types/skills.ts` — Skill, SkillSummary, SkillExecution, SkillAnalysisCycle, AnalysisRecommendation | ✅ |
+| Types | Modified `types/events.ts` — added skill_analysis_* event types | ✅ |
+| Navigation | Skills link added to home page header and workspace header | ✅ |
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Deterministic skill ID via SHA-256 | Matches existing agent ID pattern; same skill always gets same ID regardless of registration order |
+| Lazy registration on session open | Skills register when sessions are opened, not at startup; "Sync" button for bulk catch-up |
+| Feedback linkage via JOIN | `skill_executions(session_id, agent_id)` ↔ `feedback_items(session_id, agent_id)` — no schema changes to existing tables |
+| Separate from session improvement cycles | Skill analysis examines cross-session patterns; session improvement targets a single session |
+| Fresh Claude session for analysis | Uses `-p` (not `--resume`) since analysis is independent of any single session |
+| Open/closed feedback derivation | Feedback is "closed" if its ID appears in any completed/rewound improvement cycle's `feedback_ids` |
+
+### Deliverables
+
+- [x] Skill registry with deterministic ID, auto-registration, bulk sync
+- [x] Skills dashboard (`/skills`) with project grouping, stats, sort/filter
+- [x] Skill detail page (`/skills/[skillId]`) with 4 tabs (Overview, Executions, Feedback, Analysis)
+- [x] Self-healing configuration (toggle, mode selector, threshold)
+- [x] Execution history table with pagination
+- [x] Feedback analytics with Recharts bar charts and agent breakdown
+- [x] Deep analysis prompt generation (~30K+ chars) with improvement cycles, open/closed feedback, recurring issue detection, temporal analysis
+- [x] Prompt preview/edit flow with full editor
+- [x] Live stream log during analysis (thinking, tool calls, text — matching session improvement loop patterns)
+- [x] Stream entry persistence in DB (schema v9)
+- [x] Analysis report with markdown rendering and expandable recommendation cards
+- [x] Fix prompt workflow for awaiting_review cycles
+- [x] Navigation integration (Skills link in home + workspace headers)
+- [x] Database migrations v8 (3 tables) and v9 (stream_entries column)
+
+> **Implementation notes:**
+> - Analysis component (`components/skills/analysis-history.tsx`, ~550 lines) replicates stream rendering patterns from `components/session/feedback-panel.tsx` (ThinkingEntry, ToolCallEntry, TextEntry) without extracting shared components
+> - Prompt generation (`lib/services/self-healing-controller.ts:generateAnalysisPrompt`) builds a structured prompt with: skill metadata table, chronological improvement cycles with feedback-addressed counts, prior analysis results, feedback distribution (open/closed by category and agent), grouped open/closed feedback items, recurring issue hints, and deep analysis objectives
+> - Claude spawned with `child_process.spawn('claude', ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose'])` in a fresh session
+> - Stream entries accumulated server-side and persisted via `updateAnalysisCycle({ streamEntries })` on completion
+> - Existing cycles created before v9 migration gracefully show no Activity Log section
+
+### Definition of Done
+
+A user can:
+1. Navigate to the Skills dashboard and see all registered skills grouped by project
+2. Click a skill to see its detail page with overview, executions, feedback, and analysis tabs
+3. Configure self-healing behavior (enabled/disabled, mode, threshold)
+4. Preview the auto-generated analysis prompt and edit it before triggering
+5. Trigger a new analysis and watch Claude's thinking, tool calls, and responses stream in real time
+6. Review completed analysis cycles with full activity logs and recommendation cards
+7. Approve and apply fix prompts for awaiting_review cycles
 
 ---
 

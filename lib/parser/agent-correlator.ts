@@ -106,6 +106,12 @@ export function correlateAgents(
     } catch {}
   }
 
+  // 2b. Fix parent-child relationships — check which agent's JSONL actually
+  //     contains each toolUseId as an Agent/Task tool_use block.
+  //     Claude Code stores all sidechain agents flat in subagents/ regardless of
+  //     nesting depth, so we can't rely on directory structure for depth.
+  resolveParentChain(result, rootId);
+
   // 3. Workflow subagents — in subagents/workflows/<wf-run-id>/
   const workflowsSubDir = path.join(subagentsDir, 'workflows');
   if (fs.existsSync(workflowsSubDir)) {
@@ -168,6 +174,56 @@ export function correlateAgents(
   }
 
   return result;
+}
+
+/**
+ * Second pass: fix parent-child relationships using toolUseId matching.
+ *
+ * All named agents are initially assigned parentConversationId = rootId and depth = 1.
+ * But some agents may actually have been spawned by another subagent (not root).
+ * We detect this by scanning each subagent's messages for Agent/Task tool_use blocks
+ * whose id matches a child agent's parentToolUseId. If found, that subagent is the
+ * true parent and we update the child accordingly, then recompute all depths.
+ */
+function resolveParentChain(agents: CorrelatedAgent[], rootId: string): void {
+  // Map: toolUseId → child agent
+  const byToolUseId = new Map<string, CorrelatedAgent>();
+  for (const agent of agents) {
+    if (agent.parentToolUseId) byToolUseId.set(agent.parentToolUseId, agent);
+  }
+
+  // For each non-root agent, scan its messages for Agent/Task tool_use blocks
+  for (const parent of agents) {
+    if (parent.conversationId === rootId) continue;
+    for (const msg of parent.parsed.messages) {
+      for (const block of msg.content) {
+        if (
+          block.type === 'tool_use' &&
+          (block.name === 'Agent' || block.name === 'Task')
+        ) {
+          const child = byToolUseId.get(block.id);
+          if (child && child.parentConversationId === rootId) {
+            child.parentConversationId = parent.conversationId;
+          }
+        }
+      }
+    }
+  }
+
+  // Recompute depths via BFS from root
+  const depthMap = new Map<string, number>([[rootId, 0]]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    const parentDepth = depthMap.get(parentId)!;
+    for (const agent of agents) {
+      if (agent.parentConversationId === parentId && !depthMap.has(agent.conversationId)) {
+        depthMap.set(agent.conversationId, parentDepth + 1);
+        agent.depth = parentDepth + 1;
+        queue.push(agent.conversationId);
+      }
+    }
+  }
 }
 
 interface JournalEntry {

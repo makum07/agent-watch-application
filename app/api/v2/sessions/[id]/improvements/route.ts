@@ -29,6 +29,8 @@ interface DbCycle {
   created_at: number;
   completed_at: number | null;
   jsonl_snapshot_size: number | null;
+  file_changes: string | null;
+  stream_entries: string | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -43,7 +45,107 @@ function mapCycle(row: DbCycle) {
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     snapshotSize: row.jsonl_snapshot_size ?? null,
+    fileChanges: row.file_changes ? JSON.parse(row.file_changes) : null,
+    streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
   };
+}
+
+// ── Git diff capture ──────────────────────────────────────────────────────────
+
+interface ParsedFileDiff {
+  filePath: string;
+  isNew: boolean;
+  isDeleted: boolean;
+  additions: number;
+  deletions: number;
+  diff: string;
+}
+
+function parseUnifiedDiff(diffText: string): ParsedFileDiff[] {
+  const files: ParsedFileDiff[] = [];
+  const sections = diffText.split(/^(?=diff --git )/m).filter(Boolean);
+
+  for (const section of sections) {
+    const headerMatch = section.match(/^diff --git a\/.+ b\/(.+)$/m);
+    if (!headerMatch) continue;
+
+    const filePath = headerMatch[1].trim();
+    const isNew = /^new file mode/m.test(section);
+    const isDeleted = /^deleted file mode/m.test(section);
+
+    let additions = 0;
+    let deletions = 0;
+    for (const line of section.split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+      if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+    }
+
+    // Extract hunk content only (from @@ onwards) — cap at 20k chars
+    const hunkStart = section.indexOf('\n@@');
+    const diff = hunkStart >= 0 ? section.slice(hunkStart + 1, hunkStart + 1 + 20_000) : '';
+
+    files.push({ filePath, isNew, isDeleted, additions, deletions, diff });
+  }
+
+  return files;
+}
+
+function captureFileChanges(projectCwd: string): import('@/types/feedback').FileChange[] {
+  const changes: import('@/types/feedback').FileChange[] = [];
+
+  try {
+    // Unstaged changes to tracked files
+    const diffOutput = execSync('git diff -U3', {
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 10_000,
+    }).toString('utf8');
+    for (const f of parseUnifiedDiff(diffOutput)) {
+      changes.push({
+        filePath: f.filePath,
+        type: f.isNew ? 'create' : f.isDeleted ? 'delete' : 'modify',
+        additions: f.additions,
+        deletions: f.deletions,
+        diff: f.diff,
+      });
+    }
+
+    // Staged changes (index vs HEAD)
+    const stagedDiff = execSync('git diff --cached -U3', {
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 10_000,
+    }).toString('utf8');
+    const seen = new Set(changes.map(c => c.filePath));
+    for (const f of parseUnifiedDiff(stagedDiff)) {
+      if (seen.has(f.filePath)) continue;
+      changes.push({
+        filePath: f.filePath,
+        type: f.isNew ? 'create' : f.isDeleted ? 'delete' : 'modify',
+        additions: f.additions,
+        deletions: f.deletions,
+        diff: f.diff,
+      });
+    }
+
+    // New untracked files not in git yet
+    const untrackedRaw = execSync('git ls-files --others --exclude-standard', {
+      cwd: projectCwd, shell: 'cmd.exe', timeout: 5_000,
+    }).toString('utf8');
+    for (const rel of untrackedRaw.split('\n').map(l => l.trim()).filter(Boolean)) {
+      try {
+        const abs = path.join(projectCwd, rel);
+        const content = fs.readFileSync(abs, 'utf8');
+        const lines = content.split('\n');
+        const diff = `@@ -0,0 +1,${lines.length} @@\n` + lines.map(l => `+${l}`).join('\n');
+        changes.push({
+          filePath: rel,
+          type: 'create',
+          additions: lines.length,
+          deletions: 0,
+          diff: diff.slice(0, 20_000),
+        });
+      } catch { /* skip unreadable */ }
+    }
+  } catch { /* not a git repo or git not available — non-fatal */ }
+
+  return changes;
 }
 
 function formatCategory(category: string): string {
@@ -57,60 +159,69 @@ function generateImprovementPrompt(sessionId: string, items: DbFeedbackItem[]): 
     byAgent.get(item.agent_id)!.push(item);
   }
 
-  const byCategory = new Map<string, number>();
+  const byCategory = new Map<string, DbFeedbackItem[]>();
   for (const item of items) {
-    byCategory.set(item.category, (byCategory.get(item.category) ?? 0) + 1);
+    if (!byCategory.has(item.category)) byCategory.set(item.category, []);
+    byCategory.get(item.category)!.push(item);
   }
+
+  const sortedCategories = Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length);
 
   const lines: string[] = [];
 
-  lines.push(`# Workflow Improvement Review — Cycle ${new Date().toISOString().slice(0, 10)}`);
+  lines.push(`# Multi-Agent Workflow Design Review — ${new Date().toISOString().slice(0, 10)}`);
   lines.push(`\nSession: \`${sessionId}\``);
-  lines.push(`\nA structured human review of this multi-agent workflow execution has produced ${items.length} feedback item${items.length !== 1 ? 's' : ''} spanning ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}. The feedback was collected by reviewing agent responses, reasoning quality, tool usage, artifacts, and workflow decisions.\n`);
 
-  lines.push(`## Feedback Summary\n`);
-  const sortedCategories = Array.from(byCategory.entries()).sort((a, b) => b[1] - a[1]);
-  for (const [cat, count] of sortedCategories) {
-    lines.push(`- **${formatCategory(cat)}**: ${count}`);
-  }
+  lines.push(`\n## Purpose\n`);
+  lines.push(`This review presents structured observations from a completed multi-agent workflow execution. The goal is **not** to patch individual failures or encode session-specific rules. The goal is to evolve the design of the workflow itself — updating orchestrator logic, agent responsibilities, skill definitions, and reasoning patterns so that all components can independently recognize and handle similar situations across any future execution.\n`);
+  lines.push(`**Constraint: Do not introduce hardcoded fixes, task-specific rules, or logic that only applies to the inputs or artifacts of this session.** Every proposed change must remain correct and beneficial across future workflow executions with entirely different tasks, contexts, and inputs.\n`);
 
-  lines.push(`\n## Detailed Feedback by Agent\n`);
-  for (const [agentId, agentItems] of byAgent.entries()) {
-    const name = agentItems[0]?.agent_name || agentId.slice(0, 12);
-    lines.push(`### ${name}\n`);
-    for (const item of agentItems) {
-      lines.push(`- **[${formatCategory(item.category)}]** ${item.text}`);
+  lines.push(`## Observed Failure Patterns (${items.length} observation${items.length !== 1 ? 's' : ''} across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''})\n`);
+  lines.push(`Observations are grouped by failure type to surface structural patterns rather than individual agent mistakes:\n`);
+
+  for (const [cat, catItems] of sortedCategories) {
+    lines.push(`### ${formatCategory(cat)} (${catItems.length})\n`);
+    for (const item of catItems) {
+      const agentLabel = item.agent_name || item.agent_id.slice(0, 12);
+      lines.push(`- ${item.text} *(context: ${agentLabel})*`);
     }
     lines.push('');
   }
 
-  // Identify recurring themes
-  const recurringCategories = sortedCategories.filter(([, count]) => count >= 2);
+  const recurringCategories = sortedCategories.filter(([, catItems]) => catItems.length >= 2);
   if (recurringCategories.length > 0) {
-    lines.push(`## Recurring Patterns\n`);
-    lines.push(`The following issues appear across multiple agents and represent systemic weaknesses:\n`);
-    for (const [cat, count] of recurringCategories) {
-      lines.push(`- **${formatCategory(cat)}** (${count} occurrences) — this is a cross-agent pattern, not an isolated incident`);
+    lines.push(`## Cross-Agent Patterns\n`);
+    lines.push(`These failure types appeared in multiple agents, indicating systemic weaknesses in the workflow design rather than isolated mistakes:\n`);
+    for (const [cat, catItems] of recurringCategories) {
+      const agentNames = [...new Set(catItems.map(i => i.agent_name || i.agent_id.slice(0, 12)))];
+      lines.push(`- **${formatCategory(cat)}** — ${catItems.length} observations across: ${agentNames.join(', ')}`);
     }
     lines.push('');
   }
 
   lines.push(`## Improvement Request\n`);
-  lines.push(`Based on this structured review, please analyze the workflow and propose specific, systemic improvements. Do not propose one-time patches — propose durable changes to the workflow design, agent instructions, and coordination patterns that will prevent these issues from recurring across future executions.\n`);
-  lines.push(`Address each of the following dimensions where the feedback reveals gaps:\n`);
-  lines.push(`1. **Orchestrator behavior** — delegation strategy, decision-making, and agent coordination`);
-  lines.push(`2. **Agent responsibilities** — task scoping, ownership boundaries, and handoff clarity`);
-  lines.push(`3. **Context gathering** — how and when agents gather context before acting`);
-  lines.push(`4. **Validation patterns** — how outputs are verified and assumptions are challenged`);
-  lines.push(`5. **Artifact design** — completeness, structure, and handoff quality of outputs`);
-  lines.push(`6. **Edge case coverage** — how the workflow handles unexpected or missing inputs`);
-  lines.push(`7. **Evidence standards** — what level of evidence is required before drawing conclusions\n`);
-  lines.push(`For each proposed improvement, specify:`);
-  lines.push(`- The affected agent or workflow component`);
-  lines.push(`- What specifically needs to change in its instructions or behavior`);
-  lines.push(`- How this change prevents the identified issue from recurring`);
-  lines.push(`- Any new coordination steps or validation checkpoints needed\n`);
-  lines.push(`Format your response as a structured improvement plan that could be used to directly update agent prompts and workflow orchestration logic.`);
+  lines.push(`For each observed failure pattern, analyze the workflow design and produce a targeted improvement. Structure each improvement as follows:\n`);
+  lines.push(`1. **Root cause** — What workflow design weakness caused this class of failure? Do not describe what went wrong in this specific execution. Identify what is missing or incorrect in the agent's instructions, reasoning approach, validation logic, or coordination design that would cause any agent to make this type of mistake.`);
+  lines.push(`2. **Affected component** — Which workflow component should change: the orchestrator's task decomposition or delegation logic, a specific agent type's responsibilities or reasoning patterns, a skill definition, or a coordination/handoff mechanism?`);
+  lines.push(`3. **Proposed change** — Write a concrete addition or modification to that component's system prompt or behavioral contract. Be specific: describe exactly what the agent should do, when, and under what conditions. Avoid vague directives like "be more careful" or "validate outputs" — specify the reasoning step, verification action, or re-evaluation trigger.`);
+  lines.push(`4. **Self-correction signal** — How should the agent recognize, mid-execution, that it may be in a situation similar to what triggered this feedback? What internal signal, uncertainty indicator, or evidence gap should prompt the agent to gather more context, re-verify an assumption, or escalate rather than proceed?`);
+  lines.push(`5. **Generalizability check** — Explicitly confirm that this change applies correctly across future executions with different inputs, tasks, and contexts. If the change would only help for tasks similar to this session, discard it and rethink from the root cause.\n`);
+
+  lines.push(`Address the following workflow dimensions where the observations reveal gaps:\n`);
+  lines.push(`- **Orchestrator design** — task decomposition strategy, agent selection criteria, delegation scope, and completion verification`);
+  lines.push(`- **Agent reasoning patterns** — how agents form hypotheses, assess confidence, and decide when more evidence is needed before acting`);
+  lines.push(`- **Validation and self-correction** — when and how agents challenge their own outputs, re-examine assumptions, and detect errors before returning results`);
+  lines.push(`- **Context and evidence gathering** — what context agents should proactively seek, how they distinguish sufficient from insufficient evidence, and when to pause and verify`);
+  lines.push(`- **Skill and capability usage** — whether the right capabilities are invoked at the right time with appropriate scope and error handling`);
+  lines.push(`- **Artifact and output quality** — what completeness, structure, and accuracy standards agents apply before considering an output ready`);
+  lines.push(`- **Coordination and handoffs** — what information must be explicitly transferred between agents and what each receiving agent must verify before continuing\n`);
+
+  lines.push(`## Output Format\n`);
+  lines.push(`Produce one improvement entry per failure pattern (not per individual feedback item). Each entry should contain a concrete system prompt addition or behavioral change that can be directly applied to the relevant workflow component.\n`);
+  lines.push(`The final output should read as a set of workflow design changes — not a post-mortem of this specific execution, and not a checklist of things to watch for on similar tasks. Every improvement must make the affected component more reliable and self-correcting across all future executions.\n`);
+
+  lines.push(`## Execution Instructions\n`);
+  lines.push(`**IMPORTANT: After presenting your analysis and proposed changes, immediately proceed to apply them.** Do NOT ask for confirmation or approval before making changes. Do NOT say "shall I proceed?" or "would you like me to implement these?". This prompt is the approval — analyze the issues, present the improvements, then directly edit the relevant files to implement every proposed change. If an edit fails or is denied, skip it and continue with the remaining changes.`);
 
   return lines.join('\n');
 }
@@ -156,6 +267,58 @@ function findProjectDirBySlug(slug: string): string | null {
   return search(startDir, 6);
 }
 
+// ── Approval gate ────────────────────────────────────────────────────────────
+// Pending approval requests keyed by requestId. The Promise resolves when the
+// user responds via WebSocket.
+const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; cycleId: string }>();
+
+export function resolveApproval(requestId: string, approved: boolean) {
+  const entry = pendingApprovals.get(requestId);
+  if (entry) {
+    entry.resolve(approved);
+    pendingApprovals.delete(requestId);
+  }
+}
+
+function applyEditLocally(projectCwd: string, input: Record<string, unknown>): string {
+  const filePath = String(input.file_path ?? '');
+  const abs = path.isAbsolute(filePath) ? filePath : path.join(projectCwd, filePath);
+
+  if (input.content !== undefined) {
+    // Write tool — create/overwrite file
+    const dir = path.dirname(abs);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(abs, String(input.content), 'utf8');
+    return `Successfully wrote to ${filePath}`;
+  }
+
+  // Edit tool — string replacement
+  const oldStr = String(input.old_string ?? '');
+  const newStr = String(input.new_string ?? '');
+  if (!fs.existsSync(abs)) return `Error: file not found: ${filePath}`;
+  const content = fs.readFileSync(abs, 'utf8');
+  if (!content.includes(oldStr)) return `Error: old_string not found in ${filePath}`;
+  const replaceAll = input.replace_all === true;
+  const updated = replaceAll ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
+  fs.writeFileSync(abs, updated, 'utf8');
+  return `Successfully edited ${filePath}`;
+}
+
+// ── Stream-JSON runner ───────────────────────────────────────────────────────
+
+function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string): string {
+  let projectCwd = process.cwd();
+  try {
+    const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
+    if (conv?.file_path) {
+      const slug = path.basename(path.dirname(conv.file_path));
+      const found = findProjectDirBySlug(slug);
+      if (found) projectCwd = found;
+    }
+  } catch { /* fall back to server cwd */ }
+  return projectCwd;
+}
+
 async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: string) {
   const wss = getWsServer();
   const db = getDatabase();
@@ -164,63 +327,183 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
   };
 
-  // Resolve the original project's working directory so `claude --resume` can
-  // find the session. Claude only searches sessions for the project matching
-  // the current working directory.
-  //
-  // The slug (e.g. C--Users-makum-Zeroni-Product-ZER-app) cannot be
-  // unambiguously decoded because spaces, path separators, and literal dashes
-  // are all encoded as '-'. Instead we search the filesystem for the real
-  // directory whose encoded form matches the slug.
-  let projectCwd = process.cwd();
-  try {
-    const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
-    if (conv?.file_path) {
-      const slug = path.basename(path.dirname(conv.file_path)); // e.g. C--Users-makum-Zeroni-Product-ZER-app
-      const found = findProjectDirBySlug(slug);
-      if (found) projectCwd = found;
-    }
-  } catch {
-    // fall back to server cwd — resume may fail if project dir can't be found
-  }
+  const projectCwd = resolveProjectCwd(db, sessionId);
 
   // Snapshot the working tree before Claude runs so rewind can restore it.
-  // Named by cycleId — no DB column needed; found on rewind via `git stash list`.
   try {
     execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
-      cwd: projectCwd, shell: true, stdio: 'pipe',
+      cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe',
     });
   } catch { /* not a git repo, or nothing to stash — non-fatal */ }
 
-  let stdout = '';
-  let stderr = '';
+  // Collect text from assistant messages to build the final response
+  const responseChunks: string[] = [];
+  // Track permission denials encountered in this cycle
+  const deniedToolCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }> = [];
+
+  // Accumulate stream entries server-side so we can persist them with the cycle
+  let streamIdCounter = 0;
+  const streamLog: Array<Record<string, unknown>> = [];
 
   try {
     broadcast('improvement_started', {});
 
-    // shell:true resolves Windows .cmd wrappers; stdio:pipe so we can write
-    // the prompt via stdin (avoids cmd.exe arg-length / newline limits)
-    const child = spawn('claude', ['--resume', sessionId, '-p'], {
+    const child = spawn('claude', [
+      '--resume', sessionId, '-p',
+      '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
+      '--verbose',
+      '--permission-mode', 'default',
+    ], {
       shell: true,
       cwd: projectCwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Write prompt to stdin — cleaner than CLI arg for multiline content
-    child.stdin.write(prompt, 'utf8');
-    child.stdin.end();
+    // Send the prompt as a stream-json user message — keep stdin OPEN
+    const userMsg = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+    });
+    child.stdin.write(userMsg + '\n', 'utf8');
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdout += text;
-      broadcast('improvement_chunk', { chunk: text });
+    // Listen for approval responses from the browser
+    const unsubscribe = wss?.onClientMessage((msg) => {
+      if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
+        resolveApproval(msg.requestId, msg.approved);
+      }
     });
 
+    // Buffer for partial lines from stdout
+    let stdoutBuffer = '';
+
+    async function handleStreamEvent(line: string) {
+      let event: Record<string, unknown>;
+      try { event = JSON.parse(line); } catch { return; }
+
+      // Forward every event to the browser
+      broadcast('improvement_stream_event', { event });
+
+      const eventType = event.type as string;
+
+      if (eventType === 'system') {
+        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: `Session initialized` });
+      }
+
+      if (eventType === 'assistant') {
+        const msg = event.message as { content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }> } | undefined;
+        if (!msg?.content) return;
+
+        for (const block of msg.content) {
+          if (block.type === 'text' && block.text) {
+            responseChunks.push(block.text);
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'text', timestamp: Date.now(), text: block.text });
+          }
+          if (block.type === 'thinking') {
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'thinking', timestamp: Date.now(), text: block.thinking ?? '' });
+          }
+          if (block.type === 'tool_use') {
+            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
+          }
+          if (block.type === 'tool_use' && (block.name === 'Edit' || block.name === 'Write')) {
+            deniedToolCalls.push({
+              toolName: block.name,
+              toolUseId: block.id!,
+              toolInput: block.input ?? {},
+            });
+          }
+        }
+      }
+
+      if (eventType === 'user') {
+        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
+        if (userMsg?.content) {
+          for (const block of userMsg.content) {
+            if (block.type === 'tool_result') {
+              streamLog.push({
+                id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
+                toolUseId: block.tool_use_id, content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                isError: block.is_error ?? false,
+              });
+            }
+          }
+        }
+      }
+
+      if (eventType === 'result') {
+        // Turn completed. If there were denied Edit/Write calls, offer them
+        // for approval and potentially continue with a new turn.
+        if (deniedToolCalls.length > 0) {
+          const approvalResults = await handleDeniedToolCalls(
+            deniedToolCalls, projectCwd, sessionId, cycleId, broadcast,
+          );
+
+          deniedToolCalls.length = 0;
+
+          // Log approval results into stream log for persistence
+          for (const r of approvalResults) {
+            streamLog.push({
+              id: `s-${++streamIdCounter}`,
+              kind: r.approved ? 'tool_result' : 'tool_result',
+              timestamp: Date.now(),
+              toolName: r.toolName,
+              filePath: r.filePath,
+              approved: r.approved,
+              content: r.approved ? `Applied: ${r.result}` : `Denied: ${r.filePath}`,
+              isError: !r.approved,
+            });
+          }
+
+          // Build a continuation message listing what was applied/skipped
+          const lines: string[] = [];
+          for (const r of approvalResults) {
+            if (r.approved) {
+              lines.push(`- APPROVED and applied: ${r.toolName} on ${r.filePath} — ${r.result}`);
+            } else {
+              lines.push(`- DENIED: ${r.toolName} on ${r.filePath} — skipped`);
+            }
+          }
+
+          if (lines.length > 0) {
+            const hasApproved = approvalResults.some(r => r.approved);
+            const continuation = [
+              'The AgentWatch review system processed your proposed changes:',
+              ...lines,
+              '',
+              hasApproved
+                ? 'Continue with any remaining improvements.'
+                : 'All proposed edits were denied. Continue with remaining improvements that do not require those edits, or wrap up.',
+            ].join('\n');
+
+            const contMsg = JSON.stringify({
+              type: 'user',
+              message: { role: 'user', content: [{ type: 'text', text: continuation }] },
+            });
+            child.stdin.write(contMsg + '\n', 'utf8');
+            // Don't close stdin — another turn is starting
+            return;
+          }
+        }
+
+        // No pending approvals — this is the final turn. Close stdin to end the process.
+        child.stdin.end();
+      }
+    }
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split('\n');
+      // Keep the last (potentially incomplete) line in the buffer
+      stdoutBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.trim()) handleStreamEvent(line.trim());
+      }
+    });
+
+    let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      broadcast('improvement_chunk', { chunk: text });
+      stderr += chunk.toString();
     });
 
     let spawnError: Error | null = null;
@@ -229,30 +512,41 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       child.on('error', (err) => { spawnError = err; resolve(1); });
     });
 
-    const now = Date.now();
-    let response: string;
-    let status: string;
+    // Process any remaining buffered line
+    if (stdoutBuffer.trim()) {
+      await handleStreamEvent(stdoutBuffer.trim());
+    }
 
-    if (exitCode === 0 && stdout) {
+    // Clean up the approval listener
+    if (unsubscribe) unsubscribe();
+
+    // Capture which files changed
+    const fileChanges = captureFileChanges(projectCwd);
+    const now = Date.now();
+    const fullResponse = responseChunks.join('');
+
+    let status: string;
+    let response: string;
+
+    if (exitCode === 0 && fullResponse) {
       status = 'completed';
-      response = stdout;
+      response = fullResponse;
     } else {
-      status = 'failed';
-      const errParts: string[] = [];
-      if (spawnError) errParts.push(`Spawn error: ${(spawnError as Error).message}`);
-      if (stderr) errParts.push(`Stderr:\n${stderr}`);
-      if (stdout) errParts.push(`Stdout:\n${stdout}`);
-      if (!errParts.length) errParts.push(`Process exited with code ${exitCode}`);
-      response = errParts.join('\n\n');
+      status = (exitCode === 0 && !fullResponse) ? 'completed' : 'failed';
+      const parts: string[] = [];
+      if (spawnError) parts.push(`Spawn error: ${(spawnError as Error).message}`);
+      if (stderr) parts.push(`Stderr:\n${stderr}`);
+      if (fullResponse) parts.push(fullResponse);
+      response = parts.length > 0 ? parts.join('\n\n') : `Process exited with code ${exitCode}`;
     }
 
     db.prepare(`
       UPDATE improvement_cycles
-      SET claude_response = ?, status = ?, completed_at = ?
+      SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?, stream_entries = ?
       WHERE id = ?
-    `).run(response, status, now, cycleId);
+    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, streamLog.length ? JSON.stringify(streamLog) : null, cycleId);
 
-    broadcast('improvement_complete', { status, response });
+    broadcast('improvement_complete', { status, response, fileChanges });
   } catch (err) {
     const errMsg = String(err);
     db.prepare(`
@@ -260,6 +554,56 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     `).run(errMsg, Date.now(), cycleId);
     broadcast('improvement_failed', { error: errMsg });
   }
+}
+
+async function handleDeniedToolCalls(
+  deniedCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }>,
+  projectCwd: string,
+  sessionId: string,
+  cycleId: string,
+  broadcast: (type: string, payload: Record<string, unknown>) => void,
+): Promise<Array<{ toolName: string; filePath: string; approved: boolean; result: string }>> {
+  const results: Array<{ toolName: string; filePath: string; approved: boolean; result: string }> = [];
+
+  for (const call of deniedCalls) {
+    const requestId = randomUUID();
+    const filePath = String(call.toolInput.file_path ?? 'unknown');
+
+    // Send permission request to browser
+    broadcast('improvement_permission_request', {
+      requestId,
+      toolName: call.toolName,
+      toolInput: call.toolInput,
+    });
+
+    // Wait for user response (timeout after 5 minutes)
+    const approved = await new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingApprovals.delete(requestId);
+        resolve(false);
+      }, 5 * 60 * 1000);
+
+      pendingApprovals.set(requestId, {
+        resolve: (val) => { clearTimeout(timeout); resolve(val); },
+        cycleId,
+      });
+    });
+
+    broadcast('improvement_permission_resolved', { requestId, approved });
+
+    let result = 'skipped';
+    if (approved) {
+      try {
+        result = applyEditLocally(projectCwd, call.toolInput);
+      } catch (e) {
+        result = `Error applying: ${String(e)}`;
+      }
+    }
+
+    results.push({ toolName: call.toolName, filePath, approved, result });
+  }
+
+  return results;
 }
 
 export async function GET(
@@ -294,6 +638,18 @@ export async function POST(
       return NextResponse.json({ error: 'No feedback items to apply' }, { status: 400 });
     }
 
+    // The improvement loop streams progress and delivers edit-approval prompts
+    // over WebSocket. Without it the cycle would spawn Claude, hit denied edits,
+    // and block waiting for approvals that can never arrive — hanging forever in
+    // "applying". Fail fast with a clear message instead. (This is the case when
+    // the app is started with `npm run dev` rather than `npm run dev:server`.)
+    if (!getWsServer()) {
+      return NextResponse.json(
+        { error: 'WebSocket server is not running, so live streaming and edit approvals cannot be delivered. Start the app with "npm run dev:server" (not "npm run dev"), then try again.' },
+        { status: 503 },
+      );
+    }
+
     const rewindCycleId = req.nextUrl.searchParams.get('rewind');
     if (rewindCycleId) {
       const targetCycle = db.prepare(
@@ -302,7 +658,9 @@ export async function POST(
 
       if (!targetCycle) return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
 
-      // Count non-rewound cycles from the target cycle onward (inclusive)
+      // Count non-rewound cycles from the target cycle onward (inclusive).
+      // Each improvement cycle adds exactly one conversation turn, so this is
+      // also how many times we need to call /rewind.
       const { n: cyclesToRewind } = db.prepare(`
         SELECT COUNT(*) as n FROM improvement_cycles
         WHERE session_id = ? AND cycle_number >= ? AND status != 'rewound'
@@ -312,55 +670,47 @@ export async function POST(
         return NextResponse.json({ error: 'All cycles from this point are already rewound' }, { status: 400 });
       }
 
-      // Truncate the JSONL file back to the byte offset recorded before this cycle ran.
-      // This is what Claude Code's /rewind does internally — it removes turns by
-      // truncating the file, not by spawning a new process.
-      if (targetCycle.jsonl_snapshot_size === null || targetCycle.jsonl_snapshot_size === undefined) {
-        return NextResponse.json(
-          { error: 'No JSONL snapshot recorded for this cycle — cannot rewind. This cycle was created before snapshot support was added.' },
-          { status: 400 }
-        );
-      }
-
-      let filePath: string | undefined;
-      try {
-        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
-        filePath = conv?.file_path;
-      } catch { /* handled below */ }
-
-      if (!filePath) {
-        return NextResponse.json({ error: 'Session file path not found in database' }, { status: 404 });
-      }
-      if (!fs.existsSync(filePath)) {
-        return NextResponse.json({ error: 'Session JSONL file not found on disk' }, { status: 404 });
-      }
-
-      fs.truncateSync(filePath, targetCycle.jsonl_snapshot_size);
-
-      // Restore file changes made by this cycle (and any later ones already rewound).
-      // Resolve project cwd the same way the cycle did when it ran.
+      // Resolve the project working directory (same slug-decode logic as apply)
       let projectCwd = process.cwd();
       try {
-        const slug = path.basename(path.dirname(filePath));
-        const found = findProjectDirBySlug(slug);
-        if (found) projectCwd = found;
-      } catch { /* use default */ }
+        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
+        if (conv?.file_path) {
+          const slug = path.basename(path.dirname(conv.file_path));
+          const found = findProjectDirBySlug(slug);
+          if (found) projectCwd = found;
+        }
+      } catch { /* fall back to server cwd */ }
 
-      // Revert tracked edits + remove untracked files added by the cycle(s)
-      try { execSync('git restore .', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
-      try { execSync('git clean -fd', { cwd: projectCwd, shell: true, stdio: 'pipe' }); } catch { /* non-fatal */ }
+      // Delegate to Claude Code's built-in /rewind for each cycle.
+      // Each improvement cycle adds exactly one conversation turn, so one
+      // /rewind call per cycle removes it — including the file changes it made.
+      for (let i = 0; i < cyclesToRewind; i++) {
+        try {
+          execSync(
+            `claude --resume ${sessionId} -p "/rewind" --dangerously-skip-permissions`,
+            { cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe' }
+          );
+        } catch (e) {
+          return NextResponse.json(
+            { error: `Claude Code /rewind failed on turn ${i + 1}/${cyclesToRewind}: ${String(e)}` },
+            { status: 500 }
+          );
+        }
+      }
 
-      // Pop the stash that was saved before this cycle ran (named by cycleId)
+      // Restore any pre-cycle uncommitted changes that AgentWatch stashed before
+      // the cycle ran. Claude Code's /rewind handles reverting its own file edits;
+      // this stash pop restores whatever was already in the working tree beforehand.
       try {
-        const stashList = execSync('git stash list', { cwd: projectCwd, shell: true, encoding: 'utf8' });
+        const stashList = execSync('git stash list', { cwd: projectCwd, shell: 'cmd.exe' }).toString('utf8');
         const line = stashList.split('\n').find(l => l.includes(`agentwatch-pre-${rewindCycleId}`));
         if (line) {
           const ref = line.split(':')[0].trim(); // e.g. "stash@{2}"
-          execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: true, stdio: 'pipe' });
+          execSync(`git stash pop ${ref}`, { cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe' });
         }
-      } catch { /* non-fatal — stash may not exist if working tree was clean */ }
+      } catch { /* non-fatal — stash may not exist if working tree was clean before the cycle */ }
 
-      // Mark this cycle and all later ones as rewound in our DB
+      // Mark this cycle and all later ones as rewound
       db.prepare(`
         UPDATE improvement_cycles SET status = 'rewound'
         WHERE session_id = ? AND cycle_number >= ?

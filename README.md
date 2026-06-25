@@ -36,6 +36,17 @@ The UI has three areas:
 
 **Artifact viewer** — clicking "Open in pane" on any artifact opens a document viewer in a new pane, with a markdown Preview mode and a line-numbered Source mode.
 
+**Feedback Review panel** — a side panel for collecting feedback on agent behavior and applying improvements:
+
+| Feature | Description |
+|---------|-------------|
+| Feedback collection | Add categorized notes per agent (10 categories: Missing Context, Incorrect Assumption, etc.) |
+| Apply improvements | Generates a prompt from your feedback, sends it to Claude via structured streaming |
+| Live activity log | Watch Claude's thinking, tool calls, and responses in real time as a collapsible tree |
+| Edit approval gate | Claude proposes file edits; you see the diff and approve or deny each one |
+| Files touched | See which files were read, edited, or created during the cycle |
+| Rewind | Roll back a cycle and re-apply with a refined prompt |
+
 ---
 
 ## How it works

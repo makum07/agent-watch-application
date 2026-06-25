@@ -1,4 +1,5 @@
 import { formatTokens, formatDuration, formatCost } from '@/lib/utils';
+import { getStatusDisplay } from '@/lib/agent-display';
 import type { Agent } from '@/types/session';
 
 interface SummaryTabProps {
@@ -6,6 +7,7 @@ interface SummaryTabProps {
 }
 
 export function SummaryTab({ agent }: SummaryTabProps) {
+  const status = getStatusDisplay(agent);
   return (
     <div className="p-4 space-y-4">
       <section>
@@ -13,7 +15,9 @@ export function SummaryTab({ agent }: SummaryTabProps) {
         <div className="space-y-1.5 text-sm">
           <Row label="Type" value={agent.subagentType || agent.type} />
           <Row label="Model" value={agent.model || '—'} />
-          <Row label="Status" value={agent.status} />
+          <Row label="Status" value={status.title} />
+          {agent.deniedToolCount > 0 && <Row label="Denied tool calls" value={String(agent.deniedToolCount)} />}
+          {agent.errorToolCount > 0 && <Row label="Failed tool calls" value={String(agent.errorToolCount)} />}
           <Row label="Depth" value={String(agent.depth)} />
           {agent.isolation && <Row label="Isolation" value={agent.isolation} />}
         </div>

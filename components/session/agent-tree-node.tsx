@@ -6,21 +6,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { cn, formatTokens } from '@/lib/utils';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
+import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
-
-const AGENT_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  Explore:          { bg: '#3fb950/15', text: '#3fb950', dot: '#3fb950' },
-  Plan:             { bg: '#f0883e/15', text: '#f0883e', dot: '#f0883e' },
-  'general-purpose':{ bg: '#bc8cff/15', text: '#bc8cff', dot: '#bc8cff' },
-  'code-reviewer':  { bg: '#f85149/15', text: '#f85149', dot: '#f85149' },
-  orchestrator:     { bg: '#58a6ff/15', text: '#58a6ff', dot: '#58a6ff' },
-  workflow:         { bg: '#39d353/15', text: '#39d353', dot: '#39d353' },
-};
-
-function getAgentColor(subagentType: string | null, type: string) {
-  return AGENT_COLORS[subagentType || ''] || AGENT_COLORS[type] || { bg: '#8b949e/15', text: '#8b949e', dot: '#8b949e' };
-}
 
 interface AgentTreeNodeProps {
   agent: Agent;
@@ -35,7 +23,9 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
   const { agentMap } = useSessionStore();
 
   const childAgents = agent.children.map(id => agentMap.get(id)).filter(Boolean) as Agent[];
-  const color = getAgentColor(agent.subagentType, agent.type);
+  const display = getAgentDisplay(agent);
+  const color = { text: display.color.text, dot: display.color.text };
+  const status = getStatusDisplay(agent);
   const label = agent.subagentType || (agent.depth === 0 ? 'Orchestrator' : 'Agent');
   const shortDesc = agent.description?.slice(0, 32) || '';
 
@@ -103,6 +93,13 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
             </span>
             {shortDesc && (
               <span className="text-[11px] text-[#c9d1d9] truncate">{shortDesc}</span>
+            )}
+            {status.tone !== 'ok' && status.tone !== 'idle' && (
+              <span
+                className="shrink-0 ml-auto w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: status.hex }}
+                title={status.title}
+              />
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">

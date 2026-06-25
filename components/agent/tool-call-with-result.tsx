@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronRight, Terminal, FileText, Search, Globe, Code2, Wrench, Pencil, FilePlus, FileSearch, Zap, Users } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { ChevronRight, Terminal, FileText, Search, Globe, Code2, Wrench, Pencil, FilePlus, FileSearch, Zap, Users, Lock } from 'lucide-react';
+import { cn, isPermissionDenial } from '@/lib/utils';
 import type { ContentBlock } from '@/types/session';
 import { ArtifactCard } from './artifact-card';
 
@@ -92,16 +92,20 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
   }
   const hasResult = result && result.length > 0;
   const resultText = extractResultText(result);
+  const isDenied = (isError ?? false) && isPermissionDenial(resultText);
   const summary = getToolSummary(name, input);
-  const resultBadge = getResultBadge(name, resultText, isError ?? false, hasResult ?? false);
+  const resultBadge = getResultBadge(name, resultText, isError ?? false, hasResult ?? false, isDenied);
 
-  // Color coding by tool type
-  const borderColor = isError ? '#f85149'
+  // Color coding — denials get a distinct amber so they don't read as a generic
+  // runtime error (or, worse, a normal step).
+  const borderColor = isDenied ? '#d29922'
+    : isError ? '#f85149'
     : isAgentSpawn ? '#58a6ff'
     : name === 'Bash' ? '#39d353'
     : '#30363d';
 
-  const iconColor = isError ? '#f85149'
+  const iconColor = isDenied ? '#d29922'
+    : isError ? '#f85149'
     : isAgentSpawn ? '#58a6ff'
     : name === 'Bash' ? '#39d353'
     : name === 'Read' ? '#79c0ff'
@@ -129,15 +133,18 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
         )}
         {resultBadge && (
           <span
-            className="text-[10px] font-medium shrink-0 px-1.5 py-0.5 rounded"
+            className="text-[10px] font-medium shrink-0 px-1.5 py-0.5 rounded inline-flex items-center gap-1"
             style={
-              isError
+              isDenied
+                ? { color: '#d29922', backgroundColor: '#d2992218' }
+                : isError
                 ? { color: '#f85149', backgroundColor: '#f8514914' }
                 : isAgentSpawn
                 ? { color: '#58a6ff', backgroundColor: '#58a6ff14' }
                 : { color: compact ? '#484f58' : '#6e7681' }
             }
           >
+            {isDenied && <Lock className="h-2.5 w-2.5" />}
             {resultBadge}
           </span>
         )}
@@ -160,13 +167,13 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
             <div>
               <div className={cn(
                 'text-[10px] font-semibold mb-1 uppercase tracking-wider',
-                isError ? 'text-[#f85149]' : 'text-[#3fb950]'
+                isDenied ? 'text-[#d29922]' : isError ? 'text-[#f85149]' : 'text-[#3fb950]'
               )}>
-                {isError ? 'Error' : 'Output'}
+                {isDenied ? 'Permission denied' : isError ? 'Error' : 'Output'}
               </div>
               <pre className={cn(
                 'text-[11px] font-mono rounded p-2 overflow-x-auto max-h-48 whitespace-pre-wrap',
-                isError ? 'text-[#f85149] bg-[#f85149]/5' : 'text-[#c9d1d9] bg-[#0d1117]'
+                isDenied ? 'text-[#e3b341] bg-[#d29922]/5' : isError ? 'text-[#f85149] bg-[#f85149]/5' : 'text-[#c9d1d9] bg-[#0d1117]'
               )}>
                 {resultText || '(empty)'}
               </pre>
@@ -178,7 +185,8 @@ export function ToolCallWithResult({ id, name, input, result, isError, paneId = 
   );
 }
 
-function getResultBadge(name: string, resultText: string, isError: boolean, hasResult: boolean): string | null {
+function getResultBadge(name: string, resultText: string, isError: boolean, hasResult: boolean, isDenied = false): string | null {
+  if (isDenied) return 'denied';
   if (isError) return 'error';
   if (name === 'Agent' || name === 'Task') return '→ spawned';
   if (name === 'Workflow') return '→ launched';

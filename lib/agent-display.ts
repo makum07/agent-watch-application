@@ -53,17 +53,93 @@ export function formatAgentLabel(raw: string): string {
     .join(' ');
 }
 
+/**
+ * Built-in / framework agent types. Anything with a subagentType NOT in this
+ * set (and not the workflow-subagent sentinel) is a project/custom agent whose
+ * own name IS its identity (e.g. "gtc-application-context").
+ */
+const BUILTIN_TYPES = new Set([
+  'Explore', 'Plan', 'general-purpose', 'code-reviewer',
+  'claude', 'claude-code-guide', 'statusline-setup',
+]);
+
+/** What class of agent this is — drives badge styling so a gtc-* agent never
+ *  reads as a generic "Workflow Subagent". */
+export type AgentKind = 'orchestrator' | 'builtin' | 'general-purpose' | 'project' | 'workflow' | 'unknown';
+
 export interface AgentDisplay {
   name: string;            // Primary display name
   shortName: string;       // Abbreviated (max ~16 chars)
-  typeLabel: string;       // Secondary type hint ("Workflow Subagent", "Orchestrator", etc.)
+  typeLabel: string;       // Secondary type hint ("Project agent", "Orchestrator", etc.)
+  kind: AgentKind;         // Resolved class — distinguishes project/custom vs workflow vs built-in
+  agentName: string | null;// Resolved agent identity (subagent_type) when known
   color: { bg: string; text: string; border: string };
   initials: string;        // 1–2 letter initials for avatars/compact views
 }
 
+// ─── Status display ──────────────────────────────────────────────────────
+// "Came to rest" is not the same as "succeeded cleanly". Green is reserved for
+// clean success; agents with denied or failed tool calls render amber/red.
+
+export type StatusTone = 'ok' | 'warn' | 'danger' | 'running' | 'idle';
+
+export const STATUS_TONE_HEX: Record<StatusTone, string> = {
+  ok:      '#3fb950',
+  warn:    '#d29922',
+  danger:  '#f85149',
+  running: '#58a6ff',
+  idle:    '#8b949e',
+};
+
+export interface StatusDisplay {
+  label: string;
+  tone: StatusTone;
+  hex: string;
+  title: string;
+}
+
+export function getStatusDisplay(
+  agent: Pick<Agent, 'status' | 'errorToolCount' | 'deniedToolCount'>
+): StatusDisplay {
+  const denied = agent.deniedToolCount ?? 0;
+  const errors = agent.errorToolCount ?? 0;
+  const detail = [
+    denied > 0 ? `${denied} denied tool call${denied !== 1 ? 's' : ''}` : null,
+    errors - denied > 0 ? `${errors - denied} failed tool call${errors - denied !== 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(' · ');
+
+  switch (agent.status) {
+    case 'running':
+      return { label: 'running', tone: 'running', hex: STATUS_TONE_HEX.running, title: 'Still running' };
+    case 'errored':
+      return { label: 'errored', tone: 'danger', hex: STATUS_TONE_HEX.danger, title: 'Agent errored' };
+    case 'completed_with_errors': {
+      // Denials are the most serious signal (deliverable may not have been produced).
+      if (denied > 0) {
+        return {
+          label: `${denied} denied`,
+          tone: 'danger',
+          hex: STATUS_TONE_HEX.danger,
+          title: `Completed, but ${detail}`,
+        };
+      }
+      return {
+        label: `${errors} error${errors !== 1 ? 's' : ''}`,
+        tone: 'warn',
+        hex: STATUS_TONE_HEX.warn,
+        title: `Completed with errors — ${detail}`,
+      };
+    }
+    case 'completed':
+      return { label: 'completed', tone: 'ok', hex: STATUS_TONE_HEX.ok, title: 'Completed cleanly' };
+    default:
+      return { label: agent.status || 'unknown', tone: 'idle', hex: STATUS_TONE_HEX.idle, title: 'Unknown status' };
+  }
+}
+
 export function getAgentDisplay(agent: Agent): AgentDisplay {
-  const desc = agent.description; // e.g. "session-format-researcher"
-  const subType = agent.subagentType; // e.g. "workflow-subagent", "Explore"
+  const desc = agent.description; // task description from parent ("Fetch ZER-9055…")
+  const subType = agent.subagentType; // resolved agent type ("gtc-task-context", "Explore", "workflow-subagent")
   const agentType = agent.type; // "orchestrator", "subagent", "workflow"
 
   // 1. Orchestrator
@@ -72,69 +148,95 @@ export function getAgentDisplay(agent: Agent): AgentDisplay {
       name: 'Orchestrator',
       shortName: 'Orchestrator',
       typeLabel: 'Main',
+      kind: 'orchestrator',
+      agentName: null,
       color: NAMED_TYPE_COLORS['Orchestrator'],
       initials: 'OR',
     };
   }
 
-  // 2. Named types (Explore, Plan, general-purpose, etc.)
-  if (subType && NAMED_TYPE_COLORS[subType]) {
-    // Show "Explore: Short description" or just "Explore" if no desc
-    const shortDesc = desc ? formatAgentLabel(desc) : '';
-    // Truncate long descriptions for the primary name
-    const truncDesc = shortDesc.length > 35 ? shortDesc.slice(0, 33) + '…' : shortDesc;
-    const name = truncDesc ? `${subType}: ${truncDesc}` : subType;
-    const shortName = subType + (truncDesc ? `: ${truncDesc.slice(0, 20)}` : '');
-    const initials = subType === 'general-purpose' ? 'GP' : subType.slice(0, 2).toUpperCase();
-    return {
-      name,
-      shortName: shortName.slice(0, 28),
-      typeLabel: subType,
-      color: NAMED_TYPE_COLORS[subType],
-      initials,
-    };
-  }
-
-  // general-purpose without a color entry
-  if (subType === 'general-purpose') {
-    const color = NAMED_TYPE_COLORS['general-purpose'];
-    const shortDesc = desc ? formatAgentLabel(desc) : '';
-    const truncDesc = shortDesc.length > 35 ? shortDesc.slice(0, 33) + '…' : shortDesc;
-    const name = truncDesc ? `Agent: ${truncDesc}` : 'Agent';
-    return {
-      name,
-      shortName: name.slice(0, 28),
-      typeLabel: 'general-purpose',
-      color,
-      initials: 'GP',
-    };
-  }
-
-  // 3. Workflow subagents with description labels
-  if (desc) {
-    const formatted = formatAgentLabel(desc);
-    const colorIdx = hashLabel(desc);
+  // 2. Workflow subagents — these genuinely ARE workflow subagents; the label
+  //    (description) is the meaningful identity. Detect by type or sentinel.
+  if (agentType === 'workflow' || subType === 'workflow-subagent') {
+    const formatted = desc ? formatAgentLabel(desc) : 'Workflow Subagent';
+    const colorIdx = hashLabel(desc || 'workflow');
     const color = PALETTE[colorIdx];
     const words = formatted.split(' ');
-    const initials = words.length >= 2
-      ? words[0][0] + words[1][0]
-      : formatted.slice(0, 2);
+    const initials = words.length >= 2 ? words[0][0] + words[1][0] : formatted.slice(0, 2);
     return {
       name: formatted,
       shortName: formatted.slice(0, 18),
-      typeLabel: 'Workflow Subagent',
+      typeLabel: 'Workflow subagent',
+      kind: 'workflow',
+      agentName: null,
       color,
       initials: initials.toUpperCase(),
     };
   }
 
-  // 4. Fallback
+  // 3. Built-in named types (Explore, Plan, general-purpose, code-reviewer, …)
+  if (subType && BUILTIN_TYPES.has(subType)) {
+    const color = NAMED_TYPE_COLORS[subType] ?? PALETTE[hashLabel(subType)];
+    const shortDesc = desc ? formatAgentLabel(desc) : '';
+    const name = shortDesc ? `${subType}: ${shortDesc}` : subType;
+    const shortName = subType + (shortDesc ? `: ${shortDesc.slice(0, 20)}` : '');
+    const initials = subType === 'general-purpose' ? 'GP' : subType.slice(0, 2).toUpperCase();
+    return {
+      name,
+      shortName: shortName.slice(0, 28),
+      typeLabel: subType,
+      kind: subType === 'general-purpose' ? 'general-purpose' : 'builtin',
+      agentName: subType,
+      color,
+      initials,
+    };
+  }
+
+  // 4. Project / custom agent — its subagent_type IS its identity. This is the
+  //    case the old code mislabeled as "Workflow Subagent". Show the agent
+  //    name primarily; the task description is secondary (rendered elsewhere).
+  if (subType) {
+    const color = PALETTE[hashLabel(subType)];
+    const words = formatAgentLabel(subType).split(' ');
+    const initials = words.length >= 2 ? words[0][0] + words[1][0] : subType.slice(0, 2);
+    return {
+      name: subType,
+      shortName: subType.length > 24 ? subType.slice(0, 23) + '…' : subType,
+      typeLabel: 'Project agent',
+      kind: 'project',
+      agentName: subType,
+      color,
+      initials: initials.toUpperCase(),
+    };
+  }
+
+  // 5. No subagent_type at all — fall back to the description label.
+  if (desc) {
+    const formatted = formatAgentLabel(desc);
+    const colorIdx = hashLabel(desc);
+    const color = PALETTE[colorIdx];
+    const words = formatted.split(' ');
+    const initials = words.length >= 2 ? words[0][0] + words[1][0] : formatted.slice(0, 2);
+    return {
+      name: formatted,
+      shortName: formatted.slice(0, 18),
+      typeLabel: 'Subagent',
+      kind: 'unknown',
+      agentName: null,
+      color,
+      initials: initials.toUpperCase(),
+    };
+  }
+
+  // 6. Last-resort fallback
   const fallback = formatAgentLabel(subType || agentType || 'Agent');
   const colorIdx = hashLabel(fallback);
   return {
     name: fallback,
     shortName: fallback.slice(0, 18),
     typeLabel: agentType,
+    kind: 'unknown',
+    agentName: null,
     color: PALETTE[colorIdx],
     initials: fallback.slice(0, 2).toUpperCase(),
   };

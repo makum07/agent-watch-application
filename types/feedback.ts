@@ -41,6 +41,14 @@ export interface FeedbackItem {
   createdAt: string;
 }
 
+export interface FileChange {
+  filePath: string;
+  type: 'create' | 'modify' | 'delete';
+  additions: number;
+  deletions: number;
+  diff: string;
+}
+
 export interface ImprovementCycle {
   id: string;
   sessionId: string;
@@ -52,4 +60,25 @@ export interface ImprovementCycle {
   createdAt: string;
   completedAt: string | null;
   snapshotSize: number | null;
+  fileChanges: FileChange[] | null;
+  streamEntries: StreamEntry[] | null;
+}
+
+// Live streaming state for an active improvement cycle
+export interface StreamEntry {
+  id: string;
+  kind: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'system' | 'permission_request';
+  timestamp: number;
+  // For text/thinking
+  text?: string;
+  // For tool_use
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolUseId?: string;
+  // For tool_result
+  content?: string;
+  isError?: boolean;
+  // For permission_request
+  requestId?: string;
+  approved?: boolean | null; // null = pending
 }

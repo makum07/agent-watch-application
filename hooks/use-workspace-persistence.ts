@@ -56,7 +56,11 @@ export function useWorkspacePersistence(sessionId: string) {
             store.updatePaneState(paneId, state);
           });
         }
-        if (snapshot.sidebarCollapsed !== undefined) store.setSidebarCollapsed(snapshot.sidebarCollapsed);
+        // NOTE: sidebarCollapsed is intentionally NOT written to the store here.
+        // The resizable Panel's pixel size is the single source of truth (its
+        // onResize sets the store). Writing the boolean directly desyncs it from
+        // the panel — the collapsed view renders inside a full-width panel and the
+        // expand button can't recover. The caller drives the panel via its ref.
         if (snapshot.sidebarWidth) store.setSidebarWidth(snapshot.sidebarWidth);
       }
       return snapshot;

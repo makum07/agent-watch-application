@@ -32,7 +32,11 @@ export interface Agent {
   type: 'orchestrator' | 'subagent' | 'workflow';
   subagentType: string | null;
   model: string;
-  status: 'running' | 'completed' | 'errored' | 'unknown';
+  status: 'running' | 'completed' | 'completed_with_errors' | 'errored' | 'unknown';
+  /** Count of tool_result blocks flagged is_error (failed runtime calls). */
+  errorToolCount: number;
+  /** Count of tool calls the user explicitly denied (permission declined). */
+  deniedToolCount: number;
   startTime: string;
   endTime: string | null;
   durationMs: number;
@@ -50,6 +54,7 @@ export interface Agent {
     total: number;
   };
   toolCalls: ToolCallSummary[];
+  skillInvocations: SkillInvocation[];
   children: string[];
   depth: number;
 }
@@ -57,6 +62,15 @@ export interface Agent {
 export interface ToolCallSummary {
   name: string;
   count: number;
+}
+
+export interface SkillInvocation {
+  id: string;
+  skill: string;
+  args: string | null;
+  startTime: string;
+  endTime: string | null;
+  durationMs: number | null;
 }
 
 export interface Message {
@@ -121,4 +135,17 @@ export interface TimelineEvent {
     status?: string;
     tokenCount?: number;
   };
+}
+
+export interface SearchResult {
+  agentId: string;
+  agentName: string;
+  agentType: string;
+  agentSubtype: string | null;
+  messageId: string;
+  messageIndex: number;
+  role: 'user' | 'assistant' | 'tool';
+  timestamp: string;
+  snippet: string;
+  matchOffset: number;
 }

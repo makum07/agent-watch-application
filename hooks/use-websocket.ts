@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { SessionEvent } from '@/types/events';
+import type { SessionEvent, ClientMessage } from '@/types/events';
 
 export function useWebSocket(onEvent: (event: SessionEvent) => void) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -35,6 +35,13 @@ export function useWebSocket(onEvent: (event: SessionEvent) => void) {
     wsRef.current = ws;
   }, []);
 
+  const send = useCallback((msg: ClientMessage) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
   useEffect(() => {
     connect();
     return () => {
@@ -42,4 +49,6 @@ export function useWebSocket(onEvent: (event: SessionEvent) => void) {
       clearTimeout(reconnectTimeout.current);
     };
   }, [connect]);
+
+  return { send };
 }

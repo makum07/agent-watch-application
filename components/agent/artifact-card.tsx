@@ -208,13 +208,14 @@ function InlineMarkdown({ content }: { content: string }) {
       i++; continue;
     }
     if (line.startsWith('```')) {
+      const codeStart = i;
       const codeLang = line.slice(3).trim();
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) { codeLines.push(lines[i]); i++; }
       i++;
       elements.push(
-        <div key={i} className="my-2 rounded border border-[#30363d] overflow-hidden">
+        <div key={`code-${codeStart}`} className="my-2 rounded border border-[#30363d] overflow-hidden">
           {codeLang && <div className="px-3 py-1 bg-[#161b22] text-[10px] font-mono text-[#8b949e] border-b border-[#30363d]">{codeLang}</div>}
           <pre className="p-3 text-[12px] font-mono text-[#c9d1d9] overflow-x-auto bg-[#161b22] whitespace-pre-wrap">{codeLines.join('\n')}</pre>
         </div>
@@ -226,10 +227,11 @@ function InlineMarkdown({ content }: { content: string }) {
       i++; continue;
     }
     if (/^[-*+] /.test(line)) {
+      const listStart = i;
       const items: string[] = [];
       while (i < lines.length && /^[-*+] /.test(lines[i])) { items.push(lines[i].replace(/^[-*+] /, '')); i++; }
       elements.push(
-        <ul key={i} className="my-2 space-y-1 pl-1">
+        <ul key={`ul-${listStart}`} className="my-2 space-y-1 pl-1">
           {items.map((item, j) => (
             <li key={j} className="flex items-start gap-2 text-[13px] text-[#c9d1d9] leading-5">
               <span className="mt-2 w-1 h-1 rounded-full bg-[#484f58] shrink-0" />
@@ -241,10 +243,11 @@ function InlineMarkdown({ content }: { content: string }) {
       continue;
     }
     if (/^\d+\. /.test(line)) {
+      const listStart = i;
       const items: string[] = [];
       while (i < lines.length && /^\d+\. /.test(lines[i])) { items.push(lines[i].replace(/^\d+\. /, '')); i++; }
       elements.push(
-        <ol key={i} className="my-2 space-y-1 pl-1">
+        <ol key={`ol-${listStart}`} className="my-2 space-y-1 pl-1">
           {items.map((item, j) => (
             <li key={j} className="flex items-start gap-2 text-[13px] text-[#c9d1d9] leading-5">
               <span className="text-[#484f58] font-mono text-[11px] shrink-0 mt-0.5">{j + 1}.</span>

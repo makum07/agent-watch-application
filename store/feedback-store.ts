@@ -1,7 +1,8 @@
 'use client';
 
 import { create } from 'zustand';
-import type { FeedbackItem, ImprovementCycle, FeedbackCategory } from '@/types/feedback';
+import type { FeedbackItem, ImprovementCycle, FeedbackCategory, StreamEntry } from '@/types/feedback';
+import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
 
 interface FeedbackStore {
   items: FeedbackItem[];
@@ -11,6 +12,10 @@ interface FeedbackStore {
   isPanelOpen: boolean;
   lastError: string | null;
   lastCycle: ImprovementCycle | null;
+
+  // Live streaming state for the active cycle
+  streamEntries: StreamEntry[];
+  pendingApprovals: Map<string, { toolName: string; toolInput: Record<string, unknown> }>;
 
   loadFeedback: (sessionId: string) => Promise<void>;
   addFeedback: (payload: {
@@ -30,10 +35,14 @@ interface FeedbackStore {
   deleteCycle: (sessionId: string, cycleId: string) => Promise<void>;
   clearRewoundCycles: (sessionId: string) => Promise<void>;
   loadCycles: (sessionId: string) => Promise<void>;
+  handleStreamEvent: (event: SessionEvent) => void;
   setPanelOpen: (open: boolean) => void;
   clearError: () => void;
+  clearStream: () => void;
   reset: () => void;
 }
+
+let streamIdCounter = 0;
 
 export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   items: [],
@@ -43,6 +52,8 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   isPanelOpen: false,
   lastError: null,
   lastCycle: null,
+  streamEntries: [],
+  pendingApprovals: new Map(),
 
   loadFeedback: async (sessionId) => {
     set({ isLoading: true, lastError: null });
@@ -129,7 +140,10 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(customPrompt ? { customPrompt } : {}),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? res.statusText);
+      }
       const cycle: ImprovementCycle = await res.json();
       set(s => ({ cycles: [cycle, ...s.cycles], lastCycle: cycle }));
       return cycle;
@@ -193,10 +207,93 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
+  handleStreamEvent: (event: SessionEvent) => {
+    if (event.type === 'improvement_started') {
+      set({ streamEntries: [], pendingApprovals: new Map() });
+      return;
+    }
+
+    if (event.type === 'improvement_stream_event') {
+      const se = (event as { event: StreamEvent }).event;
+      const entries: StreamEntry[] = [];
+
+      if (se.type === 'system') {
+        if (se.subtype === 'init') {
+          entries.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: `Session initialized (model: ${se.model ?? 'unknown'})` });
+        }
+      } else if (se.type === 'assistant') {
+        const content = se.message?.content ?? [];
+        for (const block of content as ContentBlock[]) {
+          if (block.type === 'text') {
+            entries.push({ id: `s-${++streamIdCounter}`, kind: 'text', timestamp: Date.now(), text: block.text });
+          } else if (block.type === 'thinking') {
+            entries.push({ id: `s-${++streamIdCounter}`, kind: 'thinking', timestamp: Date.now(), text: block.thinking ?? '' });
+          } else if (block.type === 'tool_use') {
+            entries.push({
+              id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(),
+              toolName: block.name, toolInput: block.input, toolUseId: block.id,
+            });
+          }
+        }
+      } else if (se.type === 'user') {
+        const content = se.message?.content ?? [];
+        for (const block of content as Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }>) {
+          if (block.type === 'tool_result') {
+            entries.push({
+              id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
+              toolUseId: block.tool_use_id, content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+              isError: block.is_error ?? false,
+            });
+          }
+        }
+      }
+
+      if (entries.length > 0) {
+        set(s => ({ streamEntries: [...s.streamEntries, ...entries] }));
+      }
+      return;
+    }
+
+    if (event.type === 'improvement_permission_request') {
+      const { requestId, toolName, toolInput } = event as { requestId: string; toolName: string; toolInput: Record<string, unknown> };
+      set(s => {
+        const next = new Map(s.pendingApprovals);
+        next.set(requestId, { toolName, toolInput });
+        const entry: StreamEntry = {
+          id: `s-${++streamIdCounter}`, kind: 'permission_request', timestamp: Date.now(),
+          requestId, toolName, toolInput, approved: null,
+        };
+        return { pendingApprovals: next, streamEntries: [...s.streamEntries, entry] };
+      });
+      return;
+    }
+
+    if (event.type === 'improvement_permission_resolved') {
+      const { requestId, approved } = event as { requestId: string; approved: boolean };
+      set(s => {
+        const next = new Map(s.pendingApprovals);
+        next.delete(requestId);
+        const entries = s.streamEntries.map(e =>
+          e.requestId === requestId ? { ...e, approved } : e
+        );
+        return { pendingApprovals: next, streamEntries: entries };
+      });
+      return;
+    }
+
+    if (event.type === 'improvement_complete') {
+      const { sessionId: sid } = event as { sessionId: string };
+      get().loadCycles(sid);
+      return;
+    }
+  },
+
   setPanelOpen: (open) => set({ isPanelOpen: open }),
   clearError: () => set({ lastError: null }),
+  clearStream: () => set({ streamEntries: [], pendingApprovals: new Map() }),
   reset: () => set({
     items: [], cycles: [], isLoading: false, isApplying: false,
     isPanelOpen: false, lastError: null, lastCycle: null,
+    streamEntries: [], pendingApprovals: new Map(),
   }),
 }));

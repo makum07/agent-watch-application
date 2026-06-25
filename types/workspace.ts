@@ -7,7 +7,11 @@ export type PaneTab =
   | { type: 'artifacts'; label: string }
   | { type: 'analytics'; label: string }
   | { type: 'context'; agentId: string; label: string }
-  | { type: 'artifact-content'; artifactId: string; label: string };
+  | { type: 'artifact-content'; artifactId: string; label: string }
+  | { type: 'search'; label: string }
+  | { type: 'context-flow'; label: string }
+  | { type: 'comparison'; agentAId: string; agentBId: string; label: string }
+  | { type: 'workflow'; label: string };
 
 export type LayoutNode =
   | {
@@ -37,6 +41,7 @@ export interface TabViewState {
   expandedToolCalls?: string[];
   expandedArtifacts?: string[];
   searchQuery?: string;
+  scrollToMessageId?: string;
 }
 
 export interface FilterState {

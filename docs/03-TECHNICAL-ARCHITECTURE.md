@@ -933,3 +933,75 @@ The architecture supports future extensibility at these points:
 ### 8.2 Future API Extension
 
 The `/api/v2/` prefix allows the API to evolve without breaking the legacy `/api/conversations/` interface. Future versions can introduce `/api/v3/` when needed.
+
+---
+
+## 9. Skill Intelligence Architecture
+
+### 9.1 Skill Services
+
+Two new services power the cross-session skill intelligence system:
+
+**`lib/services/skill-registry.ts`** — Skill CRUD and aggregation:
+
+| Function | Purpose |
+|----------|---------|
+| `computeSkillId(project, name)` | Deterministic SHA-256 hash: `sha256(project + ':' + name).slice(0, 16)` |
+| `registerSkillExecutions(sessionId, project, agents)` | Upserts skills + skill_executions from agent `skillInvocations` |
+| `syncSkillRegistry()` | Bulk scan of all agents table, registers all skills |
+| `listSkills(opts?)` | Returns `SkillSummary[]` with aggregated stats via SQL JOINs |
+| `getSkillDetail(skillId)` | Full `SkillDetailData`: skill, executions, feedback aggregates, analysis history |
+| `updateSkillConfig(skillId, updates)` | Patches self-healing settings |
+| `listAnalysisCycles(skillId)` | Returns all analysis cycles for a skill |
+| `createAnalysisCycle(...)` | Creates a new cycle record |
+| `updateAnalysisCycle(cycleId, updates)` | Updates cycle status, response, recommendations, stream entries |
+
+**`lib/services/self-healing-controller.ts`** — Analysis prompt generation and Claude integration:
+
+| Function | Purpose |
+|----------|---------|
+| `generateAnalysisPrompt(skill, detail)` | Builds ~30K+ char structured prompt from cross-session data |
+| `generatePromptPreview(skillId)` | Returns prompt preview for the API endpoint |
+| `runSkillAnalysis(cycleId, skillId, customPrompt?)` | Spawns Claude CLI, streams events via WebSocket, persists results |
+
+### 9.2 Claude Invocation
+
+Analysis uses a fresh Claude session (not `--resume`):
+
+```
+claude -p --output-format stream-json --input-format stream-json --verbose
+```
+
+Stream processing:
+1. Prompt sent as `stream-json` user message on stdin
+2. Each stdout JSON line parsed and broadcast via WebSocket as `skill_analysis_stream_event`
+3. Events accumulated in a server-side array
+4. On completion: response text, recommendations (parsed from JSON block), and stream entries persisted to DB
+
+### 9.3 API Routes
+
+| Method | Endpoint | Handler |
+|--------|----------|---------|
+| GET | `/api/v2/skills` | List skills with aggregated stats |
+| POST | `/api/v2/skills` | Sync skill registry |
+| GET | `/api/v2/skills/:skillId` | Skill detail |
+| PATCH | `/api/v2/skills/:skillId` | Update config |
+| GET | `/api/v2/skills/:skillId/executions` | Paginated executions |
+| GET | `/api/v2/skills/:skillId/analysis` | List analysis cycles |
+| GET | `/api/v2/skills/:skillId/analysis?preview=1` | Preview prompt |
+| POST | `/api/v2/skills/:skillId/analysis` | Trigger analysis |
+| GET | `/api/v2/skills/:skillId/analysis/:cycleId` | Single cycle |
+| POST | `/api/v2/skills/:skillId/analysis/:cycleId` | Approve fix |
+| DELETE | `/api/v2/skills/:skillId/analysis/:cycleId` | Delete cycle |
+
+### 9.4 State Management
+
+`store/skill-store.ts` (Zustand) manages:
+- Skill list and selected skill detail
+- Analysis cycles and live stream entries
+- Loading/analyzing/syncing states
+- WebSocket event handling for `skill_analysis_*` events
+
+### 9.5 Database
+
+Schema v8 adds 3 tables (`skills`, `skill_executions`, `skill_analysis_cycles`). Schema v9 adds `stream_entries TEXT` column on `skill_analysis_cycles`. See `04-DATA-MODEL.md` Section 7 for full schema.

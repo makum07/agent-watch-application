@@ -40,6 +40,21 @@ export function truncate(text: string, maxLength: number): string {
   return text.slice(0, maxLength - 3) + '...';
 }
 
+/**
+ * Detects whether a tool_result error is a permission denial (the user declined
+ * the tool call) rather than a runtime failure. Claude Code emits a stable
+ * "Permission to use <Tool> has been denied" message for denials, plus the
+ * "requested permissions ... but ... haven't granted it" variant.
+ */
+export function isPermissionDenial(resultText: string): boolean {
+  if (!resultText) return false;
+  return (
+    /Permission to use \w+ has been denied/i.test(resultText) ||
+    /requested permissions to use \w+/i.test(resultText) ||
+    /user (?:doesn't|does not) want to (?:proceed|take this action)/i.test(resultText)
+  );
+}
+
 export function formatTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
