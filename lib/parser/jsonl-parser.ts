@@ -329,37 +329,47 @@ export function listJsonlFiles(projectDir: string): string[] {
 }
 
 export function decodeProjectPath(encoded: string): string {
-  // Windows encoding: drive letter + -- + path with - as separator
-  // e.g. C--Users-makum-Zeroni-Product-agent-watch
+  // Windows encoding: drive letter + -- e.g. C--Users-sarat-project
   if (/^[A-Za-z]--/.test(encoded)) {
-    // Replace first -- with :\ and remaining - with \
     return encoded.replace(/^([A-Za-z])--/, '$1:\\').replace(/-/g, '\\');
   }
 
-  // Linux/Mac: base64url encoded path
+  // Unix dash-encoding: /path/to/project → -path-to-project (Claude Code standard)
+  if (encoded.startsWith('-')) {
+    return encoded.replace(/-/g, '/');
+  }
+
+  // Legacy base64url encoded path (older Claude Code versions)
   try {
-    // Handle url-safe base64 (- -> +, _ -> /)
     const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
     const decoded = Buffer.from(b64, 'base64').toString('utf8');
-    if (decoded.includes('/') || decoded.includes('\\')) {
+    if (decoded.startsWith('/') || decoded.startsWith('\\') || decoded.includes(':\\')) {
       return decoded;
     }
   } catch {
     // fall through
   }
 
-  // Fallback: return as-is
   return encoded;
 }
 
 export function getProjectDisplayName(encodedDirName: string): string {
-  const decoded = decodeProjectPath(encodedDirName);
+  // Strip leading dash for Unix paths
+  const s = encodedDirName.startsWith('-') ? encodedDirName.slice(1) : encodedDirName;
 
-  // Split by path separator and take last 2 non-empty parts
-  const parts = decoded.split(/[/\\]/).filter(Boolean);
-  if (parts.length === 0) return encodedDirName;
-  if (parts.length === 1) return parts[0];
+  // Windows: C--Users-{user}-{rest} → rest
+  if (/^[A-Za-z]--/.test(encodedDirName)) {
+    const rest = s.replace(/^[A-Za-z]--[^-]+-[^-]+-/, '');
+    return rest || s;
+  }
 
-  // Show last 2 path components joined
-  return parts.slice(-2).join('/');
+  // Unix -home-{user}-{rest} → rest
+  const homeMatch = s.match(/^home-[^-]+-(.+)/);
+  if (homeMatch) return homeMatch[1];
+
+  // Unix -mnt-{drive}-Users-{user}-{rest} → rest
+  const mntMatch = s.match(/^mnt-[^-]+-Users-[^-]+-(.+)/);
+  if (mntMatch) return mntMatch[1];
+
+  return s || encodedDirName;
 }

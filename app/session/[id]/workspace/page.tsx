@@ -8,7 +8,7 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2, RefreshCw, MoreHorizontal, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -32,6 +32,7 @@ export default function WorkspacePage({ params }: Props) {
   const { session, isLoading, error, reload } = useSession(id);
   const { setSessionId, setLayout, setSidebarCollapsed, incrementRefreshToken } = useWorkspaceStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const sidebarPanelRef = usePanelRef();
   const sidebarCollapsedRef = useRef(false);
   const { restoreSnapshot } = useWorkspacePersistence(id);
@@ -291,16 +292,43 @@ export default function WorkspacePage({ params }: Props) {
                 </button>
                 <LayoutPresets session={session} setLayout={setLayout} />
                 <SavedLayouts sessionId={id} />
-                <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">
-                  <Link href={`/session/${id}/timeline`} className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
-                    Timeline
-                  </Link>
-                  <Link href={`/session/${id}/analytics`} className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
-                    Analytics
-                  </Link>
-                  <Link href="/skills" className="text-xs text-[var(--aw-text-1)] hover:text-white px-2 py-1 rounded hover:bg-[var(--aw-bg-2)] transition-colors whitespace-nowrap">
-                    Skills
-                  </Link>
+                <div className="relative border-l border-[var(--aw-bg-3)] pl-2">
+                  <button
+                    onClick={() => setMoreOpen(o => !o)}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-2)] transition-colors"
+                    title="More"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                  {moreOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-44 py-1">
+                        <Link
+                          href={`/session/${id}/timeline`}
+                          onClick={() => setMoreOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
+                        >
+                          <Clock className="h-3.5 w-3.5" /> Timeline
+                        </Link>
+                        <Link
+                          href={`/session/${id}/analytics`}
+                          onClick={() => setMoreOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
+                        >
+                          <LayoutDashboard className="h-3.5 w-3.5" /> Analytics
+                        </Link>
+                        <div className="h-px bg-[var(--aw-bg-3)] my-1" />
+                        <Link
+                          href="/skills"
+                          onClick={() => setMoreOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
+                        >
+                          <Wand2 className="h-3.5 w-3.5 text-primary" /> Skills
+                        </Link>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <ThemeToggle />
                 <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">

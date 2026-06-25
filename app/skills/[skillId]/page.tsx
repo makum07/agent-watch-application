@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { use } from 'react';
 import Link from 'next/link';
 import { Layers, Wand2, Zap, MessageSquare, Clock, ArrowLeft, FolderOpen } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { SessionSearch } from '@/components/home/session-search';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useSkillStore } from '@/store/skill-store';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -54,18 +56,28 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border sticky top-0 z-10 bg-background/95 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold text-lg">AgentWatch</span>
-          </Link>
-          <span className="text-[var(--aw-bg-3)]">/</span>
-          <Link href="/skills" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Wand2 className="h-4 w-4 text-primary" />
-            <span className="text-sm text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]">Skills</span>
-          </Link>
-          <span className="text-[var(--aw-bg-3)]">/</span>
-          <span className="text-sm font-medium text-[var(--aw-text-0)] font-mono">/{skill.name}</span>
+        <div className="px-6 py-3 grid grid-cols-3 items-center gap-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <Link href="/" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity shrink-0">
+              <Layers className="h-4 w-4 text-primary" />
+              <span className="font-semibold text-sm">AgentWatch</span>
+            </Link>
+            <span className="text-border shrink-0">/</span>
+            <Link href="/skills" className="flex items-center gap-1 hover:opacity-80 transition-opacity shrink-0">
+              <Wand2 className="h-4 w-4 text-primary" />
+              <span className="text-sm text-muted-foreground hover:text-foreground">Skills</span>
+            </Link>
+            <span className="text-border shrink-0">/</span>
+            <span className="text-sm font-medium font-mono truncate">{skill.name}</span>
+          </div>
+          <div className="flex justify-center">
+            <div className="w-full max-w-sm">
+              <SessionSearch />
+            </div>
+          </div>
+          <div className="flex items-center justify-end">
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 

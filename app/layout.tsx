@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono, Space_Grotesk } from 'next/font/google';
 import Script from 'next/script';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import './globals.css';
 import { cn } from "@/lib/utils";
 
@@ -30,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('aw-theme')||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}` }}
         />
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
   );

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Pin, Star, Users, Zap, Clock, DollarSign, Wrench } from 'lucide-react';
 import { cn, formatTokens, formatDuration, formatCost, formatRelativeTime } from '@/lib/utils';
 import type { SessionHistory } from '@/types/history';
@@ -14,19 +15,23 @@ export function SessionCard({ session }: SessionCardProps) {
   const projectName = session.project.split(/[/\\]/).filter(Boolean).slice(-2).join('/');
   const [isPinned, setIsPinned] = useState(session.isPinned);
   const [isFavorite, setIsFavorite] = useState(session.isFavorite);
+  const router = useRouter();
 
   const toggle = async (field: 'isPinned' | 'isFavorite') => {
     const next = field === 'isPinned' ? !isPinned : !isFavorite;
     if (field === 'isPinned') setIsPinned(next);
     else setIsFavorite(next);
     try {
-      await fetch(`/api/v2/history/${session.sessionId}`, {
+      const sourceId = document.cookie.split(';').map(c => c.trim())
+        .find(c => c.startsWith('aw-source='))?.split('=')[1];
+      const url = `/api/v2/history/${session.sessionId}${sourceId ? `?source=${sourceId}` : ''}`;
+      await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: next }),
       });
+      if (field === 'isPinned') router.refresh();
     } catch {
-      // revert on failure
       if (field === 'isPinned') setIsPinned(!next);
       else setIsFavorite(!next);
     }
