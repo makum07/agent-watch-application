@@ -126,7 +126,7 @@ export function MarkdownRenderer({ content, className, size = 'sm', highlightTer
             if (isInline) {
               return (
                 <code
-                  className="bg-muted text-primary border border-border px-1.5 py-0.5 rounded-md font-mono text-[0.85em] align-baseline"
+                  className="bg-muted text-foreground border border-border px-1.5 py-0.5 rounded-md font-mono text-[0.85em] align-baseline"
                   {...props}
                 >
                   {children}
