@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatDuration, formatTokens, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, Maximize2, Minimize2, X, RotateCcw, Activity, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, X, RotateCcw, Activity, Layers } from 'lucide-react';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
@@ -87,7 +87,7 @@ interface ExecutionTimelineProps {
 
 export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionTimelineProps) {
   const { session } = useSessionStore();
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane } = useWorkspaceStore();
   const scrollSyncEnabled = useWorkspaceStore(s => s.scrollSyncEnabled);
   const scrollSyncTimestamp = useWorkspaceStore(s => s.scrollSyncTimestamp);
   const router = useRouter();
@@ -106,7 +106,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
   const [artifacts, setArtifacts] = useState<ArtifactMarker[]>([]);
   const [markersLoaded, setMarkersLoaded] = useState(false);
 
-  const isMaximized = paneId ? maximizedPaneId === paneId : false;
+  
 
   // Measure canvas width
   useEffect(() => {
@@ -272,12 +272,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
             <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Execution Timeline</span>
             <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-                title={isMaximized ? 'Restore' : 'Maximize'}>
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }}
+              <button onClick={() => closePane(paneId)}
                 className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
                 title="Close pane">
                 <X className="h-3.5 w-3.5" />

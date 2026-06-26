@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatTokens, formatDuration, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, RotateCcw, GitFork, Maximize2, Minimize2, X, ChevronRight } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, GitFork, X, ChevronRight } from 'lucide-react';
 import { findOtherPane, getFirstPaneId } from '@/lib/workspace-utils';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import type { Agent } from '@/types/session';
@@ -74,7 +74,7 @@ interface SelectedEdge {
 
 export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps) {
   const { session, agentMap } = useSessionStore();
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane } = useWorkspaceStore();
   const router = useRouter();
 
   const [zoom, setZoom] = useState(1);
@@ -84,7 +84,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null);
 
-  const isMaximized = paneId ? maximizedPaneId === paneId : false;
+  
 
   const { allNodes, edges, svgWidth, svgHeight, rootIds } = useMemo(() => {
     if (!session) return { allNodes: [], edges: [], svgWidth: 400, svgHeight: 200, rootIds: [] };
@@ -163,10 +163,7 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
             <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Context Flow</span>
             <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)} className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }} className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
+              <button onClick={() => closePane(paneId)} className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>

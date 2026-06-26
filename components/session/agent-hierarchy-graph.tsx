@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatTokens, formatDuration, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, RotateCcw, GitFork, Maximize2, Minimize2, X } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, GitFork, X } from 'lucide-react';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
@@ -92,7 +92,7 @@ const PHASE_COLORS = ['var(--aw-phase-blue)', 'var(--aw-green-bg)', 'var(--aw-ph
 
 export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkflowPhases: defaultShowPhases }: AgentHierarchyGraphProps) {
   const { session, agentMap } = useSessionStore();
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane } = useWorkspaceStore();
   const router = useRouter();
 
   const [zoom, setZoom] = useState(1);
@@ -104,7 +104,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
   const [phaseData, setPhaseData] = useState<WorkflowPhaseData[]>([]);
   const [phasesLoaded, setPhasesLoaded] = useState(false);
 
-  const isMaximized = paneId ? maximizedPaneId === paneId : false;
+  
 
   // Load workflow phases when toggled on
   useEffect(() => {
@@ -235,11 +235,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
             <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Agent Hierarchy</span>
             <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }}
+              <button onClick={() => closePane(paneId)}
                 className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
                 <X className="h-3.5 w-3.5" />
               </button>

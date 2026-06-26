@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Loader2, Search, X, ChevronRight, ChevronDown,
   Plus, Pencil, NotebookPen, Folder, FolderOpen,
-  Files, Maximize2, Minimize2, Copy, Check,
+  Files, Copy, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/store/workspace-store';
@@ -60,9 +60,9 @@ interface SessionArtifactsPaneProps {
 }
 
 export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: SessionArtifactsPaneProps) {
-  const { closePane, maximizePane, restorePane, maximizedPaneId, refreshToken } = useWorkspaceStore();
+  const { closePane, refreshToken } = useWorkspaceStore();
   const { agentMap } = useSessionStore();
-  const isMaximized = maximizedPaneId === paneId;
+  
 
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,14 +170,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
             )}
             <div className="flex items-center gap-0.5 shrink-0">
               <button
-                onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-                title={isMaximized ? 'Restore pane' : 'Maximize pane'}
-              >
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                onClick={() => { restorePane(); closePane(paneId); }}
+                onClick={() => closePane(paneId)}
                 className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
                 title="Close pane"
               >
