@@ -8,7 +8,7 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, BookOpen, ChevronDown, Trash2, RefreshCw, MoreHorizontal, Wand2 } from 'lucide-react';
+import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -16,7 +16,6 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { LayoutNode, WorkspaceSnapshot } from '@/types/workspace';
 import type { Session } from '@/types/session';
 import { cn } from '@/lib/utils';
-import { ThemeToggle } from '@/components/theme-toggle';
 
 // Below this content-area width, the Review panel floats over the workspace
 // instead of pushing it — otherwise three columns get unusably cramped.
@@ -32,7 +31,6 @@ export default function WorkspacePage({ params }: Props) {
   const { session, isLoading, error, reload } = useSession(id);
   const { setSessionId, setLayout, setSidebarCollapsed, incrementRefreshToken } = useWorkspaceStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const sidebarPanelRef = usePanelRef();
   const sidebarCollapsedRef = useRef(false);
   const { restoreSnapshot } = useWorkspacePersistence(id);
@@ -290,47 +288,7 @@ export default function WorkspacePage({ params }: Props) {
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
                 </button>
-                <LayoutPresets session={session} setLayout={setLayout} />
-                <SavedLayouts sessionId={id} />
-                <div className="relative border-l border-[var(--aw-bg-3)] pl-2">
-                  <button
-                    onClick={() => setMoreOpen(o => !o)}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-2)] transition-colors"
-                    title="More"
-                  >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                  {moreOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-44 py-1">
-                        <Link
-                          href={`/session/${id}/timeline`}
-                          onClick={() => setMoreOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
-                        >
-                          <Clock className="h-3.5 w-3.5" /> Timeline
-                        </Link>
-                        <Link
-                          href={`/session/${id}/analytics`}
-                          onClick={() => setMoreOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
-                        >
-                          <LayoutDashboard className="h-3.5 w-3.5" /> Analytics
-                        </Link>
-                        <div className="h-px bg-[var(--aw-bg-3)] my-1" />
-                        <Link
-                          href="/skills"
-                          onClick={() => setMoreOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white transition-colors"
-                        >
-                          <Wand2 className="h-3.5 w-3.5 text-primary" /> Skills
-                        </Link>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <ThemeToggle />
+                <LayoutMenu session={session} setLayout={setLayout} sessionId={id} />
                 <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">
                   <button
                     onClick={() => setPanelOpen(!isPanelOpen)}
@@ -390,109 +348,19 @@ export default function WorkspacePage({ params }: Props) {
   );
 }
 
-// Layout preset buttons — quickly arrange agents into common layouts
-function LayoutPresets({ session, setLayout }: {
+// Combined layout menu — presets + save + saved layouts in one dropdown
+function LayoutMenu({ session, setLayout, sessionId }: {
   session: Session;
   setLayout: (l: LayoutNode | null) => void;
+  sessionId: string;
 }) {
-  const agents = session.agents.slice(0, 4);
-  const makeTab = (a: (typeof agents)[0]) => ({
-    type: 'agent' as const,
-    agentId: a.id,
-    label: a.subagentType || (a.depth === 0 ? 'Main' : 'Agent'),
-  });
-
-  const presets = [
-    {
-      id: 'single',
-      icon: <Square className="h-3 w-3" />,
-      label: 'Single',
-      layout: (): LayoutNode => ({
-        type: 'pane', id: 'p1',
-        tabs: agents[0] ? [makeTab(agents[0])] : [],
-        activeTab: 0,
-      }),
-    },
-    {
-      id: '2col',
-      icon: <Columns2 className="h-3 w-3" />,
-      label: '2 Cols',
-      layout: (): LayoutNode | null => agents.length < 2 ? null : ({
-        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.5,
-        children: [
-          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
-          { type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 },
-        ],
-      }),
-    },
-    {
-      id: '3col',
-      icon: <Grid2x2 className="h-3 w-3" />,
-      label: '3 Cols',
-      layout: (): LayoutNode | null => agents.length < 3 ? null : ({
-        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.33,
-        children: [
-          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
-          {
-            type: 'split', id: 's2', direction: 'horizontal', ratio: 0.5,
-            children: [
-              { type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 },
-              { type: 'pane', id: 'p3', tabs: [makeTab(agents[2])], activeTab: 0 },
-            ],
-          },
-        ],
-      }),
-    },
-    {
-      id: 'orch',
-      icon: <Rows2 className="h-3 w-3" />,
-      label: 'Orch+',
-      layout: (): LayoutNode | null => agents.length < 2 ? null : ({
-        type: 'split', id: 's1', direction: 'horizontal', ratio: 0.4,
-        children: [
-          { type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 },
-          {
-            type: 'split', id: 's2', direction: 'vertical', ratio: 0.5,
-            children: [
-              { type: 'pane', id: 'p2', tabs: agents.slice(1).map(makeTab), activeTab: 0 },
-              { type: 'pane', id: 'p3', tabs: [], activeTab: 0 },
-            ],
-          },
-        ],
-      }),
-    },
-  ];
-
-  return (
-    <div className="flex items-center gap-0.5 bg-[var(--aw-bg-2)]/60 rounded-md px-1 py-0.5 shrink-0">
-      <span className="text-[10px] text-[var(--aw-text-1)] mr-1 pl-1 whitespace-nowrap hidden md:inline">Layout:</span>
-      {presets.map(p => {
-        const l = p.layout();
-        return (
-          <button
-            key={p.id}
-            onClick={() => l && setLayout(l)}
-            disabled={!l}
-            title={p.label}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 whitespace-nowrap"
-          >
-            {p.icon}
-            <span className="hidden lg:inline">{p.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// Named layout saves — save/restore custom layouts
-function SavedLayouts({ sessionId }: { sessionId: string }) {
-  const { layout, paneStates, sidebarCollapsed, sidebarWidth, globalSearchQuery, activeFilters, setLayout } = useWorkspaceStore();
-  const [snapshots, setSnapshots] = useState<WorkspaceSnapshot[]>([]);
+  const { layout, paneStates, sidebarCollapsed, sidebarWidth, globalSearchQuery, activeFilters } = useWorkspaceStore();
   const [isOpen, setIsOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [snapshots, setSnapshots] = useState<WorkspaceSnapshot[]>([]);
   const [saveName, setSaveName] = useState('');
-  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
 
   useEffect(() => {
     fetch(`/api/v2/workspaces/${sessionId}`)
@@ -501,112 +369,107 @@ function SavedLayouts({ sessionId }: { sessionId: string }) {
       .catch(() => {});
   }, [sessionId]);
 
-  const saveLayout = async () => {
-    if (!layout || !saveName.trim()) return;
-    setIsSaving(true);
-    const snapshot: WorkspaceSnapshot = {
-      id: crypto.randomUUID(),
-      sessionId,
-      savedAt: new Date().toISOString(),
-      isAutoSave: false,
-      name: saveName.trim(),
-      layout,
-      paneStates,
-      sidebarCollapsed,
-      sidebarWidth,
-      globalSearchQuery: globalSearchQuery || null,
-      activeFilters,
-    };
-    try {
-      const res = await fetch(`/api/v2/workspaces/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(snapshot),
-      });
-      const saved = await res.json();
-      setSnapshots(prev => [saved, ...prev]);
-      setSaveName('');
-      setShowSaveInput(false);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const agents = session.agents.slice(0, 4);
+  const makeTab = (a: (typeof agents)[0]) => ({
+    type: 'agent' as const,
+    agentId: a.id,
+    label: a.subagentType || (a.depth === 0 ? 'Main' : 'Agent'),
+  });
 
-  const deleteSnapshot = async (snapshotId: string) => {
-    setSnapshots(prev => prev.filter(s => s.id !== snapshotId));
-    await fetch(`/api/v2/workspaces/${sessionId}/${snapshotId}`, { method: 'DELETE' }).catch(() => {});
-  };
+  const presets = [
+    { id: 'single', icon: <Square className="h-3.5 w-3.5" />, label: 'Single',
+      layout: (): LayoutNode => ({ type: 'pane', id: 'p1', tabs: agents[0] ? [makeTab(agents[0])] : [], activeTab: 0 }) },
+    { id: '2col', icon: <Columns2 className="h-3.5 w-3.5" />, label: '2 Columns',
+      layout: (): LayoutNode | null => agents.length < 2 ? null : ({ type: 'split', id: 's1', direction: 'horizontal', ratio: 0.5, children: [{ type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 }, { type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 }] }) },
+    { id: '3col', icon: <Grid2x2 className="h-3.5 w-3.5" />, label: '3 Columns',
+      layout: (): LayoutNode | null => agents.length < 3 ? null : ({ type: 'split', id: 's1', direction: 'horizontal', ratio: 0.33, children: [{ type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 }, { type: 'split', id: 's2', direction: 'horizontal', ratio: 0.5, children: [{ type: 'pane', id: 'p2', tabs: [makeTab(agents[1])], activeTab: 0 }, { type: 'pane', id: 'p3', tabs: [makeTab(agents[2])], activeTab: 0 }] }] }) },
+    { id: 'orch', icon: <Rows2 className="h-3.5 w-3.5" />, label: 'Orchestrator+',
+      layout: (): LayoutNode | null => agents.length < 2 ? null : ({ type: 'split', id: 's1', direction: 'horizontal', ratio: 0.4, children: [{ type: 'pane', id: 'p1', tabs: [makeTab(agents[0])], activeTab: 0 }, { type: 'split', id: 's2', direction: 'vertical', ratio: 0.5, children: [{ type: 'pane', id: 'p2', tabs: agents.slice(1).map(makeTab), activeTab: 0 }, { type: 'pane', id: 'p3', tabs: [], activeTab: 0 }] }] }) },
+  ];
 
   const named = snapshots.filter(s => !s.isAutoSave);
 
+  const saveLayout = async () => {
+    if (!layout || !saveName.trim()) return;
+    setIsSaving(true);
+    const snapshot: WorkspaceSnapshot = { id: crypto.randomUUID(), sessionId, savedAt: new Date().toISOString(), isAutoSave: false, name: saveName.trim(), layout, paneStates, sidebarCollapsed, sidebarWidth, globalSearchQuery: globalSearchQuery || null, activeFilters };
+    try {
+      const res = await fetch(`/api/v2/workspaces/${sessionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot) });
+      const saved = await res.json();
+      setSnapshots(prev => [saved, ...prev]);
+      setSaveName('');
+    } finally { setIsSaving(false); }
+  };
+
+  const deleteSnapshot = async (id: string) => {
+    setSnapshots(prev => prev.filter(s => s.id !== id));
+    await fetch(`/api/v2/workspaces/${sessionId}/${id}`, { method: 'DELETE' }).catch(() => {});
+  };
+
+  const open = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setIsOpen(true);
+  };
+
   return (
-    <div className="relative shrink-0">
-      <div className="flex items-center gap-0.5 bg-[var(--aw-bg-2)]/60 rounded-md px-1 py-0.5">
-        {showSaveInput ? (
-          <div className="flex items-center gap-1 px-1">
-            <input
-              autoFocus
-              value={saveName}
-              onChange={e => setSaveName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') saveLayout(); if (e.key === 'Escape') setShowSaveInput(false); }}
-              placeholder="Layout name…"
-              className="text-[11px] bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded px-2 py-0.5 text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none w-28 focus:border-[var(--aw-blue)]/50"
-            />
-            <button
-              onClick={saveLayout}
-              disabled={isSaving || !saveName.trim()}
-              className="text-[11px] px-2 py-0.5 rounded bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] hover:bg-[var(--aw-blue)]/25 disabled:opacity-40 transition-colors"
-            >
-              {isSaving ? '…' : 'Save'}
-            </button>
-            <button onClick={() => setShowSaveInput(false)} className="text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] text-[11px] px-1">✕</button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowSaveInput(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors shrink-0 whitespace-nowrap"
-            title="Save current layout"
-          >
-            <Save className="h-3 w-3 shrink-0" />
-            <span className="hidden lg:inline">Save</span>
-          </button>
-        )}
+    <div className="shrink-0">
+      <button
+        ref={btnRef}
+        onClick={isOpen ? () => setIsOpen(false) : open}
+        className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors"
+      >
+        <LayoutDashboard className="h-3.5 w-3.5" />
+        <span>Layout</span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
 
-        {named.length > 0 && (
-          <button
-            onClick={() => setIsOpen(o => !o)}
-            className="flex items-center gap-0.5 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors"
-            title="Saved layouts"
-          >
-            <BookOpen className="h-3 w-3" />
-            <span className="text-[10px] bg-[var(--aw-bg-3)] rounded-full px-1">{named.length}</span>
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
-      {isOpen && named.length > 0 && (
+      {isOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-52 py-1">
-            <div className="px-3 py-1.5 text-[10px] text-[var(--aw-text-3)] font-medium uppercase tracking-wide">Saved Layouts</div>
-            {named.map(s => (
-              <div key={s.id} className="flex items-center gap-1 px-2 py-1 hover:bg-[var(--aw-bg-2)] group">
-                <button
-                  onClick={() => { setLayout(s.layout); setIsOpen(false); }}
-                  className="flex-1 text-left text-xs text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] truncate"
-                >
-                  {s.name}
+          <div className="fixed inset-0 z-[90]" onClick={() => setIsOpen(false)} />
+          <div className="fixed z-[100] bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-52 py-1" style={{ top: pos.top, right: pos.right }}>
+            <div className="px-3 py-1.5 text-[10px] text-[var(--aw-text-3)] font-medium uppercase tracking-wide">Presets</div>
+            {presets.map(p => {
+              const l = p.layout();
+              return (
+                <button key={p.id} onClick={() => { if (l) { setLayout(l); setIsOpen(false); } }} disabled={!l}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-left">
+                  {p.icon} {p.label}
                 </button>
-                <button
-                  onClick={() => deleteSnapshot(s.id)}
-                  className="opacity-0 group-hover:opacity-100 text-[var(--aw-text-3)] hover:text-red-400 transition-all p-0.5 rounded"
-                  title="Delete"
-                >
-                  <Trash2 className="h-3 w-3" />
+              );
+            })}
+
+            {named.length > 0 && (
+              <>
+                <div className="h-px bg-[var(--aw-bg-3)] my-1" />
+                <div className="px-3 py-1.5 text-[10px] text-[var(--aw-text-3)] font-medium uppercase tracking-wide">Saved</div>
+                {named.map(s => (
+                  <div key={s.id} className="flex items-center gap-1 px-2 py-1 hover:bg-[var(--aw-bg-2)] group">
+                    <button onClick={() => { setLayout(s.layout); setIsOpen(false); }} className="flex-1 text-left text-xs text-[var(--aw-text-1)] hover:text-white truncate px-1">{s.name}</button>
+                    <button onClick={() => deleteSnapshot(s.id)} className="opacity-0 group-hover:opacity-100 text-[var(--aw-text-3)] hover:text-red-400 transition-all p-0.5 rounded"><Trash2 className="h-3 w-3" /></button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <div className="h-px bg-[var(--aw-bg-3)] my-1" />
+            <div className="px-2 py-1.5">
+              <div className="flex items-center gap-1">
+                <input
+                  value={saveName}
+                  onChange={e => setSaveName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveLayout(); }}
+                  placeholder="Save current layout…"
+                  className="flex-1 text-xs bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded px-2 py-1 text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none focus:border-[var(--aw-blue)]/50"
+                />
+                <button onClick={saveLayout} disabled={isSaving || !saveName.trim()}
+                  className="text-xs px-2 py-1 rounded bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] hover:bg-[var(--aw-blue)]/25 disabled:opacity-40 transition-colors shrink-0">
+                  {isSaving ? '…' : <Save className="h-3 w-3" />}
                 </button>
               </div>
-            ))}
+            </div>
           </div>
         </>
       )}
