@@ -1,17 +1,12 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { Layers, Wand2, FolderOpen, RefreshCw, ArrowUpDown } from 'lucide-react';
-import Link from 'next/link';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Wand2, FolderOpen, RefreshCw, ArrowUpDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { SkillCard } from './skill-card';
-import { SessionSearch } from '@/components/home/session-search';
-import { ThemeToggle } from '@/components/theme-toggle';
-import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu,
-  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
-} from '@/components/ui/sidebar';
+import { NavBar } from '@/components/shared/navbar';
+import { cn } from '@/lib/utils';
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 
 type SortKey = 'name' | 'executions' | 'feedback' | 'lastAnalysis';
 
@@ -31,6 +26,16 @@ export function SkillsClient() {
   const [sortKey, setSortKey] = useState<SortKey>('executions');
 
   useEffect(() => { loadSkills(); }, [loadSkills]);
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarPanelRef = usePanelRef();
+  const collapsedRef = useRef(false);
+
+  function toggleSidebar() {
+    const panel = sidebarPanelRef.current;
+    if (!panel) return;
+    if (collapsedRef.current) { panel.expand(); } else { panel.collapse(); }
+  }
 
   // Build sidebar project list with display names + skill counts
   const sidebarProjects = useMemo(() => {
@@ -82,83 +87,83 @@ export function SkillsClient() {
     : `${sidebarProjects.find(p => p.raw === selected)?.displayName ?? selected} (${sorted.length})`;
 
   return (
-    <SidebarProvider style={{ '--sidebar-width': '220px' } as React.CSSProperties}>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="py-3" />
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={selected === 'all'}
-                    onClick={() => setSelected('all')}
-                    tooltip="All Skills"
-                  >
-                    <Wand2 className="h-4 w-4 text-primary" />
-                    <span>All Skills</span>
-                    <span className="ml-auto text-xs text-muted-foreground">{skills.length}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+    <div className="flex flex-col h-screen overflow-hidden">
+      <NavBar activePage="skills" />
 
-          {sidebarProjects.length > 0 && (
-            <SidebarGroup>
-              <SidebarGroupLabel>Projects</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {sidebarProjects.map(({ raw, displayName, count }) => (
-                    <SidebarMenuItem key={raw}>
-                      <SidebarMenuButton
-                        isActive={selected === raw}
-                        onClick={() => setSelected(raw)}
-                        tooltip={displayName}
-                      >
-                        <FolderOpen className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{displayName}</span>
-                        <span className="ml-auto text-xs text-muted-foreground shrink-0">{count}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )}
-        </SidebarContent>
-      </Sidebar>
-
-      <SidebarInset className="flex flex-col h-screen overflow-hidden">
-        {/* Navbar */}
-        <header className="border-b border-border shrink-0 bg-background/95 backdrop-blur z-10">
-          <div className="px-4 py-3 grid grid-cols-3 items-center gap-4">
-            <div className="flex items-center gap-2 min-w-0">
-              <SidebarTrigger className="shrink-0" />
-              <div className="h-4 w-px bg-border shrink-0" />
-              <Link href="/" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity shrink-0">
-                <Layers className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-sm">AgentWatch</span>
-              </Link>
-              <span className="text-border shrink-0">/</span>
-              <div className="flex items-center gap-1 shrink-0">
-                <Wand2 className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">Skills</span>
-              </div>
-            </div>
-            <div className="flex justify-center">
-              <div className="w-full max-w-sm">
-                <SessionSearch />
-              </div>
-            </div>
-            <div className="flex items-center justify-end">
-              <ThemeToggle />
-            </div>
+      <Group orientation="horizontal" className="flex-1 overflow-hidden">
+        {/* Resizable sidebar */}
+        <Panel
+          id="skills-sidebar"
+          panelRef={sidebarPanelRef}
+          defaultSize={220}
+          minSize={160}
+          maxSize={400}
+          collapsible
+          collapsedSize={40}
+          onResize={(size) => {
+            const collapsed = size.inPixels <= 44;
+            if (collapsed !== collapsedRef.current) {
+              collapsedRef.current = collapsed;
+              setSidebarCollapsed(collapsed);
+            }
+          }}
+          className="flex flex-col border-r border-border bg-background overflow-hidden"
+        >
+          <div className={cn('flex items-center px-2 py-3 shrink-0', sidebarCollapsed ? 'justify-center' : 'justify-end')}>
+            <button
+              onClick={toggleSidebar}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
           </div>
-        </header>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
+            <button
+              onClick={() => setSelected('all')}
+              className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
+                selected === 'all' ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
+              title={sidebarCollapsed ? 'All Skills' : undefined}
+            >
+              <Wand2 className="h-4 w-4 shrink-0 text-primary" />
+              {!sidebarCollapsed && (<><span className="truncate">All Skills</span><span className="ml-auto text-xs opacity-60">{skills.length}</span></>)}
+            </button>
+
+            {sidebarProjects.length > 0 && !sidebarCollapsed && (
+              <div className="pt-3">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Projects</p>
+                {sidebarProjects.map(({ raw, displayName, count }) => (
+                  <button key={raw} onClick={() => setSelected(raw)}
+                    className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
+                      selected === raw ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
+                  >
+                    <FolderOpen className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{displayName}</span>
+                    <span className="ml-auto text-xs opacity-60 shrink-0">{count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {sidebarProjects.length > 0 && sidebarCollapsed && (
+              <div className="pt-2 space-y-0.5">
+                {sidebarProjects.map(({ raw, displayName }) => (
+                  <button key={raw} onClick={() => setSelected(raw)} title={displayName}
+                    className={cn('w-full flex items-center justify-center py-1.5 rounded-md transition-colors',
+                      selected === raw ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        <Separator className="shrink-0 bg-border hover:bg-primary/40 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
+
+        {/* Main content */}
+        <Panel id="skills-main" minSize={300} className="overflow-y-auto">
           <div className="max-w-5xl mx-auto px-6 py-8">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -207,8 +212,8 @@ export function SkillsClient() {
               </div>
             )}
           </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </Panel>
+      </Group>
+    </div>
   );
 }

@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Layers, Bell, ChevronDown, ChevronRight, ExternalLink, Clock, DollarSign } from 'lucide-react';
+import { Bell, ChevronDown, ChevronRight, ExternalLink, Clock } from 'lucide-react';
 import Link from 'next/link';
-import { SessionSearch } from '@/components/home/session-search';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { NavBar } from '@/components/shared/navbar';
 import {
-  SidebarInset, SidebarProvider, SidebarTrigger,
+  SidebarInset, SidebarProvider,
 } from '@/components/ui/sidebar';
 
 interface SessionDetail {
@@ -197,35 +196,7 @@ export function AlertsClient() {
   return (
     <SidebarProvider>
       <SidebarInset className="flex flex-col h-screen overflow-hidden">
-        {/* Navbar — same pattern as home */}
-        <header className="border-b border-border shrink-0 bg-background/95 backdrop-blur z-10">
-          <div className="px-4 py-3 grid grid-cols-3 items-center gap-4">
-            <div className="flex items-center gap-2 min-w-0">
-              <SidebarTrigger className="shrink-0" />
-              <div className="h-4 w-px bg-border shrink-0" />
-              <Link href="/" className="flex items-center gap-1.5 shrink-0 hover:opacity-80 transition-opacity">
-                <Layers className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-sm">AgentWatch</span>
-              </Link>
-              <div className="h-4 w-px bg-border mx-1 shrink-0" />
-              <Link href="/skills" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors shrink-0">
-                Skills
-              </Link>
-              <span className="flex items-center gap-1 text-xs text-foreground px-2 py-1 rounded bg-muted shrink-0">
-                <Bell className="h-3 w-3 text-primary" />
-                Alerts
-              </span>
-            </div>
-            <div className="flex justify-center">
-              <div className="w-full max-w-sm">
-                <SessionSearch />
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <ThemeToggle />
-            </div>
-          </div>
-        </header>
+        <NavBar activePage="alerts" />
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">

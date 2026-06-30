@@ -148,18 +148,8 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
         </div>
       )}
 
-      {/* Search + View toggle */}
+      {/* View toggle */}
       <div className="px-2 py-2 border-b border-sidebar-border space-y-1.5">
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-sidebar-accent/50 border border-sidebar-border">
-          <Search className="h-3 w-3 text-sidebar-foreground/30 shrink-0" />
-          <input
-            type="text"
-            placeholder="Search agents…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="flex-1 bg-transparent text-xs text-sidebar-foreground placeholder:text-sidebar-foreground/30 outline-none"
-          />
-        </div>
         <div className="flex items-center gap-1.5">
           <div className="flex gap-0.5 p-0.5 rounded bg-sidebar-accent/30 border border-sidebar-border flex-1 min-w-0">
             <button
@@ -257,14 +247,12 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
       <div className="px-2 py-1.5 border-t border-sidebar-border flex flex-wrap gap-1">
         {([
           { type: 'timeline',     label: 'Timeline', icon: <Activity className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
-          { type: 'graph',        label: 'Graph',    icon: <GitFork  className="h-3.5 w-3.5 text-[var(--aw-purple)]" /> },
           { type: 'artifacts',    label: 'Files',    icon: <Files    className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
-          { type: 'search',       label: 'Search',   icon: <Search   className="h-3.5 w-3.5 text-[var(--aw-green)]" /> },
           { type: 'context-flow', label: 'Flow',     icon: <GitFork  className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
           { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[var(--aw-pink)]" /> },
         ] as const).map(({ type, label, icon }) => {
           const tabLabels: Record<string, string> = {
-            timeline: 'Timeline', graph: 'Agent Graph', artifacts: 'Session Files',
+            timeline: 'Timeline', artifacts: 'Session Files',
             search: 'Search', 'context-flow': 'Context Flow', analytics: 'Analytics',
           };
           return (

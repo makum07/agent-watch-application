@@ -114,6 +114,20 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
             <Plus className="h-3 w-3" />
           </button>
           <div className="ml-auto flex items-center gap-1 px-2">
+            <button
+              onClick={() => {
+                const searchIdx = tabs.findIndex(t => t.type === 'search');
+                if (searchIdx >= 0) {
+                  setActiveTab(paneId, searchIdx);
+                } else {
+                  addTabToPane(paneId, { type: 'search' as const, label: 'Search' });
+                }
+              }}
+              className="text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] p-1 rounded hover:bg-[var(--aw-bg-2)]"
+              title="Search agents"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
             <SplitButton paneId={paneId} tabs={tabs} activeTab={activeTab} />
             <button
               onClick={() => closePane(paneId)}
@@ -356,7 +370,6 @@ function AgentPickerDropdown({
         <div className="border-t border-[var(--aw-bg-2)] px-2 py-1 flex flex-wrap gap-1">
           {([
             { type: 'timeline' as const, label: 'Timeline' },
-            { type: 'graph' as const, label: 'Graph' },
             { type: 'artifacts' as const, label: 'Files' },
             { type: 'search' as const, label: 'Search' },
             { type: 'context-flow' as const, label: 'Flow' },

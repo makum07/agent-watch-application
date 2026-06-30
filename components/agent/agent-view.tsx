@@ -38,7 +38,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
   const agent = useSessionStore(s => s.agentMap.get(agentId));
   const session = useSessionStore(s => s.session);
   const agentMap = useSessionStore(s => s.agentMap);
-  const { closePane, splitPane } = useWorkspaceStore();
+  const { closePane, splitPane, addTabToPane, setActiveTab, paneStates } = useWorkspaceStore();
   const feedbackCount = useFeedbackStore(s => s.items.filter(i => i.agentId === agentId).length);
   const [showCompareMenu, setShowCompareMenu] = useState(false);
   const [compareSearch, setCompareSearch] = useState('');
@@ -91,6 +91,18 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           </div>
           {/* Controls */}
           <div className="flex items-center gap-0.5 shrink-0 relative">
+            <button
+              onClick={() => {
+                const tabs = paneStates[paneId]?.tabs ?? [];
+                const searchIdx = tabs.findIndex(t => t.type === 'search');
+                if (searchIdx >= 0) { setActiveTab(paneId, searchIdx); }
+                else { addTabToPane(paneId, { type: 'search' as const, label: 'Search' }); }
+              }}
+              className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+              title="Search agents"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
             <button
               onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
               className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
