@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fetches a 2-hour session digest from AgentWatch and posts to Teams.
+// Checks for active Claude Code sessions exceeding the cost threshold and posts to Teams.
 // Run by the digest-cron Docker service every 2 hours.
 
 const API_BASE = process.env.AGENTWATCH_URL || 'http://agentwatch:3456';
@@ -13,8 +13,8 @@ if (!WEBHOOK) {
 
 function stripTags(str) {
   return (str || '')
-    .replace(/<[^>]*>/g, '')    // complete tags <foo>
-    .replace(/<[^>]*$/g, '')    // incomplete tag at end (no closing >)
+    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]*$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -34,139 +34,95 @@ function fmtDate(d) {
 }
 
 async function main() {
-  const windowMs = parseInt(process.env.DIGEST_WINDOW_MS || String(2 * 60 * 60 * 1000));
-  const since = new Date(Date.now() - windowMs).toISOString();
-  const res = await fetch(`${API_BASE}/api/v2/analytics/digest?since=${encodeURIComponent(since)}`);
+  const res = await fetch(`${API_BASE}/api/v2/analytics/active-alert`);
 
   if (!res.ok) {
-    console.error(`Digest API returned ${res.status}`);
+    console.error(`Active alert API returned ${res.status}`);
     process.exit(1);
   }
 
   const data = await res.json();
+  const sessions = data.activeSessions ?? [];
 
-  if (!data.sessions || data.sessions === 0) {
-    console.log('No sessions in last 2h — skipping notification');
+  if (sessions.length === 0) {
+    console.log(`No active sessions above $${data.threshold} threshold — skipping`);
     process.exit(0);
   }
 
   const now = new Date();
-  const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
-  const sameDay = fmtDate(twoHoursAgo) === fmtDate(now);
-  const timeRange = sameDay
-    ? `${fmtDate(now)}  ${fmtTime(twoHoursAgo)} → ${fmtTime(now)}`
-    : `${fmtDate(twoHoursAgo)} ${fmtTime(twoHoursAgo)} → ${fmtDate(now)} ${fmtTime(now)}`;
+  const checkedAt = `${fmtDate(now)}  ${fmtTime(now)}`;
+  const totalCost = sessions.reduce((s, x) => s + x.cost, 0);
 
-  const sourceList = data.sourceBreakdown
-    .filter(s => s.sessions > 0)
-    .map(s => `${s.source} ${s.sessions}`)
-    .join('  ·  ');
-
-  const projectList = data.topProjects
-    .slice(0, 3)
-    .map(p => `${p.name} (${p.count})`)
-    .join(',  ') || '—';
-
-  // ── Summary section ──────────────────────────────────────────────
+  // ── Card body ────────────────────────────────────────────────────────────
   const cardBody = [
     {
       type: 'TextBlock',
-      text: '🤖  AgentWatch · 2h digest',
+      text: `🔴  Active Sessions Alert`,
       weight: 'Bolder',
       size: 'Large',
       wrap: false,
     },
     {
       type: 'TextBlock',
-      text: timeRange,
+      text: `Checked at ${checkedAt}  ·  threshold $${data.threshold}`,
       size: 'Small',
       isSubtle: true,
       spacing: 'None',
       wrap: false,
     },
-    { type: 'Container', spacing: 'Medium', style: 'emphasis', bleed: false, items: [
-      {
+    {
+      type: 'Container',
+      spacing: 'Medium',
+      style: 'emphasis',
+      items: [{
         type: 'ColumnSet',
         columns: [
           { type: 'Column', width: 'stretch', items: [
-            { type: 'TextBlock', text: fmtCost(data.totalCost), weight: 'Bolder', size: 'ExtraLarge', wrap: false },
+            { type: 'TextBlock', text: fmtCost(totalCost), weight: 'Bolder', size: 'ExtraLarge', wrap: false },
             { type: 'TextBlock', text: 'total cost', size: 'Small', isSubtle: true, spacing: 'None', wrap: false },
           ]},
           { type: 'Column', width: 'stretch', items: [
-            { type: 'TextBlock', text: String(data.sessions), weight: 'Bolder', size: 'ExtraLarge', wrap: false },
-            { type: 'TextBlock', text: 'sessions', size: 'Small', isSubtle: true, spacing: 'None', wrap: false },
-          ]},
-          { type: 'Column', width: 'stretch', items: [
-            { type: 'TextBlock', text: fmtTokens(data.totalTokens), weight: 'Bolder', size: 'ExtraLarge', wrap: false },
-            { type: 'TextBlock', text: 'tokens', size: 'Small', isSubtle: true, spacing: 'None', wrap: false },
+            { type: 'TextBlock', text: String(sessions.length), weight: 'Bolder', size: 'ExtraLarge', wrap: false },
+            { type: 'TextBlock', text: sessions.length === 1 ? 'active session' : 'active sessions', size: 'Small', isSubtle: true, spacing: 'None', wrap: false },
           ]},
         ],
-      },
-    ]},
-    {
-      type: 'FactSet',
-      spacing: 'Small',
-      facts: [
-        { title: 'Tool calls', value: String(data.totalToolCalls) },
-        { title: 'Avg duration', value: fmtDuration(data.avgDurationMs) },
-        { title: 'Model', value: data.topModel },
-        { title: 'Projects', value: projectList },
-        ...(sourceList ? [{ title: 'Sources', value: sourceList }] : []),
-      ],
+      }],
     },
+
+    // Separator + section header
+    { type: 'TextBlock', text: '─────────────────────', isSubtle: true, spacing: 'Medium', wrap: false },
+    { type: 'TextBlock', text: 'Running sessions', weight: 'Bolder', size: 'Medium', spacing: 'None', wrap: false },
   ];
 
-  // ── Session breakdown (cost > $5) ────────────────────────────────
-  if (data.totalCost > 5 && data.sessionDetails?.length > 0) {
-    cardBody.push({
-      type: 'TextBlock',
-      text: '─────────────────────',
-      isSubtle: true,
-      spacing: 'Medium',
-      wrap: false,
-    });
-    cardBody.push({
-      type: 'TextBlock',
-      text: 'Session breakdown',
-      weight: 'Bolder',
-      size: 'Medium',
-      spacing: 'None',
-      wrap: false,
-    });
+  // ── Per-session rows ─────────────────────────────────────────────────────
+  for (const s of sessions) {
+    const title = stripTags(s.title) || s.project;
+    const trunc = title.length > 55 ? title.slice(0, 52) + '…' : title;
+    const meta = `${fmtCost(s.cost)}  ·  ${fmtTokens(s.tokens)} tokens  ·  ${fmtDuration(s.durationMs)}  ·  ${s.source}`;
+    const sessionUrl = `${AGENTWATCH_PUBLIC}/session/${s.sessionId}/workspace`;
 
-    for (const s of data.sessionDetails) {
-      const title = stripTags(s.title) || s.project;
-      const truncated = title.length > 55 ? title.slice(0, 52) + '…' : title;
-      const meta = `${fmtCost(s.cost)}  ·  ${fmtTokens(s.tokens)} tokens  ·  ${s.agentCount} agents  ·  ${fmtDuration(s.durationMs)}  ·  ${s.source}`;
-      const sessionUrl = `${AGENTWATCH_PUBLIC}/session/${s.sessionId}/workspace`;
-
-      cardBody.push({
-        type: 'Container',
-        spacing: 'Small',
-        selectAction: { type: 'Action.OpenUrl', url: sessionUrl },
-        style: 'emphasis',
-        items: [
-          { type: 'TextBlock', text: `🔗 ${truncated}`, weight: 'Bolder', size: 'Small', wrap: false, color: 'Accent' },
-          { type: 'TextBlock', text: meta, size: 'Small', isSubtle: true, spacing: 'None', wrap: true },
-        ],
-      });
-    }
+    cardBody.push({
+      type: 'Container',
+      spacing: 'Small',
+      selectAction: { type: 'Action.OpenUrl', url: sessionUrl },
+      style: 'emphasis',
+      items: [
+        { type: 'TextBlock', text: `🔗 ${trunc}`, weight: 'Bolder', size: 'Small', wrap: false, color: 'Accent' },
+        { type: 'TextBlock', text: meta, size: 'Small', isSubtle: true, spacing: 'None', wrap: true },
+      ],
+    });
   }
-
-  const alertsUrl = `${AGENTWATCH_PUBLIC}/alerts`;
 
   const payload = {
     type: 'AdaptiveCard',
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     version: '1.4',
     body: cardBody,
-    actions: [
-      {
-        type: 'Action.OpenUrl',
-        title: '📊 Open AgentWatch Alerts',
-        url: alertsUrl,
-      },
-    ],
+    actions: [{
+      type: 'Action.OpenUrl',
+      title: '📊 Open AgentWatch Alerts',
+      url: `${AGENTWATCH_PUBLIC}/alerts`,
+    }],
   };
 
   const post = await fetch(WEBHOOK, {
@@ -181,29 +137,38 @@ async function main() {
     process.exit(1);
   }
 
-  // Persist digest run to DB for the in-app Alerts tab
+  // Save to digest_runs for in-app Alerts tab
   try {
     await fetch(`${API_BASE}/api/v2/analytics/digest/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        windowStart: since,
-        windowEnd: now.toISOString(),
-        totalSessions: data.sessions,
-        totalCost: data.totalCost,
-        totalTokens: data.totalTokens,
-        totalToolCalls: data.totalToolCalls,
-        avgDurationMs: data.avgDurationMs,
-        topModel: data.topModel,
-        sessionDetails: data.sessionDetails ?? [],
-        sourceBreakdown: data.sourceBreakdown ?? [],
+        windowStart: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+        windowEnd: new Date().toISOString(),
+        totalSessions: sessions.length,
+        totalCost,
+        totalTokens: sessions.reduce((s, x) => s + x.tokens, 0),
+        totalToolCalls: 0,
+        avgDurationMs: Math.round(sessions.reduce((s, x) => s + x.durationMs, 0) / sessions.length),
+        topModel: 'claude-sonnet-4-6',
+        sessionDetails: sessions.map(s => ({
+          sessionId: s.sessionId,
+          title: s.title,
+          project: s.project,
+          cost: s.cost,
+          tokens: s.tokens,
+          toolCalls: 0,
+          durationMs: s.durationMs,
+          agentCount: 0,
+          model: 'claude-sonnet-4-6',
+          source: s.source,
+        })),
+        sourceBreakdown: [],
       }),
     });
-  } catch {
-    // non-fatal — Teams post already succeeded
-  }
+  } catch { /* non-fatal */ }
 
-  console.log(`Digest sent — ${data.sessions} session(s), cost ${fmtCost(data.totalCost)}`);
+  console.log(`Active session alert sent — ${sessions.length} session(s), total ${fmtCost(totalCost)}`);
 }
 
 main().catch(err => {
