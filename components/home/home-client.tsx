@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Pin, Clock, FolderOpen, Layers, Wand2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Pin, Clock, FolderOpen, Layers, Wand2, Bell } from 'lucide-react';
 import { SessionCard } from './session-card';
 import { SessionSearch } from './session-search';
 import { LocalDate } from './local-date';
@@ -99,6 +99,14 @@ function SessionGroup({ label, sessions }: { label: string; sessions: PanelSessi
 
 export function HomeClient({ pinned, recent, byProject, historyMap: historyMapArr, firstUserMessages, totalSessions, sourceId }: Props) {
   const [selected, setSelected] = useState<Selection>('recent');
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+
+  useEffect(() => {
+    fetch('/api/v2/analytics/digest/unread')
+      .then(r => r.json())
+      .then(d => setUnreadAlerts(d.count ?? 0))
+      .catch(() => {});
+  }, []);
 
   const historyMap = useMemo(() => new Map(historyMapArr), [historyMapArr]);
   const msgMap = useMemo(() => new Map(firstUserMessages), [firstUserMessages]);
@@ -238,6 +246,13 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
               <Link href="/skills" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors shrink-0">
                 <Wand2 className="h-3 w-3 text-primary" />
                 Skills
+              </Link>
+              <Link href="/alerts" className="relative flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors shrink-0">
+                <Bell className="h-3 w-3 text-primary" />
+                Alerts
+                {unreadAlerts > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
+                )}
               </Link>
             </div>
             {/* Center: search */}

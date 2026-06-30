@@ -355,6 +355,29 @@ function runMigrations(db: Database.Database) {
     `);
   }
 
+  if (currentVersion < 12) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS digest_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_at INTEGER NOT NULL,
+        window_start INTEGER NOT NULL,
+        window_end INTEGER NOT NULL,
+        total_sessions INTEGER NOT NULL,
+        total_cost REAL NOT NULL,
+        total_tokens INTEGER NOT NULL,
+        total_tool_calls INTEGER NOT NULL,
+        avg_duration_ms INTEGER NOT NULL,
+        top_model TEXT,
+        session_details TEXT NOT NULL DEFAULT '[]',
+        source_breakdown TEXT NOT NULL DEFAULT '[]'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_digest_runs_run_at ON digest_runs(run_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (12, ${Date.now()});
+    `);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

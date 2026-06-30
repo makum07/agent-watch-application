@@ -36,6 +36,28 @@ services:
     user: "1000:1000"
     restart: unless-stopped
 
+  digest-cron:
+    image: node:22-alpine
+    container_name: agentwatch-digest-cron
+    depends_on:
+      - agentwatch
+    environment:
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - AGENTWATCH_URL=http://agentwatch:3456
+      - AGENTWATCH_PUBLIC_URL=${AGENTWATCH_PUBLIC_URL:-http://localhost:3457}
+      - DIGEST_WINDOW_MS=${DIGEST_WINDOW_MS:-7200000}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: >
+      sh -c "
+        echo 'Digest cron started. First run in 2 hours.';
+        while true; do
+          sleep 7200;
+          node /scripts/teams-digest.mjs;
+        done
+      "
+    restart: unless-stopped
+
 volumes:
   agentwatch-data:
     name: agentwatch-db
