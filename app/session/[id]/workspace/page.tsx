@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from '@/hooks/use-session';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useWorkspacePersistence } from '@/hooks/use-workspace-persistence';
@@ -28,6 +29,8 @@ interface Props {
 export default function WorkspacePage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const openTab = searchParams.get('open');
   const { session, isLoading, error, reload } = useSession(id);
   const { setSessionId, setLayout, setSidebarCollapsed, incrementRefreshToken } = useWorkspaceStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -114,6 +117,18 @@ export default function WorkspacePage({ params }: Props) {
     restoreSnapshot().then(snapshot => {
       setInitialized(true);
       const rootAgent = session.agents?.find(a => a.parentId === null) ?? session.agents?.[0];
+
+      // If ?open=timeline|analytics, skip resume dialog and open that tab directly
+      if (openTab && (openTab === 'timeline' || openTab === 'analytics')) {
+        const tabLabels: Record<string, string> = { timeline: 'Timeline', analytics: 'Analytics' };
+        setLayout({
+          type: 'pane',
+          id: 'main',
+          tabs: [{ type: openTab as 'timeline' | 'analytics', label: tabLabels[openTab] }],
+          activeTab: 0,
+        });
+        return;
+      }
 
       if (snapshot?.layout) {
         // Restored saved workspace — show resume choice if there's a meaningful layout

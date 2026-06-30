@@ -94,13 +94,13 @@ export function SessionCard({ session }: SessionCardProps) {
           Open Workspace
         </Link>
         <Link
-          href={`/session/${session.sessionId}/timeline`}
+          href={`/session/${session.sessionId}/workspace?open=timeline`}
           className="text-xs py-1.5 px-3 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors"
         >
           Timeline
         </Link>
         <Link
-          href={`/session/${session.sessionId}/analytics`}
+          href={`/session/${session.sessionId}/workspace?open=analytics`}
           className="text-xs py-1.5 px-3 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors"
         >
           Analytics

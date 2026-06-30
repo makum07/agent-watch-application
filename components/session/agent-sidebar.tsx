@@ -246,14 +246,14 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
       {/* Session-level views */}
       <div className="px-2 py-1.5 border-t border-sidebar-border flex flex-wrap gap-1">
         {([
-          { type: 'timeline',     label: 'Timeline', icon: <Activity className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
-          { type: 'artifacts',    label: 'Files',    icon: <Files    className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
-          { type: 'context-flow', label: 'Flow',     icon: <GitFork  className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
+          { type: 'timeline',     label: 'Timeline',  icon: <Activity  className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
+          { type: 'artifacts',    label: 'Files',     icon: <Files     className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
+          { type: 'context-flow', label: 'Flow',      icon: <GitFork   className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
           { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[var(--aw-pink)]" /> },
         ] as const).map(({ type, label, icon }) => {
           const tabLabels: Record<string, string> = {
             timeline: 'Timeline', artifacts: 'Session Files',
-            search: 'Search', 'context-flow': 'Context Flow', analytics: 'Analytics',
+            'context-flow': 'Context Flow', analytics: 'Analytics',
           };
           return (
             <button
