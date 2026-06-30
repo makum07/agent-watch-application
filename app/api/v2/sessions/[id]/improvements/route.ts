@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
 
 interface DbFeedbackItem {
   id: string;
@@ -267,42 +269,44 @@ function findProjectDirBySlug(slug: string): string | null {
   return search(startDir, 6);
 }
 
-// ── Approval gate ────────────────────────────────────────────────────────────
-// Pending approval requests keyed by requestId. The Promise resolves when the
-// user responds via WebSocket.
-const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; cycleId: string }>();
+// ── External skill/agent directory discovery ────────────────────────────────
+// When a session runs in project A but its skills/agents are defined in
+// project B, parse the session JSONL to find those external paths so the
+// improvement prompt can include them for Read/Edit.
 
-export function resolveApproval(requestId: string, approved: boolean) {
-  const entry = pendingApprovals.get(requestId);
-  if (entry) {
-    entry.resolve(approved);
-    pendingApprovals.delete(requestId);
+function findExternalSkillDirsFromSession(jsonlPath: string, projectCwd: string): string[] {
+  let raw: string;
+  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch { return []; }
+
+  const dirs = new Set<string>();
+  const normalizedCwd = path.resolve(projectCwd);
+
+  // In the JSONL, skill/agent paths appear in two forms:
+  // 1. JSON-escaped backslashes: C:\\Users\\...\.claude\\skills
+  // 2. Forward slashes (tool inputs): C:/Users/.../.claude/skills
+  const patterns = [
+    /([A-Za-z]:\\\\[^"]*?\\\\.claude\\\\(?:skills|agents))/g,
+    /([A-Za-z]:\/[^"]*?\/\.claude\/(?:skills|agents))/g,
+  ];
+
+  for (const re of patterns) {
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      const unescaped = match[1].replace(/\\\\/g, '\\').replace(/\//g, '\\');
+      try {
+        const resolved = path.resolve(unescaped);
+        if (!resolved.startsWith(normalizedCwd)) {
+          dirs.add(resolved);
+        }
+      } catch { continue; }
+    }
   }
+
+  return Array.from(dirs).filter(dir => {
+    try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+  });
 }
 
-function applyEditLocally(projectCwd: string, input: Record<string, unknown>): string {
-  const filePath = String(input.file_path ?? '');
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(projectCwd, filePath);
-
-  if (input.content !== undefined) {
-    // Write tool — create/overwrite file
-    const dir = path.dirname(abs);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(abs, String(input.content), 'utf8');
-    return `Successfully wrote to ${filePath}`;
-  }
-
-  // Edit tool — string replacement
-  const oldStr = String(input.old_string ?? '');
-  const newStr = String(input.new_string ?? '');
-  if (!fs.existsSync(abs)) return `Error: file not found: ${filePath}`;
-  const content = fs.readFileSync(abs, 'utf8');
-  if (!content.includes(oldStr)) return `Error: old_string not found in ${filePath}`;
-  const replaceAll = input.replace_all === true;
-  const updated = replaceAll ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
-  fs.writeFileSync(abs, updated, 'utf8');
-  return `Successfully edited ${filePath}`;
-}
 
 // ── Stream-JSON runner ───────────────────────────────────────────────────────
 
@@ -319,7 +323,13 @@ function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string
   return projectCwd;
 }
 
-async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: string) {
+async function runClaudeResumeAsync(
+  cycleId: string,
+  sessionId: string,
+  prompt: string,
+  resolvedProjectCwd?: string,
+  externalSkillDirs: string[] = [],
+) {
   const wss = getWsServer();
   const db = getDatabase();
 
@@ -327,7 +337,7 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
   };
 
-  const projectCwd = resolveProjectCwd(db, sessionId);
+  const projectCwd = resolvedProjectCwd ?? resolveProjectCwd(db, sessionId);
 
   // Snapshot the working tree before Claude runs so rewind can restore it.
   try {
@@ -336,59 +346,81 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     });
   } catch { /* not a git repo, or nothing to stash — non-fatal */ }
 
-  // Collect text from assistant messages to build the final response
   const responseChunks: string[] = [];
-  // Track permission denials encountered in this cycle
-  const deniedToolCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }> = [];
-
-  // Accumulate stream entries server-side so we can persist them with the cycle
   let streamIdCounter = 0;
   const streamLog: Array<Record<string, unknown>> = [];
+
+  // Write a temporary settings file with a PreToolUse hook that POSTs
+  // directly to AgentWatch's endpoint for browser-based approval.
+  const port = String(process.env.PORT || 3000);
+  const hookSettings = {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'Edit|Write',
+        hooks: [{
+          type: 'http',
+          url: `http://localhost:${port}/api/v2/hooks/permission`,
+          timeout: 600,
+        }],
+      }],
+    },
+  };
+  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-${cycleId}.json`);
+  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
+
+  // Register this cycle so the hook endpoint knows which session is active
+  registerActiveCycle(sessionId, cycleId);
 
   try {
     broadcast('improvement_started', {});
 
-    const child = spawn('claude', [
+    const cliArgs = [
       '--resume', sessionId, '-p',
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
       '--permission-mode', 'default',
-    ], {
+      '--settings', settingsPath,
+      '--include-hook-events',
+    ];
+
+    // Grant Read access to external skill/agent directories
+    for (const dir of externalSkillDirs) {
+      cliArgs.push('--add-dir', dir);
+    }
+
+    const child = spawn('claude', cliArgs, {
       shell: true,
       cwd: projectCwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Send the prompt as a stream-json user message — keep stdin OPEN
     const userMsg = JSON.stringify({
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text: prompt }] },
     });
     child.stdin.write(userMsg + '\n', 'utf8');
 
-    // Listen for approval responses from the browser
+    // Route browser approval responses to the shared permission state
     const unsubscribe = wss?.onClientMessage((msg) => {
       if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
         resolveApproval(msg.requestId, msg.approved);
       }
     });
 
-    // Buffer for partial lines from stdout
     let stdoutBuffer = '';
 
-    async function handleStreamEvent(line: string) {
+    function handleStreamEvent(line: string) {
       let event: Record<string, unknown>;
       try { event = JSON.parse(line); } catch { return; }
 
-      // Forward every event to the browser
       broadcast('improvement_stream_event', { event });
 
       const eventType = event.type as string;
 
       if (eventType === 'system') {
-        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: `Session initialized` });
+        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: 'Session initialized' });
       }
 
       if (eventType === 'assistant') {
@@ -406,20 +438,13 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
           if (block.type === 'tool_use') {
             streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
           }
-          if (block.type === 'tool_use' && (block.name === 'Edit' || block.name === 'Write')) {
-            deniedToolCalls.push({
-              toolName: block.name,
-              toolUseId: block.id!,
-              toolInput: block.input ?? {},
-            });
-          }
         }
       }
 
       if (eventType === 'user') {
-        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
-        if (userMsg?.content) {
-          for (const block of userMsg.content) {
+        const um = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
+        if (um?.content) {
+          for (const block of um.content) {
             if (block.type === 'tool_result') {
               streamLog.push({
                 id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
@@ -432,61 +457,6 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       }
 
       if (eventType === 'result') {
-        // Turn completed. If there were denied Edit/Write calls, offer them
-        // for approval and potentially continue with a new turn.
-        if (deniedToolCalls.length > 0) {
-          const approvalResults = await handleDeniedToolCalls(
-            deniedToolCalls, projectCwd, sessionId, cycleId, broadcast,
-          );
-
-          deniedToolCalls.length = 0;
-
-          // Log approval results into stream log for persistence
-          for (const r of approvalResults) {
-            streamLog.push({
-              id: `s-${++streamIdCounter}`,
-              kind: r.approved ? 'tool_result' : 'tool_result',
-              timestamp: Date.now(),
-              toolName: r.toolName,
-              filePath: r.filePath,
-              approved: r.approved,
-              content: r.approved ? `Applied: ${r.result}` : `Denied: ${r.filePath}`,
-              isError: !r.approved,
-            });
-          }
-
-          // Build a continuation message listing what was applied/skipped
-          const lines: string[] = [];
-          for (const r of approvalResults) {
-            if (r.approved) {
-              lines.push(`- APPROVED and applied: ${r.toolName} on ${r.filePath} — ${r.result}`);
-            } else {
-              lines.push(`- DENIED: ${r.toolName} on ${r.filePath} — skipped`);
-            }
-          }
-
-          if (lines.length > 0) {
-            const hasApproved = approvalResults.some(r => r.approved);
-            const continuation = [
-              'The AgentWatch review system processed your proposed changes:',
-              ...lines,
-              '',
-              hasApproved
-                ? 'Continue with any remaining improvements.'
-                : 'All proposed edits were denied. Continue with remaining improvements that do not require those edits, or wrap up.',
-            ].join('\n');
-
-            const contMsg = JSON.stringify({
-              type: 'user',
-              message: { role: 'user', content: [{ type: 'text', text: continuation }] },
-            });
-            child.stdin.write(contMsg + '\n', 'utf8');
-            // Don't close stdin — another turn is starting
-            return;
-          }
-        }
-
-        // No pending approvals — this is the final turn. Close stdin to end the process.
         child.stdin.end();
       }
     }
@@ -494,7 +464,6 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
     child.stdout.on('data', (chunk: Buffer) => {
       stdoutBuffer += chunk.toString();
       const lines = stdoutBuffer.split('\n');
-      // Keep the last (potentially incomplete) line in the buffer
       stdoutBuffer = lines.pop() ?? '';
       for (const line of lines) {
         if (line.trim()) handleStreamEvent(line.trim());
@@ -512,15 +481,12 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       child.on('error', (err) => { spawnError = err; resolve(1); });
     });
 
-    // Process any remaining buffered line
     if (stdoutBuffer.trim()) {
-      await handleStreamEvent(stdoutBuffer.trim());
+      handleStreamEvent(stdoutBuffer.trim());
     }
 
-    // Clean up the approval listener
     if (unsubscribe) unsubscribe();
 
-    // Capture which files changed
     const fileChanges = captureFileChanges(projectCwd);
     const now = Date.now();
     const fullResponse = responseChunks.join('');
@@ -553,57 +519,10 @@ async function runClaudeResumeAsync(cycleId: string, sessionId: string, prompt: 
       UPDATE improvement_cycles SET claude_response = ?, status = 'failed', completed_at = ? WHERE id = ?
     `).run(errMsg, Date.now(), cycleId);
     broadcast('improvement_failed', { error: errMsg });
+  } finally {
+    unregisterActiveCycle(sessionId);
+    try { fs.unlinkSync(settingsPath); } catch { /* non-fatal */ }
   }
-}
-
-async function handleDeniedToolCalls(
-  deniedCalls: Array<{ toolName: string; toolUseId: string; toolInput: Record<string, unknown> }>,
-  projectCwd: string,
-  sessionId: string,
-  cycleId: string,
-  broadcast: (type: string, payload: Record<string, unknown>) => void,
-): Promise<Array<{ toolName: string; filePath: string; approved: boolean; result: string }>> {
-  const results: Array<{ toolName: string; filePath: string; approved: boolean; result: string }> = [];
-
-  for (const call of deniedCalls) {
-    const requestId = randomUUID();
-    const filePath = String(call.toolInput.file_path ?? 'unknown');
-
-    // Send permission request to browser
-    broadcast('improvement_permission_request', {
-      requestId,
-      toolName: call.toolName,
-      toolInput: call.toolInput,
-    });
-
-    // Wait for user response (timeout after 5 minutes)
-    const approved = await new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        pendingApprovals.delete(requestId);
-        resolve(false);
-      }, 5 * 60 * 1000);
-
-      pendingApprovals.set(requestId, {
-        resolve: (val) => { clearTimeout(timeout); resolve(val); },
-        cycleId,
-      });
-    });
-
-    broadcast('improvement_permission_resolved', { requestId, approved });
-
-    let result = 'skipped';
-    if (approved) {
-      try {
-        result = applyEditLocally(projectCwd, call.toolInput);
-      } catch (e) {
-        result = `Error applying: ${String(e)}`;
-      }
-    }
-
-    results.push({ toolName: call.toolName, filePath, approved, result });
-  }
-
-  return results;
 }
 
 export async function GET(
@@ -728,15 +647,19 @@ export async function POST(
     ).get(sessionId) as { n: number | null };
     const cycleNumber = (row?.n ?? 0) + 1;
 
-    // Capture the JSONL file size BEFORE spawning Claude, so the user can rewind to this point later
+    // Query the JSONL path once — used for snapshot size, projectCwd, and external skill detection
+    const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
+    const jsonlPath = conv?.file_path ?? null;
+
     let snapshotSize = 0;
     try {
-      const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
-      if (conv?.file_path && fs.existsSync(conv.file_path)) {
-        snapshotSize = fs.statSync(conv.file_path).size;
+      if (jsonlPath && fs.existsSync(jsonlPath)) {
+        snapshotSize = fs.statSync(jsonlPath).size;
       }
     } catch { /* non-fatal */ }
 
+    const projectCwd = resolveProjectCwd(db, sessionId);
+    const externalSkillDirs = jsonlPath ? findExternalSkillDirsFromSession(jsonlPath, projectCwd) : [];
     const prompt = body.customPrompt?.trim() || generateImprovementPrompt(sessionId, items);
     const cycleId = randomUUID();
     const now = Date.now();
@@ -748,7 +671,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, now);
 
     // Fire-and-forget — client polls GET or listens via WebSocket
-    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt));
+    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs));
 
     const cycle = db.prepare(`SELECT * FROM improvement_cycles WHERE id = ?`).get(cycleId) as DbCycle;
     return NextResponse.json(mapCycle(cycle), { status: 201 });

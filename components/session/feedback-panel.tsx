@@ -1201,7 +1201,9 @@ function ApprovalCard({ entry, sessionId, onApprove, onDeny }: { entry: StreamEn
         )}
         <div className="flex-1 min-w-0">
           <div className="text-[11px] font-semibold text-[var(--aw-text-0)]">
-            {isPending ? 'Approve Change?' : isApproved ? 'Approved' : 'Denied'}
+            {isPending
+              ? (entry.toolName === 'Read' || entry.toolName === 'Glob' ? 'Allow Read?' : 'Approve Change?')
+              : isApproved ? 'Approved' : 'Denied'}
           </div>
           <div className="text-[10px] text-[var(--aw-text-2)] truncate">
             {entry.toolName} — {fileName}
