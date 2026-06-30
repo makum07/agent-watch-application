@@ -166,6 +166,8 @@ Rather than bypassing Claude Code's permission system, AgentWatch plugs into it 
 
 Workflows often span projects — a session runs in one repository but uses skills or agents defined in another. AgentWatch parses the session data to detect external `.claude/skills` and `.claude/agents` paths, then passes them via Claude Code's `--add-dir` flag to grant read access. Write operations to those external files go through the same browser approval gate.
 
+Because AgentWatch invokes Claude Code via a shell process, filesystem paths containing spaces (common on Windows — e.g. `C:\Users\makum\Zeroni Product\...`) must be explicitly quoted when passed as CLI arguments. Without quoting, the shell splits the path at the space and `--add-dir` silently receives a truncated path that doesn't exist, causing all reads to the external directory to be denied. AgentWatch handles this automatically — paths are always shell-safe.
+
 #### The key architectural point
 
 AgentWatch does not bypass, replace, or reimplement Claude Code's permission system. It uses the **official hook API** to relocate the human-in-the-loop from the terminal to the browser. Claude Code still:
@@ -282,9 +284,11 @@ This means the improvement loop does **not depend on the terminal** for permissi
 ### Cross-Project Skill Improvements — *fix skills wherever they live*
 Real-world workflows often span multiple projects. A session might run in project A (e.g. your application repo) but use skills and agents defined in project B (e.g. a shared Claude config repo). AgentWatch handles this automatically:
 
-1. **Detection** — When an improvement cycle starts, AgentWatch parses the session's JSONL to find every `.claude/skills` and `.claude/agents` path referenced during the run. Any path outside the session's own project directory is identified as external.
-2. **Read access** — External directories are passed to Claude Code via the `--add-dir` flag, granting native read access without any extra approval prompts.
+1. **Detection** — When an improvement cycle starts, AgentWatch parses the session's JSONL to find every `.claude/skills` and `.claude/agents` path referenced during the run. Paths are matched in both JSON-escaped backslash form (`C:\\Users\\...`) and forward-slash form (`C:/Users/...`) to catch every reference regardless of how Claude Code serialized them. Any path outside the session's own project directory is identified as external.
+2. **Read access** — External directories are passed to Claude Code via the `--add-dir` flag, granting native read access without any extra approval prompts. Paths are shell-quoted to handle directory names containing spaces (e.g. `Zeroni Product`) — without quoting, the shell splits the path into fragments and `--add-dir` silently receives a truncated, non-existent directory.
 3. **Write access** — Edits to external files go through the same browser-based approval gate as local edits.
+
+The detection is deterministic and works for any project layout — it reads the actual session data rather than scanning the filesystem for sibling projects. If a session referenced a skill in `C:\Users\makum\Zeroni Product\ZER-claude-config\.claude\skills`, that exact directory is detected and granted access, regardless of where the session itself ran.
 
 This means if the improvement agent determines that a skill definition in a *different* project caused the issue, it can read and propose edits to that file — and you approve or deny the change in the browser, just like any other edit.
 

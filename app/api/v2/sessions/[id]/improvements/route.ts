@@ -380,13 +380,14 @@ async function runClaudeResumeAsync(
       '--input-format', 'stream-json',
       '--verbose',
       '--permission-mode', 'default',
-      '--settings', settingsPath,
+      '--settings', `"${settingsPath}"`,
       '--include-hook-events',
     ];
 
-    // Grant Read access to external skill/agent directories
+    // Grant Read access to external skill/agent directories.
+    // Paths must be quoted — shell: true splits on spaces otherwise.
     for (const dir of externalSkillDirs) {
-      cliArgs.push('--add-dir', dir);
+      cliArgs.push('--add-dir', `"${dir}"`);
     }
 
     const child = spawn('claude', cliArgs, {
