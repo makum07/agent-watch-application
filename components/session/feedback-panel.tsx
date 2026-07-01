@@ -64,6 +64,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const [applyStep, setApplyStep] = useState<'idle' | 'loading-preview' | 'editing-prompt' | 'applying'>('idle');
   const [promptDraft, setPromptDraft] = useState('');
   const [rewindFromCycle, setRewindFromCycle] = useState<number | null>(null);
+  const [promptViewMode, setPromptViewMode] = useState<'preview' | 'edit'>('preview');
 
   // Rewind confirmation
   const [rewindConfirm, setRewindConfirm] = useState<ImprovementCycle | null>(null);
@@ -122,7 +123,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
     setApplyStep('loading-preview');
     setRewindFromCycle(null);
     const p = await previewPrompt(sessionId);
-    if (p) { setPromptDraft(p); setApplyStep('editing-prompt'); }
+    if (p) { setPromptDraft(p); setPromptViewMode('preview'); setApplyStep('editing-prompt'); }
     else setApplyStep('idle');
   }
 
@@ -150,6 +151,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
     }
     setPromptDraft(rewindConfirm.generatedPrompt);
     setRewindFromCycle(rewindConfirm.cycleNumber);
+    setPromptViewMode('preview');
     setApplyStep('editing-prompt');
   }
 
@@ -228,28 +230,52 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
                   <span className="text-xs font-semibold text-[var(--aw-text-0)] flex-1">Review &amp; Edit Prompt</span>
                 </>
               )}
+              {/* Preview / Edit toggle */}
+              <div className="flex items-center shrink-0 rounded border border-[var(--aw-bg-3)] overflow-hidden text-[10px]">
+                <button
+                  onClick={() => setPromptViewMode('preview')}
+                  className={cn(
+                    'px-2 py-0.5 transition-colors',
+                    promptViewMode === 'preview'
+                      ? 'bg-[var(--aw-blue)] text-white'
+                      : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]',
+                  )}
+                >
+                  Preview
+                </button>
+                <button
+                  onClick={() => setPromptViewMode('edit')}
+                  className={cn(
+                    'px-2 py-0.5 transition-colors border-l border-[var(--aw-bg-3)]',
+                    promptViewMode === 'edit'
+                      ? 'bg-[var(--aw-blue)] text-white'
+                      : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]',
+                  )}
+                >
+                  Edit
+                </button>
+              </div>
               <span className="shrink-0 text-[10px] text-[var(--aw-text-4)] font-mono tabular-nums">
                 {promptDraft.length.toLocaleString()} chars
               </span>
             </div>
-            {/* Hint */}
-            <div className="shrink-0 px-3 py-1.5 bg-[var(--aw-bg-0)] border-b border-[var(--aw-bg-2)]">
-              <p className="text-[10px] text-[var(--aw-text-4)] leading-snug">
-                This prompt will be sent to Claude to evolve agent and workflow designs.
-                Edit freely — changes apply only to this cycle.
-              </p>
-            </div>
-            {/* Textarea — fills remaining space */}
-            <textarea
-              value={promptDraft}
-              onChange={e => setPromptDraft(e.target.value)}
-              className="flex-1 w-full px-3 py-2.5 bg-[var(--aw-bg-0)] text-[11px] text-[var(--aw-text-1)] font-mono leading-relaxed focus:outline-none resize-none border-0"
-              placeholder="Improvement prompt will appear here…"
-              onKeyDown={e => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleApply();
-                if (e.key === 'Escape') { setApplyStep('idle'); setRewindFromCycle(null); }
-              }}
-            />
+            {/* Content: rendered preview or raw textarea */}
+            {promptViewMode === 'preview' ? (
+              <div className="flex-1 overflow-y-auto px-4 py-3">
+                <MarkdownRenderer content={promptDraft} size="sm" />
+              </div>
+            ) : (
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                className="flex-1 w-full px-3 py-2.5 bg-[var(--aw-bg-0)] text-[11px] text-[var(--aw-text-1)] font-mono leading-relaxed focus:outline-none resize-none border-0"
+                placeholder="Improvement prompt will appear here…"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleApply();
+                  if (e.key === 'Escape') { setApplyStep('idle'); setRewindFromCycle(null); }
+                }}
+              />
+            )}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
