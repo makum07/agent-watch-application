@@ -273,7 +273,7 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
 
   lines.push(`## Output\n`);
   lines.push(`Describe the skill's health trend (improving, stable, or degrading) with evidence from the timestamps. Then surface each meaningful finding: what the pattern is, what the timeline shows, and what specific change to the skill definition would address it.\n`);
-  lines.push(`After presenting your findings, immediately apply your recommendations by editing the skill definition and any affected agent definitions. Do not ask for confirmation. If an edit fails or is denied, skip it and continue.\n`);
+  lines.push(`Do not make any changes to files. This is an analysis report only.\n`);
   lines.push(`End with:\n`);
   lines.push('```json');
   lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "..."}], "fixPrompt": "..."}`);

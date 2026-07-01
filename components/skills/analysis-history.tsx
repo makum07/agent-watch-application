@@ -4,11 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, Play, Check, X, AlertTriangle, Clock,
   Loader2, Trash2, FileText, Brain, Terminal, Wrench, Eye, MessageSquare,
-  FileCode2,
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { SkillAnalysisCycle, AnalysisRecommendation } from '@/types/skills';
 import type { StreamEntry } from '@/types/feedback';
 
@@ -85,6 +84,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
   // Prompt preview/edit flow
   const [promptStep, setPromptStep] = useState<'idle' | 'loading' | 'editing'>('idle');
   const [promptDraft, setPromptDraft] = useState('');
+  const [promptViewMode, setPromptViewMode] = useState<'preview' | 'edit'>('preview');
 
   // Auto-expand latest analyzing/active cycle
   useEffect(() => {
@@ -108,7 +108,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
   const handlePreview = async () => {
     setPromptStep('loading');
     const p = await previewPrompt(skillId);
-    if (p) { setPromptDraft(p); setPromptStep('editing'); }
+    if (p) { setPromptDraft(p); setPromptViewMode('preview'); setPromptStep('editing'); }
     else setPromptStep('idle');
   };
 
@@ -143,27 +143,52 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-t-lg bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)]">
           <FileText className="h-3.5 w-3.5 text-[var(--aw-purple-light)] shrink-0" />
           <span className="text-xs font-semibold text-[var(--aw-text-0)] flex-1">Review & Edit Analysis Prompt</span>
+          {/* Preview / Edit toggle */}
+          <div className="flex items-center shrink-0 rounded border border-[var(--aw-bg-3)] overflow-hidden text-[10px]">
+            <button
+              onClick={() => setPromptViewMode('preview')}
+              className={cn(
+                'px-2 py-0.5 transition-colors',
+                promptViewMode === 'preview'
+                  ? 'bg-[var(--aw-blue)] text-white'
+                  : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]',
+              )}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => setPromptViewMode('edit')}
+              className={cn(
+                'px-2 py-0.5 transition-colors border-l border-[var(--aw-bg-3)]',
+                promptViewMode === 'edit'
+                  ? 'bg-[var(--aw-blue)] text-white'
+                  : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]',
+              )}
+            >
+              Edit
+            </button>
+          </div>
           <span className="shrink-0 text-[10px] text-[var(--aw-text-4)] font-mono tabular-nums">
             {promptDraft.length.toLocaleString()} chars
           </span>
         </div>
 
-        {/* Hint */}
-        <div className="px-3 py-1.5 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-2)] rounded text-[10px] text-[var(--aw-text-4)] leading-snug">
-          This prompt will be sent to Claude for deep skill analysis. It includes all improvement cycles,
-          open/closed feedback items, fix history, and analysis instructions. Edit freely — changes apply only to this cycle.
-        </div>
-
-        {/* Editor */}
-        <textarea
-          value={promptDraft}
-          onChange={e => setPromptDraft(e.target.value)}
-          className="w-full h-[500px] px-3 py-2.5 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded text-[11px] text-[var(--aw-text-1)] font-mono leading-relaxed focus:outline-none focus:border-[var(--aw-purple-light)]/50 resize-y"
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTrigger();
-            if (e.key === 'Escape') setPromptStep('idle');
-          }}
-        />
+        {/* Content */}
+        {promptViewMode === 'preview' ? (
+          <div className="px-4 py-3 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded overflow-y-auto max-h-[500px]">
+            <MarkdownRenderer content={promptDraft} size="sm" />
+          </div>
+        ) : (
+          <textarea
+            value={promptDraft}
+            onChange={e => setPromptDraft(e.target.value)}
+            className="w-full h-[500px] px-3 py-2.5 bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] rounded text-[11px] text-[var(--aw-text-1)] font-mono leading-relaxed focus:outline-none focus:border-[var(--aw-purple-light)]/50 resize-y"
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTrigger();
+              if (e.key === 'Escape') setPromptStep('idle');
+            }}
+          />
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-2">
@@ -246,7 +271,6 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
         <AnalysisCycleCard
           key={cycle.id}
           cycle={cycle}
-          skillId={skillId}
           isExpanded={expandedCycles.has(cycle.id)}
           onToggle={() => toggleExpand(cycle.id)}
           onDelete={() => handleDelete(cycle.id)}
@@ -278,7 +302,6 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
 
 interface AnalysisCycleCardProps {
   cycle: SkillAnalysisCycle;
-  skillId: string;
   isExpanded: boolean;
   onToggle: () => void;
   onDelete: () => void;
@@ -293,7 +316,7 @@ interface AnalysisCycleCardProps {
 }
 
 function AnalysisCycleCard({
-  cycle, skillId, isExpanded, onToggle, onDelete, onApprove,
+  cycle, isExpanded, onToggle, onDelete, onApprove,
   editingFixPrompt, fixPromptText, onStartEditFixPrompt, onCancelEditFixPrompt, onFixPromptChange,
   liveStreamEntries, isAnalyzing,
 }: AnalysisCycleCardProps) {
