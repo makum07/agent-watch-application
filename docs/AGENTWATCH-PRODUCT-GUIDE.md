@@ -324,8 +324,68 @@ Compare two sessions side by side — their agent hierarchies, metrics, and outc
 **Value:** when you improve a workflow and re-run it, you can directly compare the before and after.
 
 ### Skills Dashboard & Skill Intelligence — *learn across many runs*
-Instead of improving one run at a time, AgentWatch aggregates feedback and trends across **many executions** of the same skill. See execution history, success rates, and recurring patterns.
-**Value:** you stop fixing single executions and start improving the **workflow itself**.
+
+Instead of improving one run at a time, the Skills Dashboard aggregates execution data, feedback, and improvement history across **all sessions** that used a given skill. It answers the question: "How is this workflow performing over time, and what keeps going wrong?"
+
+#### Skills list — the entry point
+
+The top-level skills page shows every registered skill as a card, organized by **project** in a resizable sidebar. Each card displays:
+
+- **Name** — the skill's slash-command name (e.g. `/generate-test-cases`)
+- **Project** — which project the skill belongs to
+- **Description** — from the skill's `SKILL.md` frontmatter, if present
+- **Execution count** — total invocations across all sessions
+- **Session count** — how many distinct sessions used this skill
+- **Feedback count** — total feedback items from sessions where this skill ran (including feedback on sub-agents spawned by the skill)
+- **Average duration** — mean execution time
+- **Self-healing indicator** — a colored dot and icon showing whether self-healing is enabled and its current status (green = enabled, yellow = analyzing, grey = disabled)
+- **Version** and **last analyzed date**
+
+Skills are sortable by most used, most feedback, name, or last analyzed. A **Sync** button triggers a full rebuild: re-indexing sessions, normalizing project names, and refreshing execution data from the source JSONL files.
+
+#### Skill detail — the full picture for one skill
+
+Clicking a skill card opens a detail page with summary stats (executions, sessions, feedback, avg duration, analysis cycles) and four tabs:
+
+**Overview tab**
+- **Self-healing configuration** — toggle self-healing on/off, choose a mode (analysis only, analysis + fix, fully automatic), and set the execution threshold that triggers automatic analysis
+- **Skill metadata** — name, project, version, created date, last execution, last analysis
+- **Top feedback categories** — a quick summary of the most common feedback types
+
+**Executions tab**
+- A paginated table of every execution: which session, which agent invoked it, when, how long it took, and how many feedback items relate to that session
+- Each session ID links directly to the workspace view for that session
+- Pagination with configurable page size
+
+**Feedback tab** — three view modes:
+
+1. **By Session** — feedback items grouped by the session they came from, with expand/collapse per session. Each item shows its category (color-coded dot), the agent that received the feedback, the feedback text, timestamp, and whether it's **open** (unaddressed) or **closed** (addressed by an improvement cycle, with the cycle number shown)
+2. **By Category** — a horizontal bar chart showing feedback distribution across the ten structured categories (missing context, incorrect assumption, hallucinated conclusion, etc.), plus a table showing counts and percentages. Below, a "Top Agents by Feedback" breakdown shows which agents received the most feedback, with progress bars
+3. **History** — a unified timeline of all improvement activity for this skill:
+   - **Improvement cycles** — each expandable card shows the cycle number, status (completed/failed/pending/running), the session it ran in, duration, feedback items addressed, the generated prompt, Claude's response, and file changes produced. Feedback items referenced by the cycle are resolved and shown inline
+   - **Skill analysis cycles** — cards showing the analysis trigger (manual or auto), sessions and feedback analyzed, and parsed recommendations with severity badges (critical/high/medium/low)
+   - **Feedback items** — split into Open and Closed sections. Closed items show which improvement cycle addressed them and when
+
+**Analysis tab**
+- **Preview Prompt** — generates the analysis prompt (including session structure, feedback, and skill definitions) and shows it in a preview/edit view with character count. The user can review or edit the prompt before running
+- **Quick Analysis** — triggers analysis immediately with the default prompt
+- **Live stream** — while analysis is running, a live stream viewer shows thinking blocks, tool calls (color-coded by type), text output, and progress indicators, auto-scrolling as new events arrive
+- **Cycle history** — each completed analysis cycle is shown as an expandable card with a colored left border indicating status (blue = analyzing, green = completed, red = failed). Inside: sessions/feedback analyzed counts, collapsible generated prompt, activity log (the full tool-call stream, preserved for historical review), analysis report (rendered markdown), and parsed recommendations with severity, root cause, affected component, proposed change, and self-correction signal
+- **Fix prompt approval** — for cycles in `awaiting_review` status, an approval bar lets the user approve the fix as-is or edit the fix prompt before applying
+
+#### How skill data is built
+
+Skills are not configured manually — they are **discovered automatically** from Claude Code session data. When a session uses the `Skill` tool (slash commands like `/generate-test-cases`), AgentWatch's ingester records the invocation. The skill registry:
+
+1. Extracts skill invocations from the `agents` table (each agent stores its `skill_invocations` as JSON)
+2. Computes a deterministic skill ID from `sha256(project:skill_name)` — same skill in the same project always gets the same ID
+3. Upserts the skill entry and creates execution records linking skill → session → agent
+4. Enriches descriptions by reading `SKILL.md` frontmatter from the skill's `.claude/skills/` directory on disk
+5. Computes feedback counts at the **session level** — any feedback in a session where the skill ran counts toward the skill, because skills typically spawn sub-agents and the feedback lands on those sub-agents rather than the parent agent that invoked the skill
+
+The Sync operation additionally normalizes project display names across all sessions (ensuring sessions from the same project directory get the same name regardless of when they were indexed) and migrates analysis cycles from orphaned skill entries to their active replacements.
+
+**Value:** you stop fixing single executions and start improving the **workflow itself** — with evidence from every run, not just the last one.
 
 ### Self-Healing — *workflows that improve themselves*
 After a number of runs, a skill **analyzes its own history**, produces an improvement report and a suggested fix, you **review**, and **apply**. The skill dashboard aggregates feedback and execution data across sessions and spawns a dedicated Claude Code session to perform the analysis.

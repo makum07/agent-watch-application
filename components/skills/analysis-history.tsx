@@ -32,19 +32,6 @@ const SEVERITY_COLORS: Record<string, string> = {
   low: 'border-l-[var(--aw-text-2)] bg-[var(--aw-text-2)]/5',
 };
 
-const TOOL_COLORS: Record<string, { border: string; icon: string }> = {
-  Bash:  { border: 'var(--aw-green-bright)', icon: 'var(--aw-green-bright)' },
-  Read:  { border: 'var(--aw-blue-light)', icon: 'var(--aw-blue-light)' },
-  Edit:  { border: 'var(--aw-orange)', icon: 'var(--aw-orange)' },
-  Write: { border: 'var(--aw-orange)', icon: 'var(--aw-orange)' },
-  Grep:  { border: 'var(--aw-purple-light)', icon: 'var(--aw-purple-light)' },
-  Glob:  { border: 'var(--aw-purple-light)', icon: 'var(--aw-purple-light)' },
-  Agent: { border: 'var(--aw-blue)', icon: 'var(--aw-blue)' },
-};
-
-function getToolColor(name: string) {
-  return TOOL_COLORS[name] ?? { border: 'var(--aw-bg-3)', icon: 'var(--aw-text-1)' };
-}
 
 function getToolSummaryText(toolName: string, toolInput: Record<string, unknown>): string {
   if (toolName === 'Bash') return String(toolInput?.command ?? '').slice(0, 80);
@@ -578,13 +565,13 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
   return (
     <div
       ref={scrollRef}
-      className={cn('overflow-y-auto space-y-1.5 pr-0.5', isLive ? 'max-h-[500px]' : 'max-h-[600px]')}
+      className={cn('overflow-y-auto pr-0.5', isLive ? 'max-h-[500px]' : 'max-h-[600px]')}
     >
       {entries.map(entry => {
         if (entry.kind === 'system') {
           return (
-            <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-[var(--aw-text-4)]">
-              <Terminal className="h-3 w-3 shrink-0" />
+            <div key={entry.id} className="flex items-center gap-1.5 py-0.5 text-[9px] text-[var(--aw-text-4)]">
+              <Terminal className="h-2.5 w-2.5 shrink-0" />
               <span>{entry.text}</span>
             </div>
           );
@@ -604,12 +591,12 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
           const isError = entry.isError;
           const content = entry.content ?? '';
           return (
-            <div key={entry.id} className="pl-4">
+            <div key={entry.id} className="ml-4 py-0.5">
               <div className={cn(
-                'text-[10px] font-mono rounded px-2 py-1 max-h-20 overflow-y-auto',
-                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-diff-del-bg)]/30' : 'text-[var(--aw-text-2)] bg-[var(--aw-bg-0)]',
+                'text-[9px] font-mono rounded px-1.5 py-0.5 max-h-16 overflow-y-auto',
+                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-text-4)]',
               )}>
-                {content.length > 300 ? content.slice(0, 300) + '...' : content}
+                {content.length > 200 ? content.slice(0, 200) + '…' : content}
               </div>
             </div>
           );
@@ -622,7 +609,7 @@ function StreamLog({ entries, isLive = false }: { entries: StreamEntry[]; isLive
         return null;
       })}
       {isLive && (
-        <div className="flex items-center gap-2 text-[11px] text-[var(--aw-purple-light)] pt-1">
+        <div className="flex items-center gap-2 text-[10px] text-[var(--aw-blue)] pt-1">
           <Loader2 className="h-3 w-3 animate-spin" /> Processing...
         </div>
       )}
@@ -636,24 +623,24 @@ function ThinkingEntry({ entry }: { entry: StreamEntry }) {
   const [expanded, setExpanded] = useState(false);
   const text = entry.text ?? '';
   const hasContent = text.length > 0 && text !== 'Thinking...';
-  const preview = hasContent ? text.slice(0, 80) + (text.length > 80 ? '...' : '') : 'Thinking...';
+  const preview = hasContent ? text.slice(0, 100) + (text.length > 100 ? '…' : '') : 'Thinking...';
 
   return (
-    <div className="rounded border border-[var(--aw-purple-light)]/20 bg-[var(--aw-purple-light)]/5 overflow-hidden">
+    <div className="group">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-purple-light)]/10 transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-1.5 py-1 hover:bg-[var(--aw-bg-2)]/30 rounded transition-colors text-left"
         onClick={() => hasContent && setExpanded(v => !v)}
       >
-        <Brain className="h-3 w-3 text-[var(--aw-purple-light)] shrink-0" />
-        <span className="text-[10px] font-semibold text-[var(--aw-purple-light)]">Thinking</span>
-        <span className="text-[10px] text-[var(--aw-text-2)] italic truncate flex-1">{preview}</span>
+        <Brain className="h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0" />
+        <span className="text-[9px] text-[var(--aw-text-4)]">thinking</span>
+        <span className="text-[9px] text-[var(--aw-text-4)] italic truncate flex-1 opacity-70">{preview}</span>
         {hasContent && (
-          <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('h-2 w-2 text-[var(--aw-text-4)] shrink-0 transition-transform opacity-0 group-hover:opacity-100', expanded && 'rotate-90')} />
         )}
       </button>
       {expanded && hasContent && (
-        <div className="border-t border-[var(--aw-purple-light)]/15 px-2 py-1.5">
-          <pre className="text-[10px] text-[var(--aw-text-1)] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+        <div className="ml-4 mt-0.5 mb-1">
+          <pre className="text-[9px] text-[var(--aw-text-3)] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed bg-[var(--aw-bg-0)] rounded px-2 py-1.5 border border-[var(--aw-bg-2)]">
             {text}
           </pre>
         </div>
@@ -666,13 +653,12 @@ function ToolCallEntry({ entry, result }: { entry: StreamEntry; result?: StreamE
   const [expanded, setExpanded] = useState(false);
   const toolName = entry.toolName ?? 'Unknown';
   const toolInput = entry.toolInput ?? {};
-  const colors = getToolColor(toolName);
   const summary = getToolSummaryText(toolName, toolInput);
 
   const resultContent = result?.content ?? '';
   const isError = result?.isError ?? false;
 
-  const resultBadge = isError ? 'error' : result ? 'done' : null;
+  const resultBadge = isError ? 'error' : result ? 'ok' : null;
 
   const ToolIcon = toolName === 'Bash' ? Terminal
     : toolName === 'Read' ? Eye
@@ -681,44 +667,44 @@ function ToolCallEntry({ entry, result }: { entry: StreamEntry; result?: StreamE
     : Wrench;
 
   return (
-    <div className="rounded border overflow-hidden" style={{ borderColor: `${colors.border}40`, backgroundColor: `${colors.border}08` }}>
+    <div className="group">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-1.5 py-1 hover:bg-[var(--aw-bg-2)]/30 rounded transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <ToolIcon className="h-3 w-3 shrink-0" style={{ color: colors.icon }} />
-        <span className="text-[10px] font-semibold" style={{ color: colors.icon }}>{toolName}</span>
-        <span className="text-[10px] text-[var(--aw-text-2)] font-mono truncate flex-1">{summary}</span>
+        <ToolIcon className="h-2.5 w-2.5 shrink-0 text-[var(--aw-text-4)]" />
+        <span className="text-[9px] font-medium text-[var(--aw-text-3)]">{toolName}</span>
+        <span className="text-[9px] text-[var(--aw-text-4)] font-mono truncate flex-1">{summary}</span>
         {resultBadge && (
           <span className={cn(
-            'text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0',
-            isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/10' : 'text-[var(--aw-green)] bg-[var(--aw-green)]/10',
+            'text-[8px] px-1 py-0.5 rounded shrink-0',
+            isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-text-4)]',
           )}>
             {resultBadge}
           </span>
         )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-2 w-2 text-[var(--aw-text-4)] shrink-0 transition-transform opacity-0 group-hover:opacity-100', expanded && 'rotate-90 opacity-100')} />
       </button>
 
       {expanded && (
-        <div className="border-t space-y-1.5 px-2 py-1.5" style={{ borderColor: `${colors.border}20` }}>
+        <div className="ml-4 mt-0.5 mb-1 space-y-1.5">
           <div>
-            <div className="text-[9px] text-[var(--aw-text-3)] font-semibold uppercase tracking-wider mb-0.5">Input</div>
-            <pre className="text-[10px] font-mono text-[var(--aw-text-1)] bg-[var(--aw-bg-0)] rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed">
+            <div className="text-[8px] text-[var(--aw-text-4)] uppercase tracking-wider mb-0.5">Input</div>
+            <pre className="text-[9px] font-mono text-[var(--aw-text-2)] bg-[var(--aw-bg-0)] rounded p-1.5 overflow-x-auto max-h-32 whitespace-pre-wrap leading-relaxed border border-[var(--aw-bg-2)]">
               {formatToolInput(toolName, toolInput)}
             </pre>
           </div>
           {result && (
             <div>
               <div className={cn(
-                'text-[9px] font-semibold uppercase tracking-wider mb-0.5',
-                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-green)]',
+                'text-[8px] uppercase tracking-wider mb-0.5',
+                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-text-4)]',
               )}>
                 {isError ? 'Error' : 'Output'}
               </div>
               <pre className={cn(
-                'text-[10px] font-mono rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed',
-                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red)]/5' : 'text-[var(--aw-text-1)] bg-[var(--aw-bg-0)]',
+                'text-[9px] font-mono rounded p-1.5 overflow-x-auto max-h-32 whitespace-pre-wrap leading-relaxed border',
+                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red)]/5 border-[var(--aw-red)]/20' : 'text-[var(--aw-text-2)] bg-[var(--aw-bg-0)] border-[var(--aw-bg-2)]',
               )}>
                 {resultContent.length > 2000 ? resultContent.slice(0, 2000) + '\n...(truncated)' : resultContent || '(empty)'}
               </pre>
@@ -731,30 +717,14 @@ function ToolCallEntry({ entry, result }: { entry: StreamEntry; result?: StreamE
 }
 
 function TextEntry({ entry }: { entry: StreamEntry }) {
-  const [expanded, setExpanded] = useState(true);
   const text = entry.text ?? '';
-  const isLong = text.length > 300;
+  const isLong = text.length > 500;
 
   return (
-    <div className="rounded border border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] overflow-hidden">
-      <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
-        onClick={() => setExpanded(v => !v)}
-      >
-        <MessageSquare className="h-3 w-3 text-[var(--aw-text-1)] shrink-0" />
-        <span className="text-[10px] font-semibold text-[var(--aw-text-1)]">Response</span>
-        {!expanded && (
-          <span className="text-[10px] text-[var(--aw-text-2)] truncate flex-1">{text.slice(0, 60)}...</span>
-        )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
-      </button>
-      {expanded && (
-        <div className="border-t border-[var(--aw-bg-2)] px-2 py-1.5">
-          <div className={cn('text-[11px] text-[var(--aw-text-1)]', isLong && 'max-h-80 overflow-y-auto')}>
-            <MarkdownRenderer content={text} size="sm" />
-          </div>
-        </div>
-      )}
+    <div className="rounded-md border-l-2 border-l-[var(--aw-blue)] bg-[var(--aw-bg-0)] px-3 py-2 my-1">
+      <div className={cn('text-[11px] text-[var(--aw-text-0)] leading-relaxed', isLong && 'max-h-[500px] overflow-y-auto')}>
+        <MarkdownRenderer content={text} size="sm" />
+      </div>
     </div>
   );
 }

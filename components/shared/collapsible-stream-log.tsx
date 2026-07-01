@@ -123,24 +123,24 @@ export function ThinkingEntry({ entry }: { entry: StreamEntry }) {
   const [expanded, setExpanded] = useState(false);
   const text = entry.text ?? '';
   const hasContent = text.length > 0 && text !== 'Thinking...';
-  const preview = hasContent ? text.slice(0, 80) + (text.length > 80 ? '...' : '') : 'Thinking...';
+  const preview = hasContent ? text.slice(0, 100) + (text.length > 100 ? '…' : '') : 'Thinking...';
 
   return (
-    <div className="rounded border border-[var(--aw-purple-light)]/20 bg-[var(--aw-purple-light)]/5 overflow-hidden">
+    <div className="group">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-purple-light)]/10 transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-1.5 py-1 hover:bg-[var(--aw-bg-2)]/30 rounded transition-colors text-left"
         onClick={() => hasContent && setExpanded(v => !v)}
       >
-        <Brain className="h-3 w-3 text-[var(--aw-purple-light)] shrink-0" />
-        <span className="text-[10px] font-semibold text-[var(--aw-purple-light)]">Thinking</span>
-        <span className="text-[10px] text-[var(--aw-text-2)] italic truncate flex-1">{preview}</span>
+        <Brain className="h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0" />
+        <span className="text-[9px] text-[var(--aw-text-4)]">thinking</span>
+        <span className="text-[9px] text-[var(--aw-text-4)] italic truncate flex-1 opacity-70">{preview}</span>
         {hasContent && (
-          <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('h-2 w-2 text-[var(--aw-text-4)] shrink-0 transition-transform opacity-0 group-hover:opacity-100', expanded && 'rotate-90')} />
         )}
       </button>
       {expanded && hasContent && (
-        <div className="border-t border-[var(--aw-purple-light)]/15 px-2 py-1.5">
-          <pre className="text-[10px] text-[var(--aw-text-1)] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+        <div className="ml-4 mt-0.5 mb-1">
+          <pre className="text-[9px] text-[var(--aw-text-3)] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed bg-[var(--aw-bg-0)] rounded px-2 py-1.5 border border-[var(--aw-bg-2)]">
             {text}
           </pre>
         </div>
@@ -167,7 +167,7 @@ export function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry
 
   const resultBadge = isPermDenied ? 'denied'
     : isError ? 'error'
-    : result ? 'done'
+    : result ? 'ok'
     : null;
 
   const ToolIcon = toolName === 'Bash' ? Terminal
@@ -177,14 +177,14 @@ export function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry
     : Wrench;
 
   return (
-    <div className="rounded border overflow-hidden" style={{ borderColor: `${colors.border}40`, backgroundColor: `${colors.border}08` }}>
+    <div className="group">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
+        className="w-full flex items-center gap-1.5 px-1.5 py-1 hover:bg-[var(--aw-bg-2)]/30 rounded transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <ToolIcon className="h-3 w-3 shrink-0" style={{ color: colors.icon }} />
-        <span className="text-[10px] font-semibold" style={{ color: colors.icon }}>{toolName}</span>
-        <span className="text-[10px] text-[var(--aw-text-2)] font-mono truncate flex-1">{summary}</span>
+        <ToolIcon className="h-2.5 w-2.5 shrink-0 text-[var(--aw-text-4)]" />
+        <span className="text-[9px] font-medium text-[var(--aw-text-3)]">{toolName}</span>
+        <span className="text-[9px] text-[var(--aw-text-4)] font-mono truncate flex-1">{summary}</span>
         {hasFile && (
           <span
             role="button"
@@ -192,8 +192,8 @@ export function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry
             onClick={e => { e.stopPropagation(); setShowFile(v => !v); }}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setShowFile(v => !v); } }}
             className={cn(
-              'text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors shrink-0 cursor-pointer',
-              showFile ? 'text-[var(--aw-blue)] bg-[var(--aw-blue)]/10' : 'text-[var(--aw-text-4)] hover:text-[var(--aw-text-2)]',
+              'text-[9px] flex items-center gap-0.5 px-1 py-0.5 rounded transition-colors shrink-0 cursor-pointer',
+              showFile ? 'text-[var(--aw-blue)] bg-[var(--aw-blue)]/10' : 'text-[var(--aw-text-4)] hover:text-[var(--aw-text-2)] opacity-0 group-hover:opacity-100',
             )}
           >
             <FileCode2 className="h-2.5 w-2.5" /> {showFile ? 'Hide' : 'View'}
@@ -201,51 +201,51 @@ export function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry
         )}
         {resultBadge && (
           <span className={cn(
-            'text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0',
-            isPermDenied ? 'text-[var(--aw-orange)] bg-[var(--aw-orange)]/10'
-            : isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/10'
-            : 'text-[var(--aw-green)] bg-[var(--aw-green)]/10',
+            'text-[8px] px-1 py-0.5 rounded shrink-0',
+            isPermDenied ? 'text-[var(--aw-orange)]'
+            : isError ? 'text-[var(--aw-red-bright)]'
+            : 'text-[var(--aw-text-4)]',
           )}>
             {resultBadge}
           </span>
         )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-2 w-2 text-[var(--aw-text-4)] shrink-0 transition-transform opacity-0 group-hover:opacity-100', expanded && 'rotate-90 opacity-100')} />
       </button>
 
       {showFile && hasFile && (
-        <div className="border-t" style={{ borderColor: `${colors.border}20` }}>
+        <div className="ml-4 mt-0.5 mb-1 rounded border border-[var(--aw-bg-2)] overflow-hidden">
           <FileContentViewer sessionId={sessionId} filePath={filePath} />
         </div>
       )}
 
       {expanded && (
-        <div className="border-t space-y-1.5 px-2 py-1.5" style={{ borderColor: `${colors.border}20` }}>
+        <div className="ml-4 mt-0.5 mb-1 space-y-1.5">
           <div>
-            <div className="text-[9px] text-[var(--aw-text-3)] font-semibold uppercase tracking-wider mb-0.5">Input</div>
-            <pre className="text-[10px] font-mono text-[var(--aw-text-1)] bg-[var(--aw-bg-0)] rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed">
+            <div className="text-[8px] text-[var(--aw-text-4)] uppercase tracking-wider mb-0.5">Input</div>
+            <pre className="text-[9px] font-mono text-[var(--aw-text-2)] bg-[var(--aw-bg-0)] rounded p-1.5 overflow-x-auto max-h-32 whitespace-pre-wrap leading-relaxed border border-[var(--aw-bg-2)]">
               {formatToolInput(toolName, toolInput)}
             </pre>
           </div>
           {result && !isPermDenied && (
             <div>
               <div className={cn(
-                'text-[9px] font-semibold uppercase tracking-wider mb-0.5',
-                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-green)]',
+                'text-[8px] uppercase tracking-wider mb-0.5',
+                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-text-4)]',
               )}>
                 {isError ? 'Error' : 'Output'}
               </div>
               <pre className={cn(
-                'text-[10px] font-mono rounded p-1.5 overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed',
-                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red)]/5' : 'text-[var(--aw-text-1)] bg-[var(--aw-bg-0)]',
+                'text-[9px] font-mono rounded p-1.5 overflow-x-auto max-h-32 whitespace-pre-wrap leading-relaxed border',
+                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-red)]/5 border-[var(--aw-red)]/20' : 'text-[var(--aw-text-2)] bg-[var(--aw-bg-0)] border-[var(--aw-bg-2)]',
               )}>
                 {resultContent.length > 2000 ? resultContent.slice(0, 2000) + '\n...(truncated)' : resultContent || '(empty)'}
               </pre>
             </div>
           )}
           {isPermDenied && (
-            <div className="flex items-center gap-1.5 text-[10px] text-[var(--aw-orange)]">
-              <ShieldX className="h-3 w-3 shrink-0" />
-              <span>Permission denied — awaiting review approval</span>
+            <div className="flex items-center gap-1.5 text-[9px] text-[var(--aw-orange)]">
+              <ShieldX className="h-2.5 w-2.5 shrink-0" />
+              <span>Permission denied</span>
             </div>
           )}
         </div>
@@ -257,30 +257,14 @@ export function ToolCallEntry({ entry, result, sessionId }: { entry: StreamEntry
 // ── TextEntry ──────────────────────────────────────────────────────────────
 
 export function TextEntry({ entry }: { entry: StreamEntry }) {
-  const [expanded, setExpanded] = useState(true);
   const text = entry.text ?? '';
-  const isLong = text.length > 300;
+  const isLong = text.length > 500;
 
   return (
-    <div className="rounded border border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] overflow-hidden">
-      <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
-        onClick={() => setExpanded(v => !v)}
-      >
-        <MessageSquare className="h-3 w-3 text-[var(--aw-text-1)] shrink-0" />
-        <span className="text-[10px] font-semibold text-[var(--aw-text-1)]">Response</span>
-        {!expanded && (
-          <span className="text-[10px] text-[var(--aw-text-2)] truncate flex-1">{text.slice(0, 60)}...</span>
-        )}
-        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
-      </button>
-      {expanded && (
-        <div className="border-t border-[var(--aw-bg-2)] px-2 py-1.5">
-          <div className={cn('text-[11px] text-[var(--aw-text-1)]', isLong && 'max-h-80 overflow-y-auto')}>
-            <MarkdownRenderer content={text} size="sm" />
-          </div>
-        </div>
-      )}
+    <div className="rounded-md border-l-2 border-l-[var(--aw-blue)] bg-[var(--aw-bg-0)] px-3 py-2 my-1">
+      <div className={cn('text-[11px] text-[var(--aw-text-0)] leading-relaxed', isLong && 'max-h-[500px] overflow-y-auto')}>
+        <MarkdownRenderer content={text} size="sm" />
+      </div>
     </div>
   );
 }
@@ -485,12 +469,12 @@ export function CollapsibleStreamLog({
   }
 
   return (
-    <div ref={scrollRef} className={cn('overflow-y-auto space-y-1.5 pr-0.5', isLive ? 'max-h-[500px]' : 'max-h-[600px]')}>
+    <div ref={scrollRef} className={cn('overflow-y-auto pr-0.5', isLive ? 'max-h-[500px]' : 'max-h-[600px]')}>
       {entries.map(entry => {
         if (entry.kind === 'system') {
           return (
-            <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-[var(--aw-text-4)]">
-              <Terminal className="h-3 w-3 shrink-0" />
+            <div key={entry.id} className="flex items-center gap-1.5 py-0.5 text-[9px] text-[var(--aw-text-4)]">
+              <Terminal className="h-2.5 w-2.5 shrink-0" />
               <span>{entry.text}</span>
             </div>
           );
@@ -510,12 +494,12 @@ export function CollapsibleStreamLog({
           const isError = entry.isError;
           const content = entry.content ?? '';
           return (
-            <div key={entry.id} className="pl-4">
+            <div key={entry.id} className="ml-4 py-0.5">
               <div className={cn(
-                'text-[10px] font-mono rounded px-2 py-1 max-h-20 overflow-y-auto',
-                isError ? 'text-[var(--aw-red-bright)] bg-[var(--aw-diff-del-bg)]/30' : 'text-[var(--aw-text-2)] bg-[var(--aw-bg-0)]',
+                'text-[9px] font-mono rounded px-1.5 py-0.5 max-h-16 overflow-y-auto',
+                isError ? 'text-[var(--aw-red-bright)]' : 'text-[var(--aw-text-4)]',
               )}>
-                {content.length > 300 ? content.slice(0, 300) + '...' : content}
+                {content.length > 200 ? content.slice(0, 200) + '…' : content}
               </div>
             </div>
           );
@@ -523,13 +507,14 @@ export function CollapsibleStreamLog({
 
         if (entry.kind === 'permission_request' && onApprove && onDeny) {
           return (
-            <ApprovalCard
-              key={entry.id}
-              entry={entry}
-              sessionId={sessionId}
-              onApprove={() => entry.requestId && onApprove(entry.requestId)}
-              onDeny={() => entry.requestId && onDeny(entry.requestId)}
-            />
+            <div key={entry.id} className="my-1">
+              <ApprovalCard
+                entry={entry}
+                sessionId={sessionId}
+                onApprove={() => entry.requestId && onApprove(entry.requestId)}
+                onDeny={() => entry.requestId && onDeny(entry.requestId)}
+              />
+            </div>
           );
         }
 
@@ -540,12 +525,12 @@ export function CollapsibleStreamLog({
         return null;
       })}
       {isLive && pendingApprovals && pendingApprovals.size > 0 && (
-        <div className="flex items-center gap-2 text-[11px] text-[var(--aw-orange)] pt-1">
+        <div className="flex items-center gap-2 text-[10px] text-[var(--aw-orange)] pt-1">
           <Loader2 className="h-3 w-3 animate-spin" /> Waiting for approval...
         </div>
       )}
       {isLive && (!pendingApprovals || pendingApprovals.size === 0) && entries.length > 0 && entries[entries.length - 1].kind !== 'text' && (
-        <div className="flex items-center gap-2 text-[11px] text-[var(--aw-blue)] pt-1">
+        <div className="flex items-center gap-2 text-[10px] text-[var(--aw-blue)] pt-1">
           <Loader2 className="h-3 w-3 animate-spin" /> Processing...
         </div>
       )}
