@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Copy, Image as ImageIcon, Check, Loader2, Eye, X } from 'lucide-react';
+import { Download, Copy, Image as ImageIcon, Check, Loader2, Eye, X, GitFork } from 'lucide-react';
 import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import {
@@ -11,7 +11,12 @@ import {
   svgToPngBlob,
   downloadBlob,
   copyTextToClipboard,
+  flowDiagramToSvg,
+  resolveColor,
   type ExportNode,
+  type FlowDiagramNode,
+  type FlowDiagramEdge,
+  type FlowDiagramTheme,
 } from '@/lib/hierarchy-export';
 import type { Agent } from '@/types/session';
 
@@ -63,13 +68,111 @@ function buildExportTree(
       id: agent.id,
       label: name,
       meta: meta || undefined,
-      color: color.text,
+      color: resolveColor(color.text),
       collapsed,
       hiddenChildCount: collapsed ? countDescendants(agent, agentMap, new Set()) : 0,
       children: collapsed ? [] : kids.map(c => build(c, seen)),
     };
   };
   return build(root, new Set([root.id]));
+}
+
+// ─── Flow diagram layout (mirrors agent-hierarchy-graph tree algorithm) ──────
+
+const FD_NODE_W = 148;
+const FD_NODE_H = 44;
+const FD_H_GAP = 20;
+const FD_V_GAP = 68;
+const FD_COL = FD_NODE_W + FD_H_GAP;
+const FD_ROW = FD_NODE_H + FD_V_GAP;
+
+interface FdTree { agentId: string; x: number; y: number; subtreeWidth: number; children: FdTree[]; }
+
+function fdBuild(agentId: string, agentMap: Map<string, Agent>, depth: number, visited: Set<string>): FdTree {
+  if (visited.has(agentId)) return { agentId, x: 0, y: depth * FD_ROW, subtreeWidth: 1, children: [] };
+  visited.add(agentId);
+  const agent = agentMap.get(agentId);
+  const childIds = [...(agent?.children ?? [])].sort((a, b) => {
+    const at = agentMap.get(a)?.startTime, bt = agentMap.get(b)?.startTime;
+    return (at ? new Date(at).getTime() : 0) - (bt ? new Date(bt).getTime() : 0);
+  });
+  const children = childIds.map(id => fdBuild(id, agentMap, depth + 1, visited));
+  const subtreeWidth = children.length === 0 ? 1 : children.reduce((s, c) => s + c.subtreeWidth, 0);
+  return { agentId, x: 0, y: depth * FD_ROW, subtreeWidth, children };
+}
+
+function fdAssignX(node: FdTree, startCol: number): void {
+  node.x = (startCol + node.subtreeWidth / 2) * FD_COL - FD_NODE_W / 2;
+  let col = startCol;
+  for (const c of node.children) { fdAssignX(c, col); col += c.subtreeWidth; }
+}
+
+function fdFlatten(node: FdTree, out: FdTree[] = []): FdTree[] {
+  out.push(node);
+  for (const c of node.children) fdFlatten(c, out);
+  return out;
+}
+
+function fdEdges(node: FdTree): Array<{ from: FdTree; to: FdTree }> {
+  const edges: Array<{ from: FdTree; to: FdTree }> = [];
+  for (const c of node.children) { edges.push({ from: node, to: c }); edges.push(...fdEdges(c)); }
+  return edges;
+}
+
+function buildFlowDiagramData(
+  agentMap: Map<string, Agent>,
+  rootAgent: Agent,
+): { nodes: FlowDiagramNode[]; edges: FlowDiagramEdge[]; rootIds: string[] } {
+  const allAgents = [...agentMap.values()];
+  const rootIds = allAgents
+    .filter(a => !a.parentId || !agentMap.has(a.parentId))
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .map(a => a.id);
+  if (rootIds.length === 0) rootIds.push(rootAgent.id);
+
+  const visited = new Set<string>();
+  const roots = rootIds.map(id => fdBuild(id, agentMap, 0, visited));
+  const orphans = allAgents
+    .filter(a => !visited.has(a.id))
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  for (const a of orphans) {
+    if (!visited.has(a.id)) roots.push(fdBuild(a.id, agentMap, 0, visited));
+  }
+
+  let col = 0;
+  for (const r of roots) { fdAssignX(r, col); col += r.subtreeWidth; }
+
+  const treeNodes = roots.flatMap(r => fdFlatten(r));
+  const treeEdges = roots.flatMap(r => fdEdges(r));
+
+  const nodes: FlowDiagramNode[] = treeNodes.map(tn => {
+    const agent = agentMap.get(tn.agentId);
+    if (!agent) return null;
+    const { shortName, color, initials } = getAgentDisplay(agent);
+    const st = getStatusDisplay(agent);
+    return {
+      x: tn.x,
+      y: tn.y,
+      label: shortName,
+      initials: initials.slice(0, 2),
+      meta: `${formatTokens(agent.tokenUsage.total)} · ${formatDuration(agent.durationMs)}`,
+      colorBg: resolveColor(color.bg),
+      colorText: resolveColor(color.text),
+      colorBorder: resolveColor(color.border),
+      statusHex: st.hex,
+      childCount: agent.children.length,
+      isRoot: rootIds.includes(tn.agentId),
+    };
+  }).filter(Boolean) as FlowDiagramNode[];
+
+  const edges: FlowDiagramEdge[] = treeEdges.map(({ from, to }) => ({
+    x1: from.x + FD_NODE_W / 2,
+    y1: from.y + FD_NODE_H,
+    x2: to.x + FD_NODE_W / 2,
+    y2: to.y,
+  }));
+
+  return { nodes, edges, rootIds };
 }
 
 interface ExportHierarchyMenuProps {
@@ -124,6 +227,30 @@ export function ExportHierarchyMenu({ rootAgent, agentMap, collapsedNodes, title
       downloadBlob(blob, `${fileBase}-hierarchy.png`);
     } catch (err) {
       console.error('PNG export failed', err);
+    } finally {
+      setBusy(false);
+      setOpen(false);
+    }
+  };
+
+  const handleFlowDiagram = async () => {
+    if (!rootAgent) return;
+    setBusy(true);
+    try {
+      const { nodes, edges } = buildFlowDiagramData(agentMap, rootAgent);
+      const theme: FlowDiagramTheme = {
+        canvasBg: resolveColor('var(--aw-canvas-deep)'),
+        nodeBg: resolveColor('var(--aw-bg-1)'),
+        textPrimary: resolveColor('var(--aw-text-0)'),
+        textMuted: resolveColor('var(--aw-text-3)'),
+        edgeColor: resolveColor('var(--aw-bg-3)'),
+        dotColor: resolveColor('var(--aw-bg-2)'),
+      };
+      const { svg, width, height } = flowDiagramToSvg(nodes, edges, theme, `${title} — Flow Diagram`);
+      const blob = await svgToPngBlob(svg, width, height, 2);
+      downloadBlob(blob, `${fileBase}-flow-diagram.png`);
+    } catch (err) {
+      console.error('Flow diagram export failed', err);
     } finally {
       setBusy(false);
       setOpen(false);
@@ -197,6 +324,16 @@ export function ExportHierarchyMenu({ rootAgent, agentMap, collapsedNodes, title
             className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-[var(--aw-text-0)] transition-colors text-left disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[var(--aw-text-2)]" />}
+            Export as PNG
+          </button>
+          <div className="my-1 border-t border-[var(--aw-bg-2)]" />
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--aw-text-3)]">Flow diagram</div>
+          <button
+            onClick={handleFlowDiagram}
+            disabled={busy}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] hover:text-[var(--aw-text-0)] transition-colors text-left disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <GitFork className="h-3.5 w-3.5 shrink-0 text-[var(--aw-text-2)]" />}
             Export as PNG
           </button>
         </div>

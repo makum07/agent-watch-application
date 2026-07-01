@@ -271,6 +271,11 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
 
       const children = agents
         .filter(a => a.parentConversationId === correlated.conversationId)
+        .sort((a, b) => {
+          const aTime = a.parsed.firstTimestamp ? new Date(a.parsed.firstTimestamp).getTime() : 0;
+          const bTime = b.parsed.firstTimestamp ? new Date(b.parsed.firstTimestamp).getTime() : 0;
+          return aTime - bTime;
+        })
         .map(a => agentIdMap.get(a.conversationId)!)
         .filter(Boolean);
 

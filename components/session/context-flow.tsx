@@ -31,7 +31,13 @@ function buildSubtree(agentId: string, agentMap: Map<string, Agent>, depth: numb
   if (visited.has(agentId)) return { agentId, x: 0, y: depth * ROW, subtreeWidth: 1, children: [] };
   visited.add(agentId);
   const agent = agentMap.get(agentId);
-  const childIds = agent?.children ?? [];
+  const childIds = [...(agent?.children ?? [])].sort((a, b) => {
+    const aAgent = agentMap.get(a);
+    const bAgent = agentMap.get(b);
+    const aTime = aAgent?.startTime ? new Date(aAgent.startTime).getTime() : 0;
+    const bTime = bAgent?.startTime ? new Date(bAgent.startTime).getTime() : 0;
+    return aTime - bTime;
+  });
   const children = childIds.map(id => buildSubtree(id, agentMap, depth + 1, visited));
   const subtreeWidth = children.length === 0 ? 1 : children.reduce((s, c) => s + c.subtreeWidth, 0);
   return { agentId, x: 0, y: depth * ROW, subtreeWidth, children };
@@ -89,13 +95,19 @@ export function ContextFlow({ sessionId, paneId, isSingleTab }: ContextFlowProps
   const { allNodes, edges, svgWidth, svgHeight, rootIds } = useMemo(() => {
     if (!session) return { allNodes: [], edges: [], svgWidth: 400, svgHeight: 200, rootIds: [] };
 
-    const rIds = session.agents.filter(a => !a.parentId || !agentMap.has(a.parentId)).map(a => a.id);
+    const rIds = session.agents
+      .filter(a => !a.parentId || !agentMap.has(a.parentId))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+      .map(a => a.id);
     if (rIds.length === 0) rIds.push(session.rootAgentId);
 
     const visited = new Set<string>();
     const roots = rIds.map(id => buildSubtree(id, agentMap, 0, visited));
 
-    for (const agent of session.agents) {
+    const orphans = session.agents
+      .filter(a => !visited.has(a.id))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    for (const agent of orphans) {
       if (!visited.has(agent.id)) roots.push(buildSubtree(agent.id, agentMap, 0, visited));
     }
 

@@ -22,7 +22,8 @@ export function AgentTreeNode({ agent, depth, sessionId }: AgentTreeNodeProps) {
   const { addTabToPane, setLayout, focusedPaneId, layout } = useWorkspaceStore();
   const { agentMap } = useSessionStore();
 
-  const childAgents = agent.children.map(id => agentMap.get(id)).filter(Boolean) as Agent[];
+  const childAgents = (agent.children.map(id => agentMap.get(id)).filter(Boolean) as Agent[])
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
   const display = getAgentDisplay(agent);
   const color = { text: display.color.text, dot: display.color.text };
   const status = getStatusDisplay(agent);

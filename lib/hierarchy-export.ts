@@ -116,6 +116,122 @@ export function hierarchyToSvg(root: ExportNode, title?: string): SvgResult {
   return { svg, width, height };
 }
 
+// ─── Flow Diagram Export ────────────────────────────────────────────────────
+
+export interface FlowDiagramNode {
+  x: number;
+  y: number;
+  label: string;
+  initials: string;
+  meta: string;
+  colorBg: string;
+  colorText: string;
+  colorBorder: string;
+  statusHex: string;
+  childCount: number;
+  isRoot: boolean;
+}
+
+export interface FlowDiagramEdge {
+  x1: number; y1: number;
+  x2: number; y2: number;
+}
+
+export interface FlowDiagramTheme {
+  canvasBg: string;
+  nodeBg: string;
+  textPrimary: string;
+  textMuted: string;
+  edgeColor: string;
+  dotColor: string;
+}
+
+const FD_NODE_W = 148;
+const FD_NODE_H = 44;
+const FD_PAD = 32;
+
+export function flowDiagramToSvg(
+  nodes: FlowDiagramNode[],
+  edges: FlowDiagramEdge[],
+  theme: FlowDiagramTheme,
+  title?: string,
+): SvgResult {
+  const TITLE_H = title ? 40 : 0;
+  const maxX = nodes.length ? Math.max(...nodes.map(n => n.x + FD_NODE_W)) : 400;
+  const maxY = nodes.length ? Math.max(...nodes.map(n => n.y + FD_NODE_H)) : 200;
+  const width = Math.ceil(maxX + FD_PAD * 2);
+  const height = Math.ceil(maxY + FD_PAD * 2 + TITLE_H + 16);
+
+  const font = 'ui-sans-serif, system-ui, -apple-system, sans-serif';
+  const mono = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
+  svg += `<rect width="${width}" height="${height}" rx="10" fill="${theme.canvasBg}"/>`;
+
+  svg += `<defs><pattern id="fd-dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.6" fill="${theme.dotColor}"/></pattern></defs>`;
+  svg += `<rect width="${width}" height="${height}" fill="url(#fd-dots)"/>`;
+
+  if (title) {
+    svg += `<text x="${FD_PAD}" y="${FD_PAD + 20}" font-family="${font}" font-size="16" font-weight="700" fill="${theme.textPrimary}">${escapeXml(title)}</text>`;
+  }
+
+  const ox = FD_PAD;
+  const oy = FD_PAD + TITLE_H;
+
+  for (const e of edges) {
+    const x1 = ox + e.x1, y1 = oy + e.y1, x2 = ox + e.x2, y2 = oy + e.y2;
+    const midY = (y1 + y2) / 2;
+    svg += `<path d="M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="${theme.edgeColor}" stroke-width="1" opacity="0.6"/>`;
+  }
+
+  for (const n of nodes) {
+    const nx = ox + n.x, ny = oy + n.y;
+
+    if (n.isRoot) {
+      svg += `<rect x="${nx - 2}" y="${ny - 2}" width="${FD_NODE_W + 4}" height="${FD_NODE_H + 4}" rx="10" fill="none" stroke="${n.colorText}" stroke-width="0.5" opacity="0.3"/>`;
+    }
+
+    svg += `<rect x="${nx}" y="${ny}" width="${FD_NODE_W}" height="${FD_NODE_H}" rx="8" fill="${theme.nodeBg}" stroke="${n.colorBorder}" stroke-width="1"/>`;
+
+    const ax = nx + 10, ay = ny + 10;
+    svg += `<rect x="${ax}" y="${ay}" width="24" height="24" rx="5" fill="${n.colorBg}" stroke="${n.colorBorder}" stroke-width="0.5"/>`;
+    svg += `<text x="${ax + 12}" y="${ay + 16}" text-anchor="middle" font-family="${font}" font-size="9" font-weight="700" fill="${n.colorText}">${escapeXml(n.initials)}</text>`;
+
+    const lx = nx + 40;
+    const truncLabel = n.label.length > 14 ? n.label.slice(0, 13) + '…' : n.label;
+    svg += `<text x="${lx}" y="${ny + 19}" font-family="${font}" font-size="11" font-weight="600" fill="${theme.textPrimary}">${escapeXml(truncLabel)}</text>`;
+    svg += `<text x="${lx}" y="${ny + 32}" font-family="${mono}" font-size="9" fill="${theme.textMuted}">${escapeXml(n.meta)}</text>`;
+
+    svg += `<circle cx="${nx + FD_NODE_W - 10}" cy="${ny + FD_NODE_H / 2}" r="3" fill="${n.statusHex}"/>`;
+
+    if (n.childCount > 0) {
+      const bcx = nx + FD_NODE_W / 2, bcy = ny + FD_NODE_H + 4;
+      svg += `<rect x="${bcx - 10}" y="${bcy - 6}" width="20" height="12" rx="6" fill="${n.colorBg}" stroke="${n.colorBorder}" stroke-width="0.5"/>`;
+      svg += `<text x="${bcx}" y="${bcy + 3}" text-anchor="middle" font-family="${font}" font-size="8" font-weight="700" fill="${n.colorText}">${n.childCount}</text>`;
+    }
+  }
+
+  svg += '</svg>';
+  return { svg, width, height };
+}
+
+/** Resolve any CSS color (var(), oklch, etc.) to a hex string via the browser. */
+export function resolveColor(cssValue: string): string {
+  if (typeof document === 'undefined') return cssValue;
+  const el = document.createElement('span');
+  document.body.appendChild(el);
+  el.style.color = cssValue;
+  const computed = getComputedStyle(el).color;
+  el.remove();
+  const match = computed.match(/rgba?\((\d+),?\s*(\d+),?\s*(\d+)/);
+  if (match) {
+    return '#' + [match[1], match[2], match[3]]
+      .map(n => parseInt(n).toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return computed || cssValue;
+}
+
 /** Rasterize an SVG string to a PNG Blob at the given pixel scale (for crispness). */
 export function svgToPngBlob(svg: string, width: number, height: number, scale = 2): Promise<Blob> {
   return new Promise((resolve, reject) => {

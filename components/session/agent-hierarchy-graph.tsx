@@ -35,7 +35,13 @@ function buildSubtree(
   visited.add(agentId);
 
   const agent = agentMap.get(agentId);
-  const childIds = agent?.children ?? [];
+  const childIds = [...(agent?.children ?? [])].sort((a, b) => {
+    const aAgent = agentMap.get(a);
+    const bAgent = agentMap.get(b);
+    const aTime = aAgent?.startTime ? new Date(aAgent.startTime).getTime() : 0;
+    const bTime = bAgent?.startTime ? new Date(bAgent.startTime).getTime() : 0;
+    return aTime - bTime;
+  });
   const children = childIds.map(id => buildSubtree(id, agentMap, depth + 1, visited));
   const subtreeWidth = children.length === 0 ? 1 : children.reduce((s, c) => s + c.subtreeWidth, 0);
   return { agentId, x: 0, y: depth * ROW, subtreeWidth, children };
@@ -134,23 +140,26 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
   const { allNodes, edges, svgWidth, svgHeight, rootIds } = useMemo(() => {
     if (!session) return { allNodes: [], edges: [], svgWidth: 400, svgHeight: 200, rootIds: [] };
 
-    // Find roots (agents with no parent in this session)
-    const rootIds = session.agents.filter(a => !a.parentId || !agentMap.has(a.parentId))
+    // Find roots (agents with no parent in this session), sorted by start time
+    const rootIds = session.agents
+      .filter(a => !a.parentId || !agentMap.has(a.parentId))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
       .map(a => a.id);
 
     if (rootIds.length === 0) {
-      // Fallback: use rootAgentId
       rootIds.push(session.rootAgentId);
     }
 
     const visited = new Set<string>();
     const roots = rootIds.map(id => buildSubtree(id, agentMap, 0, visited));
 
-    // Assign any orphaned agents as extra roots
-    for (const agent of session.agents) {
+    // Assign any orphaned agents as extra roots, sorted by start time
+    const orphans = session.agents
+      .filter(a => !visited.has(a.id))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    for (const agent of orphans) {
       if (!visited.has(agent.id)) {
-        const orphan = buildSubtree(agent.id, agentMap, 0, visited);
-        roots.push(orphan);
+        roots.push(buildSubtree(agent.id, agentMap, 0, visited));
       }
     }
 
