@@ -6,6 +6,9 @@ interface UserPreferences {
   sidebarWidth: number;
   maxPinnedSessions: number;
   theme: 'dark';
+  alertCostThreshold: number;
+  alertDurationThresholdHours: number;
+  teamsWebhookUrl: string;
 }
 
 const DEFAULTS: UserPreferences = {
@@ -14,6 +17,9 @@ const DEFAULTS: UserPreferences = {
   sidebarWidth: 280,
   maxPinnedSessions: 10,
   theme: 'dark',
+  alertCostThreshold: 5,
+  alertDurationThresholdHours: 0,
+  teamsWebhookUrl: '',
 };
 
 export function getPreferences(): UserPreferences {

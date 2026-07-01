@@ -26,6 +26,9 @@ export type SessionEvent =
   | { type: 'execution_analysis_stream_event'; sessionId: string; cycleId: string; event: StreamEvent }
   | { type: 'execution_analysis_complete'; sessionId: string; cycleId: string; status: string }
   | { type: 'execution_analysis_failed'; sessionId: string; cycleId: string; error: string }
+  // Threshold alert events
+  | { type: 'threshold_alert_created'; alert: ThresholdAlert }
+  | { type: 'threshold_alert_updated'; alert: ThresholdAlert }
   | { type: 'ping' };
 
 // Client-to-server messages (sent from browser via WebSocket)
@@ -62,4 +65,22 @@ export interface PermissionDenial {
   tool_name: string;
   tool_use_id: string;
   tool_input: Record<string, unknown>;
+}
+
+export interface ThresholdAlert {
+  id: string;
+  sessionId: string;
+  source: string;
+  project: string;
+  title: string;
+  thresholdType: 'cost' | 'duration';
+  thresholdValue: number;
+  actualValue: number;
+  status: 'active' | 'resolved' | 'dismissed';
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt?: number | null;
+  sessionCost: number;
+  sessionTokens: number;
+  sessionDurationMs: number;
 }

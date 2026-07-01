@@ -18,9 +18,9 @@ export function NavBar({ activePage, rightSlot }: NavBarProps) {
   const [unreadAlerts, setUnreadAlerts] = useState(0);
 
   useEffect(() => {
-    fetch('/api/v2/analytics/digest/unread')
+    fetch('/api/v2/alerts?status=active&limit=1')
       .then(r => r.json())
-      .then(d => setUnreadAlerts(d.count ?? 0))
+      .then(d => setUnreadAlerts(d.activeCount ?? 0))
       .catch(() => {});
   }, []);
 
