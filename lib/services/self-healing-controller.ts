@@ -1,10 +1,17 @@
 import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
 import type { StreamEntry } from '@/types/feedback';
-import type { StreamEvent } from '@/types/events';
 import type { SkillSummary, SkillDetailData, AnalysisRecommendation } from '@/types/skills';
+import {
+  getClaudeProjectsDir,
+  listProjectDirs,
+  getProjectDisplayName,
+} from '@/lib/parser/jsonl-parser';
 import {
   getSkillDetail,
   getNextCycleNumber,
@@ -12,6 +19,7 @@ import {
   updateAnalysisCycle,
   checkSelfHealingThreshold,
 } from './skill-registry';
+import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
 
 function formatCategory(cat: string): string {
   const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
@@ -27,42 +35,65 @@ function formatDateShort(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
+function resolveSkillProjectCwd(projectDisplayName: string): string | null {
+  try {
+    const projectsDir = getClaudeProjectsDir();
+    const projectDirs = listProjectDirs();
+
+    for (const dirName of projectDirs) {
+      if (getProjectDisplayName(dirName) !== projectDisplayName) continue;
+
+      const metaDir = path.join(projectsDir, dirName);
+      const files = fs.readdirSync(metaDir)
+        .filter((f: string) => f.endsWith('.jsonl') && !f.includes('subagent'));
+
+      for (const file of files) {
+        const fp = path.join(metaDir, file);
+        const fd = fs.openSync(fp, 'r');
+        const buf = Buffer.alloc(4096);
+        const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
+        fs.closeSync(fd);
+        const chunk = buf.toString('utf8', 0, bytesRead);
+        const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
+        if (match) {
+          return match[1].replace(/\\\\/g, '\\');
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+  return null;
+}
+
 export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailData): string {
   const lines: string[] = [];
   const now = new Date().toISOString();
 
-  lines.push(`# Skill Deep Analysis — ${formatDateShort(now)}`);
-  lines.push(`\n## Skill Under Analysis\n`);
-  lines.push(`| Property | Value |`);
-  lines.push(`|----------|-------|`);
-  lines.push(`| **Name** | \`${skill.name}\` |`);
-  lines.push(`| **Project** | ${skill.project} |`);
-  lines.push(`| **Version** | ${skill.version} |`);
-  if (skill.description) lines.push(`| **Description** | ${skill.description} |`);
-  lines.push(`| **Total Executions** | ${skill.totalExecutions} |`);
-  lines.push(`| **Total Sessions** | ${skill.totalSessions} |`);
-  lines.push(`| **Total Feedback Items** | ${skill.totalFeedback} |`);
-  if (skill.avgDurationMs > 0) lines.push(`| **Average Duration** | ${Math.round(skill.avgDurationMs / 1000)}s |`);
-  lines.push(`| **Created** | ${formatDate(skill.createdAt)} |`);
-  lines.push(`| **Last Execution** | ${skill.lastExecutionAt ? formatDate(skill.lastExecutionAt) : 'Never'} |`);
-  lines.push(`| **Last Analysis** | ${skill.lastAnalysisAt ? formatDate(skill.lastAnalysisAt) : 'Never'} |`);
-  lines.push(`| **Analysis Date** | ${formatDate(now)} |`);
+  // ─── Purpose ───────────────────────────────────────────────────────
 
-  // ─── Purpose ───
-  lines.push(`\n## Purpose\n`);
-  lines.push(`You are performing a **deep cross-session analysis** of the \`${skill.name}\` skill. This analysis examines **${skill.totalFeedback} feedback items** collected across **${skill.totalSessions} sessions** and **${skill.totalExecutions} executions**.\n`);
-  lines.push(`Your job is to:\n`);
-  lines.push(`1. Evaluate whether past improvement cycles actually fixed the issues they targeted`);
-  lines.push(`2. Identify feedback items that remain unresolved (open)`);
-  lines.push(`3. Detect recurring issues — problems that reappeared after a fix was applied`);
-  lines.push(`4. Identify systemic gaps in the skill's workflow design`);
-  lines.push(`5. Provide concrete, actionable recommendations for structural improvements\n`);
-  lines.push(`**Important:** Focus on structural improvements to the skill definition and workflow design. Do not propose session-specific fixes or hardcoded rules that only apply to a particular execution.\n`);
+  lines.push(`# Skill Analysis — \`${skill.name}\` — ${formatDateShort(now)}\n`);
+  lines.push(`You are analyzing the \`${skill.name}\` skill across ${skill.totalSessions} sessions and ${skill.totalExecutions} executions. Your goal is to determine what issues persist, what recurs despite fixes, and what structural changes to the skill definition would make it more reliable.\n`);
+  lines.push(`Start by reading the skill definition file: \`.claude/skills/${skill.name}.md\` (or the equivalent in this project). Understanding what the skill is designed to do is the basis for evaluating whether the historical data reveals gaps in that design.\n`);
 
-  // ─── Improvement Cycles History (chronological, with full context) ───
+  // ─── Skill metadata ─────────────────────────────────────────────────
+
+  lines.push(`## Skill\n`);
+  lines.push(`| | |`);
+  lines.push(`|---|---|`);
+  lines.push(`| Name | \`${skill.name}\` |`);
+  lines.push(`| Project | ${skill.project} |`);
+  lines.push(`| Version | ${skill.version} |`);
+  if (skill.description) lines.push(`| Description | ${skill.description} |`);
+  lines.push(`| Executions | ${skill.totalExecutions} across ${skill.totalSessions} sessions |`);
+  lines.push(`| Total Feedback | ${skill.totalFeedback} items |`);
+  if (skill.avgDurationMs > 0) lines.push(`| Avg Duration | ${Math.round(skill.avgDurationMs / 1000)}s |`);
+  lines.push(`| Created | ${formatDate(skill.createdAt)} |`);
+  lines.push(`| Last Execution | ${skill.lastExecutionAt ? formatDate(skill.lastExecutionAt) : 'Never'} |`);
+  lines.push(`| Last Analysis | ${skill.lastAnalysisAt ? formatDate(skill.lastAnalysisAt) : 'Never'} |`);
+  lines.push('');
+
+  // ─── Compute open/closed classification ────────────────────────────
+
   const improvementCycles = detail.improvementCycles ?? [];
-
-  // Build addressed-by map: feedback ID → improvement cycle
   const addressedByMap = new Map<string, typeof improvementCycles[number]>();
   for (const ic of improvementCycles) {
     if (ic.status === 'completed' || ic.status === 'rewound') {
@@ -71,119 +102,80 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
       }
     }
   }
-
-  // Build feedback lookup
   const feedbackById = new Map(detail.feedbackItems.map(f => [f.id, f]));
-
-  // Classify feedback as open/closed
   const openFeedback = detail.feedbackItems.filter(f => !addressedByMap.has(f.id));
   const closedFeedback = detail.feedbackItems.filter(f => addressedByMap.has(f.id));
+
+  // ─── Improvement cycle history (chronological) ─────────────────────
 
   if (improvementCycles.length > 0) {
     const sortedCycles = [...improvementCycles].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
-
-    lines.push(`\n## Improvement Cycle History (${improvementCycles.length} cycles, chronological)\n`);
-    lines.push(`These are per-session improvement cycles that have been applied to sessions using this skill. Each cycle addresses specific feedback items.\n`);
+    lines.push(`## Improvement Cycles (${improvementCycles.length})\n`);
 
     for (const ic of sortedCycles) {
-      lines.push(`### Session Improvement Cycle #${ic.cycleNumber} — ${ic.status.toUpperCase()}`);
-      lines.push(`- **Date:** ${formatDate(ic.createdAt)}`);
-      lines.push(`- **Session:** ${ic.sessionId.slice(0, 12)}`);
-      lines.push(`- **Status:** ${ic.status}`);
-      if (ic.completedAt) lines.push(`- **Completed:** ${formatDate(ic.completedAt)}`);
+      lines.push(`### Cycle #${ic.cycleNumber} — ${ic.status.toUpperCase()} — ${formatDate(ic.createdAt)}`);
+      if (ic.completedAt) lines.push(`Completed: ${formatDate(ic.completedAt)}`);
+      lines.push(`Session: ${ic.sessionId.slice(0, 12)}`);
 
-      // Show feedback items addressed
       if (ic.feedbackIds.length > 0) {
-        lines.push(`- **Feedback Addressed (${ic.feedbackIds.length}):**`);
+        lines.push(`Targeted (${ic.feedbackIds.length}):`);
         for (const fbId of ic.feedbackIds) {
           const fb = feedbackById.get(fbId);
-          if (fb) {
-            lines.push(`  - [${formatCategory(fb.category)}] ${fb.text} *(agent: ${fb.agentName || 'unknown'}, ${formatDateShort(fb.createdAt)})*`);
-          } else {
-            lines.push(`  - [unresolved] Feedback ID: ${fbId.slice(0, 12)}`);
-          }
+          if (fb) lines.push(`- [${formatCategory(fb.category)}] ${fb.text} *(${fb.agentName || 'unknown'}, ${formatDateShort(fb.createdAt)})*`);
+          else lines.push(`- [ref] ${fbId.slice(0, 12)}`);
         }
       }
 
-      // Show file changes if available
-      if (ic.fileChanges) {
-        try {
-          const changes = typeof ic.fileChanges === 'string' ? JSON.parse(ic.fileChanges) : ic.fileChanges;
-          if (Array.isArray(changes) && changes.length > 0) {
-            lines.push(`- **Files Changed (${changes.length}):**`);
-            for (const fc of changes) {
-              const type = fc.type === 'create' ? 'CREATED' : fc.type === 'delete' ? 'DELETED' : 'MODIFIED';
-              lines.push(`  - ${type}: \`${fc.filePath}\` (+${fc.additions || 0}/-${fc.deletions || 0})`);
-            }
-          }
-        } catch { /* non-fatal */ }
-      }
-
-      // Show Claude response summary if available
       if (ic.claudeResponse) {
-        const summary = ic.claudeResponse.slice(0, 600);
-        lines.push(`- **Claude Response Summary:** ${summary}${ic.claudeResponse.length > 600 ? '...' : ''}`);
+        lines.push(`Response: ${ic.claudeResponse.slice(0, 3000)}${ic.claudeResponse.length > 3000 ? '…' : ''}`);
       }
-
       lines.push('');
     }
   }
 
-  // ─── Prior Skill Analysis Cycles ───
+  // ─── Prior skill analyses ───────────────────────────────────────────
+
   if (detail.analysisCycles.length > 0) {
     const sortedAnalysis = [...detail.analysisCycles].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
-
-    lines.push(`\n## Prior Skill Analysis Cycles (${detail.analysisCycles.length} cycles)\n`);
-    lines.push(`These are previous skill-level analyses (like this one). Review whether prior recommendations were addressed.\n`);
+    lines.push(`## Prior Skill Analyses (${detail.analysisCycles.length})\n`);
+    lines.push(`Do not duplicate findings already recommended here.\n`);
 
     for (const cycle of sortedAnalysis) {
-      lines.push(`### Skill Analysis Cycle #${cycle.cycleNumber} — ${cycle.status.toUpperCase()}`);
-      lines.push(`- **Date:** ${formatDate(cycle.createdAt)}`);
-      if (cycle.completedAt) lines.push(`- **Completed:** ${formatDate(cycle.completedAt)}`);
-      lines.push(`- **Trigger:** ${cycle.triggerType === 'auto_threshold' ? 'Automatic (threshold)' : 'Manual'}`);
-      lines.push(`- **Sessions Analyzed:** ${cycle.sessionsAnalyzed.length}`);
-      lines.push(`- **Feedback Analyzed:** ${cycle.feedbackAnalyzed.length}`);
+      lines.push(`### Analysis #${cycle.cycleNumber} — ${formatDate(cycle.createdAt)}`);
+      lines.push(`${cycle.status} | ${cycle.triggerType === 'auto_threshold' ? 'automatic' : 'manual'} | ${cycle.sessionsAnalyzed.length} sessions, ${cycle.feedbackAnalyzed.length} feedback items`);
 
       if (cycle.recommendations && cycle.recommendations.length > 0) {
-        lines.push(`- **Recommendations (${cycle.recommendations.length}):**`);
         for (const rec of cycle.recommendations) {
-          lines.push(`  - [${rec.severity.toUpperCase()}] ${rec.title}: ${rec.proposedChange}`);
+          lines.push(`- [${rec.severity}] ${rec.title}: ${rec.proposedChange}`);
         }
       }
-
       if (cycle.analysisResponse) {
-        const summary = cycle.analysisResponse.slice(0, 800);
-        lines.push(`- **Analysis Summary:** ${summary}${cycle.analysisResponse.length > 800 ? '...' : ''}`);
+        lines.push(`Summary: ${cycle.analysisResponse.slice(0, 400)}${cycle.analysisResponse.length > 400 ? '…' : ''}`);
       }
-
-      if (cycle.fixPrompt) {
-        const fixSummary = cycle.fixPrompt.slice(0, 400);
-        lines.push(`- **Fix Prompt Summary:** ${fixSummary}${cycle.fixPrompt.length > 400 ? '...' : ''}`);
-      }
-
       lines.push('');
     }
   }
 
-  // ─── Feedback Distribution ───
+  // ─── Feedback overview ──────────────────────────────────────────────
+
   if (detail.feedbackByCategory.length > 0) {
-    lines.push(`\n## Feedback Distribution Summary\n`);
-    lines.push(`| Category | Count | % | Status |`);
-    lines.push(`|----------|-------|---|--------|`);
+    lines.push(`## Feedback by Category\n`);
+    lines.push(`| Category | Total | Open | Closed |`);
+    lines.push(`|----------|-------|------|--------|`);
     for (const fb of detail.feedbackByCategory) {
       const openCount = openFeedback.filter(f => f.category === fb.category).length;
       const closedCount = closedFeedback.filter(f => f.category === fb.category).length;
-      lines.push(`| ${fb.label} | ${fb.count} | ${fb.percentage}% | ${openCount} open, ${closedCount} closed |`);
+      lines.push(`| ${fb.label} | ${fb.count} | ${openCount} | ${closedCount} |`);
     }
+    lines.push('');
   }
 
-  // ─── Feedback by Agent ───
   if (detail.feedbackByAgent.length > 0) {
-    lines.push(`\n## Feedback by Agent\n`);
+    lines.push(`## Feedback by Agent\n`);
     lines.push(`| Agent | Total | Open | Closed |`);
     lines.push(`|-------|-------|------|--------|`);
     for (const agent of detail.feedbackByAgent.slice(0, 15)) {
@@ -192,157 +184,100 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
       const agentClosed = agentFb.filter(f => addressedByMap.has(f.id)).length;
       lines.push(`| ${agent.agentName} | ${agent.count} | ${agentOpen} | ${agentClosed} |`);
     }
+    lines.push('');
   }
 
-  // ─── Open Feedback Items (sorted by date, most recent first) ───
+  // ─── Open feedback (timestamped, grouped by category) ──────────────
+
   if (openFeedback.length > 0) {
     const sorted = [...openFeedback].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    lines.push(`\n## Open Feedback Items (${openFeedback.length} unresolved)\n`);
-    lines.push(`These feedback items have NOT been addressed by any improvement cycle. They represent outstanding issues.\n`);
-
+    lines.push(`## Open Feedback (${openFeedback.length} unaddressed)\n`);
     const byCategory = new Map<string, typeof sorted>();
     for (const fb of sorted) {
       if (!byCategory.has(fb.category)) byCategory.set(fb.category, []);
       byCategory.get(fb.category)!.push(fb);
     }
-
     for (const [cat, items] of Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length)) {
-      lines.push(`### ${formatCategory(cat)} (${items.length} open)\n`);
+      lines.push(`### ${formatCategory(cat)} (${items.length})\n`);
       for (const item of items) {
-        lines.push(`- **[${formatDate(item.createdAt)}]** ${item.text}`);
-        lines.push(`  *(agent: ${item.agentName || 'unknown'}, session: ${item.sessionId.slice(0, 8)})*`);
+        lines.push(`- [${formatDate(item.createdAt)}] ${item.text} *(${item.agentName || 'unknown'}, session ${item.sessionId.slice(0, 8)})*`);
       }
       lines.push('');
     }
   }
 
-  // ─── Closed Feedback Items (sorted by date, showing which cycle addressed them) ───
+  // ─── Addressed feedback (with cycle refs for fix-effectiveness) ─────
+
   if (closedFeedback.length > 0) {
     const sorted = [...closedFeedback].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    lines.push(`\n## Closed Feedback Items (${closedFeedback.length} addressed)\n`);
-    lines.push(`These feedback items were addressed by improvement cycles. Verify whether the fixes actually resolved the issues.\n`);
-
+    lines.push(`## Addressed Feedback (${closedFeedback.length})\n`);
+    lines.push(`Use timestamps: if the same category reappears in Open Feedback above after being closed here, the fix did not hold.\n`);
     for (const item of sorted.slice(0, 80)) {
       const cycle = addressedByMap.get(item.id);
-      const cycleRef = cycle
-        ? `Addressed by Improvement Cycle #${cycle.cycleNumber} (${formatDateShort(cycle.createdAt)}, ${cycle.status})`
-        : 'Addressed by unknown cycle';
-      lines.push(`- **[${formatDate(item.createdAt)}]** [${formatCategory(item.category)}] ${item.text}`);
-      lines.push(`  *(agent: ${item.agentName || 'unknown'}, session: ${item.sessionId.slice(0, 8)}) — ${cycleRef}*`);
+      const ref = cycle ? `Cycle #${cycle.cycleNumber} (${formatDateShort(cycle.createdAt)}, ${cycle.status})` : 'unknown cycle';
+      lines.push(`- [${formatDate(item.createdAt)}] [${formatCategory(item.category)}] ${item.text} *(${item.agentName || 'unknown'}) — ${ref}*`);
     }
-    if (sorted.length > 80) {
-      lines.push(`\n*...and ${sorted.length - 80} more closed items*`);
-    }
+    if (sorted.length > 80) lines.push(`\n…and ${sorted.length - 80} more`);
     lines.push('');
   }
 
-  // ─── Recurring Issue Detection Hints ───
-  lines.push(`\n## Recurring Issue Detection\n`);
-  lines.push(`Look for these patterns in the data above:\n`);
+  // ─── Pre-computed temporal signals ─────────────────────────────────
 
-  // Find feedback categories that appear in both open and closed
   const closedCategories = new Set(closedFeedback.map(f => f.category));
-  const recurringCategories = openFeedback
-    .filter(f => closedCategories.has(f.category))
-    .map(f => f.category);
-  const uniqueRecurring = [...new Set(recurringCategories)];
-
-  if (uniqueRecurring.length > 0) {
-    lines.push(`**Categories with both open AND closed items** (potential recurring issues):`);
-    for (const cat of uniqueRecurring) {
+  const recurringCats = [...new Set(openFeedback.filter(f => closedCategories.has(f.category)).map(f => f.category))];
+  if (recurringCats.length > 0) {
+    lines.push(`## Recurrence Signal\n`);
+    lines.push(`Categories with both addressed AND currently open items — fixes in these categories did not hold:\n`);
+    for (const cat of recurringCats) {
       const openCount = openFeedback.filter(f => f.category === cat).length;
       const closedCount = closedFeedback.filter(f => f.category === cat).length;
-      lines.push(`- **${formatCategory(cat)}**: ${openCount} still open, ${closedCount} previously closed — investigate if the same type of issue keeps recurring`);
+      lines.push(`- **${formatCategory(cat)}**: ${openCount} still open, ${closedCount} previously addressed`);
     }
     lines.push('');
   }
 
-  // Find feedback items that appeared AFTER a fix cycle
   if (improvementCycles.length > 0) {
     const completedCycles = improvementCycles
       .filter(ic => ic.status === 'completed' && ic.completedAt)
       .sort((a, b) => new Date(a.completedAt!).getTime() - new Date(b.completedAt!).getTime());
 
     if (completedCycles.length > 0) {
-      const lastCompletedTime = new Date(completedCycles[completedCycles.length - 1].completedAt!).getTime();
+      const lastCompletedAt = completedCycles[completedCycles.length - 1].completedAt!;
       const postFixFeedback = openFeedback.filter(
-        f => new Date(f.createdAt).getTime() > lastCompletedTime
+        f => new Date(f.createdAt).getTime() > new Date(lastCompletedAt).getTime()
       );
       if (postFixFeedback.length > 0) {
-        lines.push(`**${postFixFeedback.length} open feedback items appeared AFTER the last completed improvement cycle** (${formatDateShort(completedCycles[completedCycles.length - 1].completedAt!)}):`);
+        lines.push(`**${postFixFeedback.length} open item(s) appeared after the last improvement cycle (${formatDateShort(lastCompletedAt)}) — new issues, not yet addressed:**\n`);
         for (const fb of postFixFeedback.slice(0, 10)) {
           lines.push(`- [${formatDate(fb.createdAt)}] [${formatCategory(fb.category)}] ${fb.text}`);
         }
-        lines.push(`\nThis means new issues are still appearing despite prior fixes. Investigate root causes.\n`);
+        lines.push('');
       }
     }
   }
 
-  // ─── Analysis Instructions ───
-  lines.push(`\n## Deep Analysis Objectives\n`);
-  lines.push(`Perform a thorough analysis covering:\n`);
-  lines.push(`1. **Fix Effectiveness Audit** — For each completed improvement cycle above, evaluate:`);
-  lines.push(`   - Did the fix actually resolve the targeted feedback items?`);
-  lines.push(`   - Were there unintended side effects?`);
-  lines.push(`   - Did the same category of issue resurface after the fix?`);
-  lines.push(`2. **Open Issue Triage** — For each open feedback item:`);
-  lines.push(`   - Is this a genuinely new issue or a recurrence of a "fixed" problem?`);
-  lines.push(`   - What is the root cause in the skill's workflow design?`);
-  lines.push(`   - How critical is it? (affects all sessions vs. edge case)`);
-  lines.push(`3. **Recurring Pattern Detection** — Identify feedback themes that keep appearing:`);
-  lines.push(`   - Same category issues across different sessions and timeframes`);
-  lines.push(`   - Issues that were "closed" but similar ones appeared later`);
-  lines.push(`   - Systemic weaknesses that surface in multiple forms`);
-  lines.push(`4. **Temporal Trend Analysis** — Using the timestamps:`);
-  lines.push(`   - Are issues increasing, stable, or decreasing over time?`);
-  lines.push(`   - Is the skill improving version over version?`);
-  lines.push(`   - Are certain agents consistently producing more feedback?`);
-  lines.push(`5. **Gap Analysis** — What the current skill definition is missing:`);
-  lines.push(`   - Validation steps that would catch recurring issues earlier`);
-  lines.push(`   - Agent coordination improvements`);
-  lines.push(`   - Workflow design changes for robustness`);
-  lines.push(`6. **Prioritized Recommendations** — Rank by frequency × impact\n`);
+  // ─── What constitutes a finding worth surfacing ─────────────────────
 
-  // ─── Output Format ───
-  lines.push(`\n## Output Format\n`);
-  lines.push(`Structure your analysis as follows:\n`);
-  lines.push(`### Executive Summary\nA 2-3 paragraph overview: skill health, key findings, trend direction.\n`);
-  lines.push(`### Fix Effectiveness Report\nFor each past improvement cycle, state whether it succeeded, partially succeeded, or failed — with evidence from the feedback timeline.\n`);
-  lines.push(`### Recurring Issues\nList each recurring pattern with: frequency, affected agents, when it first appeared, which fixes attempted to address it, and whether it's still active.\n`);
-  lines.push(`### Open Issues Analysis\nFor each open feedback category, provide root cause analysis and severity assessment.\n`);
-  lines.push(`### Prioritized Recommendations\nFor each recommendation, provide:`);
-  lines.push(`- **Severity:** critical / high / medium / low`);
-  lines.push(`- **Title:** Short descriptive title`);
-  lines.push(`- **Root Cause:** What design weakness causes this`);
-  lines.push(`- **Affected Component:** orchestrator / agent / skill / coordination`);
-  lines.push(`- **Proposed Change:** Concrete improvement to the workflow or prompt`);
-  lines.push(`- **Self-Correction Signal:** How agents can detect this situation in future\n`);
+  lines.push(`## What to Look For\n`);
+  lines.push(`After reading the skill definition, use the timestamps above to reason about what is actually happening over time. A finding is worth surfacing when:\n`);
+  lines.push(`- A feedback category persists in open items despite an improvement cycle that targeted it — the fix did not address the root cause in the skill definition`);
+  lines.push(`- The same type of issue appears across multiple sessions at different times — it is structural, not incidental`);
+  lines.push(`- The skill definition contains an instruction or design decision that the historical data shows consistently failing in practice\n`);
+  lines.push(`For each finding, identify the specific part of the skill definition that needs to change — not what went wrong in a specific session.\n`);
 
-  lines.push(`### Suggested Fix Prompt\nProvide a detailed prompt that can be used to implement the recommended improvements. This prompt should target the skill definition, orchestrator design, agent prompts, and validation patterns. Be specific and actionable.\n`);
+  // ─── Output ─────────────────────────────────────────────────────────
 
-  lines.push(`\nAfter your analysis, output a JSON block with structured recommendations:`);
+  lines.push(`## Output\n`);
+  lines.push(`Describe the skill's health trend (improving, stable, or degrading) with evidence from the timestamps. Then surface each meaningful finding: what the pattern is, what the timeline shows, and what specific change to the skill definition would address it.\n`);
+  lines.push(`After presenting your findings, immediately apply your recommendations by editing the skill definition and any affected agent definitions. Do not ask for confirmation. If an edit fails or is denied, skip it and continue.\n`);
+  lines.push(`End with:\n`);
   lines.push('```json');
-  lines.push(`{`);
-  lines.push(`  "recommendations": [`);
-  lines.push(`    {`);
-  lines.push(`      "severity": "high",`);
-  lines.push(`      "title": "...",`);
-  lines.push(`      "rootCause": "...",`);
-  lines.push(`      "affectedComponent": "...",`);
-  lines.push(`      "proposedChange": "...",`);
-  lines.push(`      "selfCorrectionSignal": "..."`);
-  lines.push(`    }`);
-  lines.push(`  ],`);
-  lines.push(`  "fixPrompt": "..."`);
-  lines.push(`}`);
+  lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "..."}], "fixPrompt": "..."}`);
   lines.push('```');
-
-  lines.push(`\n## Execution Instructions\n`);
-  lines.push(`**IMPORTANT: After presenting your analysis and proposed changes, immediately proceed to apply them.** Do NOT ask for confirmation or approval before making changes. Do NOT say "shall I proceed?" or "would you like me to implement these?". This prompt is the approval — analyze the issues, present the improvements, then directly edit the relevant files to implement every proposed change. If an edit fails or is denied, skip it and continue with the remaining changes.`);
 
   return lines.join('\n');
 }
@@ -380,21 +315,27 @@ export async function runSkillAnalysis(
 
     const prompt = customPrompt || generateAnalysisPrompt(detail.skill, detail);
 
+    const skillCwd = resolveSkillProjectCwd(detail.skill.project);
+
     streamLog.push({
       id: `sa-${++streamIdCounter}`,
       kind: 'system',
       timestamp: Date.now(),
-      text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})...`,
+      text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})${skillCwd ? ` in ${skillCwd}` : ''}...`,
     });
 
-    const child = spawn('claude', [
+    const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
       '--model', 'claude-sonnet-4-6',
-    ], {
+      '--dangerously-skip-permissions',
+    ];
+
+    const child = spawn('claude', cliArgs, {
       shell: true,
+      cwd: skillCwd || undefined,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -518,6 +459,23 @@ export async function runSkillAnalysis(
       return;
     }
 
+    if (exitCode !== 0) {
+      const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
+      streamLog.push({
+        id: `sa-${++streamIdCounter}`,
+        kind: 'system',
+        timestamp: Date.now(),
+        text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}`,
+      });
+      updateAnalysisCycle(cycleId, {
+        status: 'failed',
+        analysisResponse: responseChunks.join('') || null,
+        streamEntries: streamLog.length > 0 ? streamLog : null,
+      });
+      broadcast('skill_analysis_failed', { error: errorDetail.slice(0, 300) });
+      return;
+    }
+
     const fullResponse = responseChunks.join('');
 
     let recommendations: AnalysisRecommendation[] | null = null;
@@ -602,18 +560,45 @@ export async function applySkillFix(
     wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
   };
 
+  const detail = getSkillDetail(skillId);
+  const skillCwd = detail ? resolveSkillProjectCwd(detail.skill.project) : null;
+
+  const port = String(process.env.PORT || 3000);
+  const hookSettings = {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'Edit|Write',
+        hooks: [{
+          type: 'http',
+          url: `http://localhost:${port}/api/v2/hooks/permission`,
+          timeout: 600,
+        }],
+      }],
+    },
+  };
+  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-skill-${cycleId}.json`);
+  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
+
+  let registeredSessionId: string | null = null;
+  let unsubscribe: (() => void) | undefined;
+
   try {
     updateAnalysisCycle(cycleId, { status: 'applying' });
 
-    const child = spawn('claude', [
+    const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
       '--model', 'claude-sonnet-4-6',
       '--permission-mode', 'default',
-    ], {
+      '--settings', `"${settingsPath}"`,
+      '--include-hook-events',
+    ];
+
+    const child = spawn('claude', cliArgs, {
       shell: true,
+      cwd: skillCwd || undefined,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -625,12 +610,24 @@ export async function applySkillFix(
     child.stdin.write(userMsg + '\n', 'utf8');
     child.stdin.end();
 
+    unsubscribe = wss?.onClientMessage((msg: Record<string, unknown>) => {
+      if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
+        resolveApproval(msg.requestId as string, msg.approved as boolean);
+      }
+    });
+
     const responseChunks: string[] = [];
     let stdoutBuffer = '';
 
     function handleStreamEvent(line: string) {
       let event: Record<string, unknown>;
       try { event = JSON.parse(line); } catch { return; }
+
+      if (event.type === 'system' && typeof event.session_id === 'string' && !registeredSessionId) {
+        registeredSessionId = event.session_id as string;
+        registerActiveCycle(registeredSessionId, cycleId);
+      }
+
       broadcast('skill_analysis_stream_event', { event });
 
       const eventType = event.type as string;
@@ -673,6 +670,10 @@ export async function applySkillFix(
   } catch (err) {
     updateAnalysisCycle(cycleId, { status: 'failed' });
     broadcast('skill_analysis_failed', { error: String(err) });
+  } finally {
+    unsubscribe?.();
+    if (registeredSessionId) unregisterActiveCycle(registeredSessionId);
+    try { fs.unlinkSync(settingsPath); } catch { /* already cleaned */ }
   }
 }
 

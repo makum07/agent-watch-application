@@ -39,7 +39,13 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
       const res = await fetch(`/api/v2/sessions/${sessionId}/analysis`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      set({ cycles: data.cycles, isLoading: false });
+      const cycles = data.cycles as ExecutionAnalysisCycle[];
+      const stillAnalyzing = cycles.some(c => c.status === 'analyzing');
+      set(s => ({
+        cycles,
+        isLoading: false,
+        isAnalyzing: stillAnalyzing ? s.isAnalyzing : false,
+      }));
     } catch (err) {
       set({ lastError: String(err), isLoading: false });
     }
@@ -69,8 +75,11 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
-      const cycle = await res.json();
-      set({ activeCycleId: cycle.id });
+      const cycle = await res.json() as ExecutionAnalysisCycle;
+      set(s => ({
+        activeCycleId: cycle.id,
+        cycles: [cycle, ...s.cycles],
+      }));
       return cycle;
     } catch (err) {
       set({ lastError: String(err), isAnalyzing: false });
@@ -167,7 +176,9 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
 
     if (event.type === 'execution_analysis_failed') {
       const error = (event as unknown as { error: string }).error;
+      const sessionId = (event as unknown as { sessionId: string }).sessionId;
       set({ isAnalyzing: false, lastError: error });
+      get().loadCycles(sessionId);
       return;
     }
   },

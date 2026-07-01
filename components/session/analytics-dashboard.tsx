@@ -13,7 +13,7 @@ import { formatTokens, formatDuration, formatCost, cn } from '@/lib/utils';
 import { getAgentDisplay } from '@/lib/agent-display';
 import { AgentExecutionCard } from '@/components/session/agent-execution-card';
 import { ExecutionAnalysis } from '@/components/session/execution-analysis';
-import type { ExecutionFacts, AgentFacts } from '@/types/analytics';
+import type { ExecutionFacts } from '@/types/analytics';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
 interface AnalyticsDashboardProps {
@@ -77,7 +77,7 @@ export function AnalyticsDashboard({ sessionId, paneId }: AnalyticsDashboardProp
     );
   }
 
-  const { summary, orchestrator, agentFacts, costBreakdown, criticalPath, failedToolCategories } = facts;
+  const { summary, agentFacts, costBreakdown, criticalPath, failedToolCategories } = facts;
 
   const sections = [
     { id: 'summary', label: 'Summary', icon: <BarChart3 className="h-3 w-3" /> },
@@ -251,9 +251,7 @@ export function AnalyticsDashboard({ sessionId, paneId }: AnalyticsDashboardProp
         {/* ── AI Analysis ────────────────────────────────────── */}
         <section id="analytics-ai">
           <SectionHeader title="AI Analysis" icon={<Sparkles className="h-4 w-4" />} />
-          <p className="text-xs text-[var(--aw-text-2)] mb-3">
-            Deep analysis powered by Claude. Requires WebSocket server running (<code className="text-[10px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-1)]">npm run dev:server</code>).
-          </p>
+
           <ExecutionAnalysis sessionId={sessionId} />
         </section>
 

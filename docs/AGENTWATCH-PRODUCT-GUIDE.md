@@ -257,9 +257,30 @@ The AI analysis covers:
 - Workflow efficiency evaluation
 - Actionable improvement recommendations with specific targets
 
-Analysis runs stream live in the browser and are stored as **analysis cycles** for future reference.
+#### Live streaming UI
 
-**Value:** a second pair of (AI) eyes that can reason about the execution holistically and identify patterns a dashboard can't.
+Analysis runs stream live in the browser using the same rich stream log design as the feedback review panel. While the analysis is running, the user sees real-time progress:
+
+- **Thinking blocks** — collapsible purple sections showing Claude's reasoning
+- **Tool calls** — color-coded by tool type (green for Bash, blue for Read, orange for Edit/Write, purple for Grep/Glob), with expandable input/output and paired results
+- **Text entries** — markdown-rendered analysis output as it's generated
+- **System messages** — status updates (starting, completed, failed with error details)
+
+The stream auto-scrolls during live analysis and the cycle card auto-expands so the user can immediately see what the analysis is doing. A spinner with "Starting analysis session..." appears while waiting for the first event from Claude.
+
+Each analysis cycle is displayed as a card with a left border color matching its status (blue for analyzing, green for completed, red for failed). The card shows the cycle number, status badge, timestamp, collapsible prompt section, the live/historical stream log, and AI recommendations.
+
+#### Reliability
+
+The analysis spawns a Claude Code session (`-p --output-format stream-json --input-format stream-json`) in the session's actual project directory. The project directory is resolved from the JSONL file header's `cwd` field — not decoded from the metadata directory name, which is lossy for paths containing hyphens or spaces.
+
+Real-time events are delivered via WebSocket. As a fallback for long-running analyses (which can take several minutes for large sessions), the UI polls the server every 10 seconds while an analysis is active. This ensures the UI recovers even if the WebSocket connection drops — `isAnalyzing` is reset based on actual cycle status from the database, not solely from WebSocket events.
+
+Non-zero exit codes and empty responses from Claude are detected and reported as failures with the actual error message, rather than silently marked as completed with zero recommendations.
+
+Analysis runs are stored as **analysis cycles** for future reference, including the full stream log, parsed recommendations, and the analysis response.
+
+**Value:** a second pair of (AI) eyes that can reason about the execution holistically and identify patterns a dashboard can't — with full visibility into what the analysis is doing while it runs.
 
 ### Feedback — *the most important capability*
 Feedback is attached to the **exact agent, the exact execution, and the exact artifact** that caused an issue — not to "the workflow" in general.
@@ -306,8 +327,8 @@ Compare two sessions side by side — their agent hierarchies, metrics, and outc
 Instead of improving one run at a time, AgentWatch aggregates feedback and trends across **many executions** of the same skill. See execution history, success rates, and recurring patterns.
 **Value:** you stop fixing single executions and start improving the **workflow itself**.
 
-### Self-Healing *(in progress)* — *workflows that improve themselves*
-The planned direction: after a number of runs, a skill **analyzes its own history**, produces an improvement report and a suggested fix, you **review**, and **apply**. The UI foundation is built — skill dashboards, execution history tracking, analysis cycle management, and configuration for automation modes — but the end-to-end self-healing loop is not yet complete.
+### Self-Healing — *workflows that improve themselves*
+After a number of runs, a skill **analyzes its own history**, produces an improvement report and a suggested fix, you **review**, and **apply**. The skill dashboard aggregates feedback and execution data across sessions and spawns a dedicated Claude Code session to perform the analysis.
 
 ```
    Skill  →  N Executions  →  Automatic Analysis  →  Improvement Report
@@ -319,6 +340,23 @@ The planned direction: after a number of runs, a skill **analyzes its own histor
 | **Analysis only** | Produces the report and recommendations — you decide what to do |
 | **Analysis and fix** | Generates the fix — you review and approve before it lands |
 | **Fully automatic** | Analyzes, generates, and applies the fix — you review after the fact |
+
+#### Cross-project skill analysis
+
+Skills may be defined in a different project from where they are executed. For example, skill definitions might live in a shared `ZER-claude-config` repo while sessions run in `ZER-app`. AgentWatch resolves the skill's project directory automatically:
+
+1. **Project resolution** — The skill record stores a project display name. AgentWatch maps this back to the actual filesystem path by iterating Claude Code's project metadata directories, matching display names, and reading the `cwd` field from a session JSONL header.
+2. **CWD** — The spawned Claude Code session runs in the skill's project directory, so it can natively read `.claude/skills/` and `.claude/agents/` definitions.
+3. **Read-only analysis** — The analysis phase uses `--dangerously-skip-permissions` since it only reads files.
+4. **Fix application** — When a fix is applied, the same PreToolUse hook architecture used by the improvement loop gates Edit/Write operations through the browser. The hook is registered dynamically once Claude Code reports its session ID in the initial system event.
+
+#### Browser-based approval for skill fixes
+
+The `applySkillFix` flow mirrors the improvement loop's permission model:
+- A temporary settings file with a `PreToolUse` HTTP hook is written and passed via `--settings`.
+- Edit/Write tool calls are intercepted and broadcast to the browser via WebSocket.
+- The user approves or denies each change in the skill dashboard UI.
+- The hook settings file and active cycle registration are cleaned up in a `finally` block.
 
 **Value:** AgentWatch graduates from an *observability* tool to a **workflow-evolution platform**.
 
@@ -406,6 +444,7 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Edit approval gate** | A browser-based review step — powered by Claude Code's PreToolUse hook — where you approve or deny each file change before it's applied |
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
+| **Skill analysis** | AI-powered cross-session analysis of a skill's execution history, feedback trends, and definition — runs in the skill's own project directory for native file access |
 
 ---
 
