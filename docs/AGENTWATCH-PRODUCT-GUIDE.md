@@ -420,6 +420,56 @@ The `applySkillFix` flow mirrors the improvement loop's permission model:
 
 **Value:** AgentWatch graduates from an *observability* tool to a **workflow-evolution platform**.
 
+### Threshold Alerts — *know when sessions need attention*
+
+As Claude Code sessions run — sometimes for hours, sometimes in parallel across projects — cost and duration can grow without anyone noticing. AgentWatch includes a **threshold monitoring system** that continuously watches active sessions and alerts you when they cross configurable limits.
+
+#### How it works
+
+A background monitor runs every **2 minutes** inside the AgentWatch server process. Each cycle:
+
+1. **Scans** all sources and projects for active JSONL session files
+2. **Computes** the current cost and duration of each active session
+3. **Compares** against your configured thresholds (cost in dollars, duration in hours)
+4. **Creates alerts** in the database for sessions that exceed a threshold
+5. **Broadcasts** real-time updates to the browser via WebSocket
+6. **Sends a consolidated Teams notification** listing every active session currently crossing the threshold
+7. **Auto-resolves** alerts when sessions end
+
+```
+   Active Sessions  →  Scan (every 2 min)  →  Threshold Check
+        →  DB Alert + WebSocket  →  Teams Notification (consolidated)
+```
+
+#### Alerts page
+
+The Alerts page in the browser shows:
+
+- **Active alerts** — sessions currently exceeding a threshold, with the session title (linked to the workspace), threshold type, actual vs. threshold value, cost, tokens, and duration. Each alert has a **Dismiss** button to suppress it for the remainder of that session
+- **Resolved alerts** — collapsible section showing alerts that auto-resolved when the session ended
+- **Settings** — a gear icon opens the configuration panel where you can set the cost threshold (dollars), duration threshold (hours), and the Teams webhook URL. Setting a threshold to 0 disables that check
+
+Alerts update in real time — when a new alert is created or an existing one is updated by the monitor, the browser receives a WebSocket event and refreshes automatically. The navbar badge shows the count of active alerts.
+
+#### Teams notifications
+
+Every monitor cycle sends a **single consolidated notification** to Microsoft Teams via a Power Automate webhook. The card matches the Adaptive Card format and includes:
+
+- A **header** with the check timestamp and threshold values
+- **Summary metrics** — total cost across all breaching sessions and session count
+- **Per-session rows** — each breaching session listed with its title (clickable link to AgentWatch workspace), cost, token count, duration, and source
+- An **action button** linking to the AgentWatch Alerts page
+
+Notifications are sent every cycle for every active session crossing the threshold — not just once per alert. This means if a session is still running and still over the threshold two minutes later, you get another notification with updated numbers. This provides continuous visibility rather than a single fire-and-forget alert.
+
+The Teams webhook URL is configured from the Alerts page settings in the browser — no environment variables or Docker configuration needed.
+
+#### Dismissed alerts
+
+When you dismiss an alert, the monitor will not re-create alerts for that session and threshold type for the remainder of the session. This prevents alert fatigue for sessions you've already reviewed and decided to let continue.
+
+**Value:** cost and duration surprises are caught early, with real-time browser alerts and recurring Teams notifications — no manual checking needed, and no separate cron job or Docker service to maintain.
+
 ### Multi-Source Support — *WSL, Windows, and beyond*
 AgentWatch can read Claude data from **multiple sources** on the same machine — for example, a native Windows `.claude` folder and a WSL Linux `.claude` folder. Switch between sources from the home page.
 **Value:** if you use Claude across environments, you see all your work in one place.
@@ -505,6 +555,8 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
 | **Skill analysis** | AI-powered cross-session analysis of a skill's execution history, feedback trends, and definition — runs in the skill's own project directory for native file access |
+| **Threshold alert** | A notification created when an active session's cost or duration exceeds a configured limit; shown in the browser and sent to Teams |
+| **Threshold monitor** | A background process that scans active sessions every 2 minutes and creates threshold alerts for breaching sessions |
 
 ---
 

@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatDuration, formatTokens, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, X, RotateCcw, Activity, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, X, RotateCcw, Activity, Layers, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
@@ -332,9 +332,11 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
           Sync
         </button>
 
+        <button onClick={() => setPanOffset(0)} disabled={pan <= 0} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent" title="Jump to start"><ChevronsLeft className="h-3.5 w-3.5" /></button>
         <button onClick={() => doZoom(1.5)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
         <button onClick={() => doZoom(1 / 1.5)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
         <button onClick={resetZoom} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Fit all"><RotateCcw className="h-3 w-3" /></button>
+        <button onClick={() => setPanOffset(maxPan)} disabled={pan >= maxPan} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent" title="Jump to end"><ChevronsRight className="h-3.5 w-3.5" /></button>
         <span className="text-[10px] font-mono text-[var(--aw-text-4)] w-10 text-right shrink-0">
           {zoom ? `×${(effectiveZoom / fitZoom()).toFixed(1)}` : 'fit'}
         </span>

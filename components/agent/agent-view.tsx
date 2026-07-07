@@ -91,32 +91,37 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
           </div>
           {/* Controls */}
           <div className="flex items-center gap-0.5 shrink-0 relative">
-            <button
-              onClick={() => {
-                const tabs = paneStates[paneId]?.tabs ?? [];
-                const searchIdx = tabs.findIndex(t => t.type === 'search');
-                if (searchIdx >= 0) { setActiveTab(paneId, searchIdx); }
-                else { addTabToPane(paneId, { type: 'search' as const, label: 'Search' }); }
-              }}
-              className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-              title="Search agents"
-            >
-              <Search className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
-              className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-              title="Split right"
-            >
-              <SplitSquareHorizontal className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => splitPane(paneId, 'vertical', { type: 'agent', agentId: '', label: '' })}
-              className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-              title="Split down"
-            >
-              <SplitSquareVertical className="h-3.5 w-3.5" />
-            </button>
+            {/* Search/split/close already live in the pane's tab bar when there are multiple tabs — avoid duplicating them here */}
+            {isSingleTab && (
+              <>
+                <button
+                  onClick={() => {
+                    const tabs = paneStates[paneId]?.tabs ?? [];
+                    const searchIdx = tabs.findIndex(t => t.type === 'search');
+                    if (searchIdx >= 0) { setActiveTab(paneId, searchIdx); }
+                    else { addTabToPane(paneId, { type: 'search' as const, label: 'Search' }); }
+                  }}
+                  className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+                  title="Search agents"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => splitPane(paneId, 'horizontal', { type: 'agent', agentId: '', label: '' })}
+                  className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+                  title="Split right"
+                >
+                  <SplitSquareHorizontal className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => splitPane(paneId, 'vertical', { type: 'agent', agentId: '', label: '' })}
+                  className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+                  title="Split down"
+                >
+                  <SplitSquareVertical className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
             <button
               onClick={() => setShowCompareMenu(v => !v)}
               className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
@@ -124,13 +129,15 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
             >
               <Columns2 className="h-3.5 w-3.5" />
             </button>
-            <button
-              onClick={() => closePane(paneId)}
-              className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
-              title="Close pane"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            {isSingleTab && (
+              <button
+                onClick={() => closePane(paneId)}
+                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+                title="Close pane"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
 
             {/* Compare picker dropdown */}
             {showCompareMenu && (
