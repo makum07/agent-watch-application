@@ -6,8 +6,10 @@ import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
+import { registerActiveCycle, unregisterActiveCycle, resolveApproval, waitForApproval } from '@/lib/hooks/permission-state';
 import { generateImprovementPrompt } from '@/lib/services/improvement-prompt';
+import { findExternalSkillDirsFromSession } from '@/lib/services/external-dirs';
+import { applyEditLocally, isNativePermissionBlock } from '@/lib/services/direct-edit-apply';
 
 interface DbFeedbackItem {
   id: string;
@@ -192,45 +194,6 @@ function findProjectDirBySlug(slug: string): string | null {
   return search(startDir, 6);
 }
 
-// ── External skill/agent directory discovery ────────────────────────────────
-// When a session runs in project A but its skills/agents are defined in
-// project B, parse the session JSONL to find those external paths so the
-// improvement prompt can include them for Read/Edit.
-
-function findExternalSkillDirsFromSession(jsonlPath: string, projectCwd: string): string[] {
-  let raw: string;
-  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch { return []; }
-
-  const dirs = new Set<string>();
-  const normalizedCwd = path.resolve(projectCwd);
-
-  // In the JSONL, skill/agent paths appear in two forms:
-  // 1. JSON-escaped backslashes: C:\\Users\\...\.claude\\skills
-  // 2. Forward slashes (tool inputs): C:/Users/.../.claude/skills
-  const patterns = [
-    /([A-Za-z]:\\\\[^"]*?\\\\.claude\\\\(?:skills|agents))/g,
-    /([A-Za-z]:\/[^"]*?\/\.claude\/(?:skills|agents))/g,
-  ];
-
-  for (const re of patterns) {
-    let match;
-    while ((match = re.exec(raw)) !== null) {
-      const unescaped = match[1].replace(/\\\\/g, '\\').replace(/\//g, '\\');
-      try {
-        const resolved = path.resolve(unescaped);
-        if (!resolved.startsWith(normalizedCwd)) {
-          dirs.add(resolved);
-        }
-      } catch { continue; }
-    }
-  }
-
-  return Array.from(dirs).filter(dir => {
-    try { return fs.statSync(dir).isDirectory(); } catch { return false; }
-  });
-}
-
-
 // ── Stream-JSON runner ───────────────────────────────────────────────────────
 
 function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string): string {
@@ -335,6 +298,61 @@ async function runClaudeResumeAsync(
 
     let stdoutBuffer = '';
 
+    // Edit/Write calls that Claude Code natively refuses (e.g. "sensitive
+    // file" paths under .claude/) never reach the PreToolUse hook — Claude
+    // denies them before the hook is consulted. We track each Edit/Write
+    // tool_use here so that if its tool_result comes back as this kind of
+    // native denial, we can offer the same browser approval card and, if
+    // approved, write the change to disk ourselves.
+    const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
+    const directApplyOutcomes: Array<{ file: string; applied: boolean; reason?: string }> = [];
+    let directApplyInFlight = 0;
+    let turnEnded = false;
+
+    function maybeFinishTurn() {
+      if (!turnEnded || directApplyInFlight > 0) return;
+      turnEnded = false;
+
+      if (directApplyOutcomes.length === 0) {
+        child.stdin.end();
+        return;
+      }
+
+      const lines = directApplyOutcomes.splice(0).map(o =>
+        o.applied
+          ? `- Applied directly to ${o.file} — Claude Code's Edit tool can't write this file, so AgentWatch wrote your approved change to disk outside the tool.`
+          : `- NOT applied to ${o.file}${o.reason ? ` (${o.reason})` : ''}`
+      );
+      const continuation = [
+        "The following Edit/Write attempts were blocked by Claude Code's own tool restrictions and were resolved outside the Edit tool after user review in AgentWatch:",
+        '',
+        ...lines,
+        '',
+        'Continue your task accordingly. Treat files marked "Applied directly" as already containing your intended change — do not re-attempt editing them with the same content.',
+      ].join('\n');
+
+      const msg = JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: continuation }] },
+      });
+      child.stdin.write(msg + '\n', 'utf8');
+    }
+
+    async function handleBlockedEdit(name: string, input: Record<string, unknown>) {
+      const requestId = randomUUID();
+      broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
+      const approved = await waitForApproval(requestId);
+      broadcast('improvement_permission_resolved', { requestId, approved });
+
+      const filePath = String(input.file_path ?? 'unknown file');
+      if (!approved) {
+        directApplyOutcomes.push({ file: filePath, applied: false, reason: 'denied by user' });
+      } else {
+        const result = applyEditLocally(name, input);
+        directApplyOutcomes.push({ file: filePath, applied: result.ok, reason: result.error });
+      }
+    }
+
     function handleStreamEvent(line: string) {
       let event: Record<string, unknown>;
       try { event = JSON.parse(line); } catch { return; }
@@ -361,6 +379,9 @@ async function runClaudeResumeAsync(
           }
           if (block.type === 'tool_use') {
             streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
+            if (block.id && (block.name === 'Edit' || block.name === 'Write')) {
+              pendingToolCalls.set(block.id, { name: block.name, input: block.input ?? {} });
+            }
           }
         }
       }
@@ -370,18 +391,32 @@ async function runClaudeResumeAsync(
         if (um?.content) {
           for (const block of um.content) {
             if (block.type === 'tool_result') {
+              const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
               streamLog.push({
                 id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
-                toolUseId: block.tool_use_id, content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                toolUseId: block.tool_use_id, content,
                 isError: block.is_error ?? false,
               });
+
+              const call = block.tool_use_id ? pendingToolCalls.get(block.tool_use_id) : undefined;
+              if (call && block.tool_use_id) {
+                pendingToolCalls.delete(block.tool_use_id);
+                if (block.is_error && isNativePermissionBlock(content ?? '')) {
+                  directApplyInFlight++;
+                  handleBlockedEdit(call.name, call.input).finally(() => {
+                    directApplyInFlight--;
+                    maybeFinishTurn();
+                  });
+                }
+              }
             }
           }
         }
       }
 
       if (eventType === 'result') {
-        child.stdin.end();
+        turnEnded = true;
+        maybeFinishTurn();
       }
     }
 

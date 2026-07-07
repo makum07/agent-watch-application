@@ -20,6 +20,7 @@ import {
   checkSelfHealingThreshold,
 } from './skill-registry';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
+import { findExternalSkillDirsForSessions } from '@/lib/services/external-dirs';
 
 function formatCategory(cat: string): string {
   const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
@@ -62,6 +63,32 @@ function resolveSkillProjectCwd(projectDisplayName: string): string | null {
     }
   } catch { /* non-fatal */ }
   return null;
+}
+
+// A skill's definition file can live in a different project directory than
+// the ones its executions ran in (e.g. a shared skills/agents repo added via
+// `claude --add-dir`). Since analysis and fix application spawn a fresh `-p`
+// process with no memory of that grant, rediscover the external directories
+// from the JSONL of every session that has executed this skill and pass them
+// back via `--add-dir` — otherwise Edit/Write on the real definition file is
+// blocked by Claude Code's workspace boundary regardless of hook approval.
+function resolveExternalSkillDirs(skillId: string, cwd: string): string[] {
+  try {
+    const db = getDatabase();
+    const sessionIds = db.prepare(
+      'SELECT DISTINCT session_id FROM skill_executions WHERE skill_id = ?'
+    ).all(skillId) as Array<{ session_id: string }>;
+
+    const jsonlPaths: string[] = [];
+    for (const { session_id } of sessionIds) {
+      const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(session_id) as { file_path: string } | undefined;
+      if (conv?.file_path) jsonlPaths.push(conv.file_path);
+    }
+
+    return findExternalSkillDirsForSessions(jsonlPaths, cwd);
+  } catch {
+    return [];
+  }
 }
 
 export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailData): string {
@@ -324,6 +351,8 @@ export async function runSkillAnalysis(
       text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})${skillCwd ? ` in ${skillCwd}` : ''}...`,
     });
 
+    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
+
     const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
@@ -332,6 +361,11 @@ export async function runSkillAnalysis(
       '--model', 'claude-sonnet-4-6',
       '--dangerously-skip-permissions',
     ];
+
+    // Paths must be quoted — shell: true splits on spaces otherwise.
+    for (const dir of externalDirs) {
+      cliArgs.push('--add-dir', `"${dir}"`);
+    }
 
     const child = spawn('claude', cliArgs, {
       shell: true,
@@ -585,6 +619,8 @@ export async function applySkillFix(
   try {
     updateAnalysisCycle(cycleId, { status: 'applying' });
 
+    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
+
     const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
@@ -595,6 +631,13 @@ export async function applySkillFix(
       '--settings', `"${settingsPath}"`,
       '--include-hook-events',
     ];
+
+    // Grant Edit/Write access to the skill's real definition directory when it
+    // lives outside skillCwd — otherwise the workspace-boundary check blocks
+    // the edit even after the user approves it via the browser hook.
+    for (const dir of externalDirs) {
+      cliArgs.push('--add-dir', `"${dir}"`);
+    }
 
     const child = spawn('claude', cliArgs, {
       shell: true,
