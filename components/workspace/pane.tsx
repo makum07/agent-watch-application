@@ -42,14 +42,14 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
     return (
       <div
         className={cn(
-          'flex flex-col h-full border border-[#30363d] rounded-sm bg-[#0d1117]',
-          isFocused && 'border-[#58a6ff]/50'
+          'flex flex-col h-full border border-[var(--aw-bg-3)] rounded-sm bg-[var(--aw-bg-0)]',
+          isFocused && 'border-[var(--aw-blue)]/50'
         )}
         onClick={() => setFocusedPane(paneId)}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
-        <div className="flex items-center justify-center h-full text-[#6e7681] text-sm flex-col gap-3">
+        <div className="flex items-center justify-center h-full text-[var(--aw-text-3)] text-sm flex-col gap-3">
           <Plus className="h-8 w-8 opacity-20" />
           <span className="text-xs opacity-50">Drop an agent here</span>
           <div className="flex gap-2">
@@ -62,7 +62,7 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
                   store.addTabToPane(paneId, { type: 'agent', agentId: a.id, label: a.subagentType || 'Agent' });
                 }
               }}
-              className="text-xs text-[#58a6ff] hover:underline"
+              className="text-xs text-[var(--aw-blue)] hover:underline"
             >
               Open first agent
             </button>
@@ -75,8 +75,8 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
   return (
     <div
       className={cn(
-        'flex flex-col h-full border border-[#30363d] rounded-sm overflow-hidden',
-        isFocused ? 'border-[#58a6ff]/50' : 'border-[#30363d]'
+        'flex flex-col h-full border border-[var(--aw-bg-3)] rounded-sm overflow-hidden',
+        isFocused ? 'border-[var(--aw-blue)]/50' : 'border-[var(--aw-bg-3)]'
       )}
       onClick={() => setFocusedPane(paneId)}
       onDrop={handleDrop}
@@ -84,22 +84,22 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
     >
       {/* Tab bar — shown when multiple tabs */}
       {tabs.length > 1 && (
-        <div className="flex items-center bg-[#0d1117] border-b border-[#21262d] overflow-x-auto shrink-0 relative">
+        <div className="flex items-center bg-[var(--aw-bg-0)] border-b border-[var(--aw-bg-2)] overflow-x-auto shrink-0 relative">
           {tabs.map((tab, i) => (
             <div
               key={`${tab.type}-${i}`}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-[#21262d] shrink-0 max-w-[140px]',
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-[var(--aw-bg-2)] shrink-0 max-w-[140px]',
                 i === activeTab
-                  ? 'bg-[#161b22] text-[#e6edf3] border-b-0'
-                  : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#161b22]'
+                  ? 'bg-[var(--aw-bg-1)] text-[var(--aw-text-0)] border-b-0'
+                  : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-1)]'
               )}
               onClick={e => { e.stopPropagation(); setActiveTab(paneId, i); }}
             >
               <span className="truncate">{tab.label}</span>
               <button
                 onClick={e => { e.stopPropagation(); closeTab(paneId, i); }}
-                className="hover:text-[#e6edf3] opacity-50 hover:opacity-100 shrink-0"
+                className="hover:text-[var(--aw-text-0)] opacity-50 hover:opacity-100 shrink-0"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -108,16 +108,30 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
           {/* Add tab button */}
           <button
             onClick={e => { e.stopPropagation(); setShowPicker(p => !p); }}
-            className="p-1.5 text-[#484f58] hover:text-[#c9d1d9] hover:bg-[#161b22] transition-colors border-r border-[#21262d] shrink-0"
+            className="p-1.5 text-[var(--aw-text-4)] hover:text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-1)] transition-colors border-r border-[var(--aw-bg-2)] shrink-0"
             title="Add tab"
           >
             <Plus className="h-3 w-3" />
           </button>
           <div className="ml-auto flex items-center gap-1 px-2">
+            <button
+              onClick={() => {
+                const searchIdx = tabs.findIndex(t => t.type === 'search');
+                if (searchIdx >= 0) {
+                  setActiveTab(paneId, searchIdx);
+                } else {
+                  addTabToPane(paneId, { type: 'search' as const, label: 'Search' });
+                }
+              }}
+              className="text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] p-1 rounded hover:bg-[var(--aw-bg-2)]"
+              title="Search agents"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
             <SplitButton paneId={paneId} tabs={tabs} activeTab={activeTab} />
             <button
               onClick={() => closePane(paneId)}
-              className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+              className="text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] p-1 rounded hover:bg-[var(--aw-bg-2)]"
               title="Close pane"
             >
               <X className="h-3.5 w-3.5" />
@@ -155,14 +169,14 @@ function SplitButton({ paneId, tabs, activeTab }: { paneId: string; tabs: PaneTa
     <>
       <button
         onClick={() => splitPane(paneId, 'horizontal', { type: 'agent' as const, agentId: '', label: '' })}
-        className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+        className="text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] p-1 rounded hover:bg-[var(--aw-bg-2)]"
         title="Split right"
       >
         <SplitSquareHorizontal className="h-3.5 w-3.5" />
       </button>
       <button
         onClick={() => splitPane(paneId, 'vertical', { type: 'agent' as const, agentId: '', label: '' })}
-        className="text-[#c9d1d9] hover:text-[#e6edf3] p-1 rounded hover:bg-[#21262d]"
+        className="text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] p-1 rounded hover:bg-[var(--aw-bg-2)]"
         title="Split down"
       >
         <SplitSquareVertical className="h-3.5 w-3.5" />
@@ -175,7 +189,7 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
   if (tab.type === 'agent' && !tab.agentId) {
     // Empty agent slot — show drop zone
     return (
-      <div className="flex items-center justify-center h-full flex-col gap-3 text-[#6e7681]">
+      <div className="flex items-center justify-center h-full flex-col gap-3 text-[var(--aw-text-3)]">
         <div className="text-4xl opacity-20">⊞</div>
         <p className="text-xs">Drop an agent here from the sidebar</p>
       </div>
@@ -256,7 +270,7 @@ function renderTabContent(tab: PaneTab, sessionId: string, paneId: string, isSin
   }
 
   return (
-    <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
+    <div className="flex items-center justify-center h-full text-[var(--aw-text-3)] text-sm">
       {tab.type} view
     </div>
   );
@@ -302,22 +316,22 @@ function AgentPickerDropdown({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute left-0 top-full z-50 mt-0.5 bg-[#161b22] border border-[#30363d] rounded-md shadow-xl w-64">
-        <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[#21262d]">
-          <Search className="h-3 w-3 text-[#484f58] shrink-0" />
+      <div className="absolute left-0 top-full z-50 mt-0.5 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-md shadow-xl w-64">
+        <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--aw-bg-2)]">
+          <Search className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search agents…"
-            className="flex-1 text-xs bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none"
+            className="flex-1 text-xs bg-transparent text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none"
             onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
           />
         </div>
         <div className="max-h-52 overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-[#6e7681] text-center">
+            <div className="px-3 py-3 text-xs text-[var(--aw-text-3)] text-center">
               {available.length === 0 ? 'All agents are already open' : 'No matching agents'}
             </div>
           ) : (
@@ -327,7 +341,7 @@ function AgentPickerDropdown({
                 <button
                   key={agent.id}
                   onClick={() => addAgent(agent.id, shortName)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#21262d] transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[var(--aw-bg-2)] transition-colors text-left"
                 >
                   <div
                     className="w-5 h-5 rounded flex items-center justify-center text-[8px] font-bold shrink-0 border"
@@ -335,7 +349,7 @@ function AgentPickerDropdown({
                   >
                     {initials.slice(0, 2)}
                   </div>
-                  <span className="text-xs text-[#c9d1d9] truncate flex-1">{shortName}</span>
+                  <span className="text-xs text-[var(--aw-text-1)] truncate flex-1">{shortName}</span>
                   {(() => {
                     const st = getStatusDisplay(agent);
                     return (
@@ -353,10 +367,9 @@ function AgentPickerDropdown({
             })
           )}
         </div>
-        <div className="border-t border-[#21262d] px-2 py-1 flex flex-wrap gap-1">
+        <div className="border-t border-[var(--aw-bg-2)] px-2 py-1 flex flex-wrap gap-1">
           {([
             { type: 'timeline' as const, label: 'Timeline' },
-            { type: 'graph' as const, label: 'Graph' },
             { type: 'artifacts' as const, label: 'Files' },
             { type: 'search' as const, label: 'Search' },
             { type: 'context-flow' as const, label: 'Flow' },
@@ -366,7 +379,7 @@ function AgentPickerDropdown({
             <button
               key={type}
               onClick={() => { addTabToPane(paneId, { type, label }); onClose(); }}
-              className="flex-1 text-[10px] py-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors min-w-[40px]"
+              className="flex-1 text-[10px] py-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors min-w-[40px]"
             >
               {label}
             </button>

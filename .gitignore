@@ -53,3 +53,8 @@ server.log
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+# Claude Code internals
+.claude/worktrees/
+.claude/settings.local.json
+app/globals.css.bak

@@ -45,11 +45,11 @@ function getSubtreeAgentCount(agent: Agent, agentMap: Map<string, Agent>): numbe
 }
 
 const DEPTH_COLORS = [
-  '#58a6ff', // depth 0 — blue (orchestrator)
-  '#bc8cff', // depth 1 — purple
-  '#39d353', // depth 2 — green
-  '#f0883e', // depth 3 — orange
-  '#ff9a85', // depth 4+ — salmon
+  'var(--aw-blue)', // depth 0 — blue (orchestrator)
+  'var(--aw-purple)', // depth 1 — purple
+  'var(--aw-green-bright)', // depth 2 — green
+  'var(--aw-orange)', // depth 3 — orange
+  'var(--aw-red-light)', // depth 4+ — salmon
 ];
 
 function getDepthColor(depth: number): string {
@@ -106,15 +106,15 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
 
   if (sidebarCollapsed) {
     return (
-      <div className="flex flex-col items-center w-full h-full border-r border-[#30363d] bg-[#0d1117]">
+      <div className="flex flex-col items-center w-full h-full border-r border-sidebar-border bg-sidebar">
         <button
           onClick={() => { panelRef?.current?.expand(); setSidebarCollapsed(false); }}
-          className="mt-3 p-1.5 text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] rounded"
+          className="mt-3 p-1.5 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded"
           title="Expand sidebar"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <div className="mt-4 text-[10px] text-[#6e7681]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
+        <div className="mt-4 text-[10px] text-sidebar-foreground/40" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
           {session?.totalAgents ?? 0} agents
         </div>
       </div>
@@ -122,25 +122,25 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
   }
 
   return (
-    <div className="flex flex-col w-full h-full border-r border-[#30363d] bg-[#0d1117] overflow-hidden">
+    <div className="flex flex-col w-full h-full border-r border-sidebar-border bg-sidebar overflow-hidden">
       {/* Session info header */}
       {session && (
-        <div className="px-3 pt-3 pb-2 border-b border-[#21262d]">
+        <div className="px-3 pt-3 pb-2 border-b border-sidebar-border">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-[#e6edf3] truncate">
+            <span className="text-xs font-semibold text-sidebar-foreground truncate">
               {session.project.split(/[/\\]/).filter(Boolean).slice(-2).join('/')}
             </span>
-            <button onClick={() => panelRef?.current?.collapse()} className="text-[#c9d1d9] hover:text-[#e6edf3] p-0.5 rounded shrink-0">
+            <button onClick={() => panelRef?.current?.collapse()} className="text-sidebar-foreground/80 hover:text-sidebar-foreground p-0.5 rounded shrink-0">
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-[#c9d1d9]">
+          <div className="flex items-center gap-3 text-[11px] text-sidebar-foreground/80">
             <span className="flex items-center gap-1"><Users className="h-3 w-3" />{session.totalAgents}</span>
             <span className="flex items-center gap-1"><Zap className="h-3 w-3" />{formatTokens(session.totalTokens)}</span>
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDuration(session.duration.wallClock)}</span>
           </div>
           {maxDepth > 1 && (
-            <div className="flex items-center gap-1 mt-1.5 text-[10px] text-[#6e7681]">
+            <div className="flex items-center gap-1 mt-1.5 text-[10px] text-sidebar-foreground/40">
               <Network className="h-3 w-3" />
               <span>{maxDepth} levels deep</span>
             </div>
@@ -148,27 +148,17 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
         </div>
       )}
 
-      {/* Search + View toggle */}
-      <div className="px-2 py-2 border-b border-[#21262d] space-y-1.5">
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-[#21262d] border border-[#30363d]">
-          <Search className="h-3 w-3 text-[#484f58] shrink-0" />
-          <input
-            type="text"
-            placeholder="Search agents…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="flex-1 bg-transparent text-xs text-[#e6edf3] placeholder:text-[#484f58] outline-none"
-          />
-        </div>
+      {/* View toggle */}
+      <div className="px-2 py-2 border-b border-sidebar-border space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <div className="flex gap-0.5 p-0.5 rounded bg-[#161b22] border border-[#21262d] flex-1 min-w-0">
+          <div className="flex gap-0.5 p-0.5 rounded bg-sidebar-accent/30 border border-sidebar-border flex-1 min-w-0">
             <button
               onClick={() => setViewMode('tree')}
               className={cn(
                 'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
                 viewMode === 'tree'
-                  ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
-                  : 'text-[#6e7681] hover:text-[#c9d1d9]'
+                  ? 'bg-sidebar-accent text-sidebar-foreground shadow-sm'
+                  : 'text-sidebar-foreground/40 hover:text-sidebar-foreground/80'
               )}
             >
               <Network className="h-3 w-3" />
@@ -179,8 +169,8 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
               className={cn(
                 'flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10px] font-medium transition-colors',
                 viewMode === 'timeline'
-                  ? 'bg-[#21262d] text-[#e6edf3] shadow-sm'
-                  : 'text-[#6e7681] hover:text-[#c9d1d9]'
+                  ? 'bg-sidebar-accent text-sidebar-foreground shadow-sm'
+                  : 'text-sidebar-foreground/40 hover:text-sidebar-foreground/80'
               )}
               title="Subagents in start-time order"
             >
@@ -248,24 +238,22 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
           )}
 
           {session?.agents.length === 0 && (
-            <div className="px-3 py-4 text-xs text-[#484f58] text-center">Loading agents…</div>
+            <div className="px-3 py-4 text-xs text-sidebar-foreground/30 text-center">Loading agents…</div>
           )}
         </div>
       </ScrollArea>
 
       {/* Session-level views */}
-      <div className="px-2 py-1.5 border-t border-[#21262d] flex flex-wrap gap-1">
+      <div className="px-2 py-1.5 border-t border-sidebar-border flex flex-wrap gap-1">
         {([
-          { type: 'timeline',     label: 'Timeline', icon: <Activity className="h-3.5 w-3.5 text-[#58a6ff]" /> },
-          { type: 'graph',        label: 'Graph',    icon: <GitFork  className="h-3.5 w-3.5 text-[#bc8cff]" /> },
-          { type: 'artifacts',    label: 'Files',    icon: <Files    className="h-3.5 w-3.5 text-[#f0883e]" /> },
-          { type: 'search',       label: 'Search',   icon: <Search   className="h-3.5 w-3.5 text-[#3fb950]" /> },
-          { type: 'context-flow', label: 'Flow',     icon: <GitFork  className="h-3.5 w-3.5 text-[#39d353]" /> },
-          { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[#f778ba]" /> },
+          { type: 'timeline',     label: 'Timeline',  icon: <Activity  className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
+          { type: 'artifacts',    label: 'Files',     icon: <Files     className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
+          { type: 'context-flow', label: 'Flow',      icon: <GitFork   className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
+          { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[var(--aw-pink)]" /> },
         ] as const).map(({ type, label, icon }) => {
           const tabLabels: Record<string, string> = {
-            timeline: 'Timeline', graph: 'Agent Graph', artifacts: 'Session Files',
-            search: 'Search', 'context-flow': 'Context Flow', analytics: 'Analytics',
+            timeline: 'Timeline', artifacts: 'Session Files',
+            'context-flow': 'Context Flow', analytics: 'Analytics',
           };
           return (
             <button
@@ -281,7 +269,7 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
                   store.setLayout({ type: 'pane', id: 'main', tabs: [tab], activeTab: 0 });
                 }
               }}
-              className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 rounded text-[10px] text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#161b22] transition-colors min-w-[44px]"
+              className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 rounded text-[10px] text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors min-w-[44px]"
               title={`Open ${label}`}
             >
               {icon}
@@ -292,8 +280,8 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
       </div>
 
       {/* Drag hint */}
-      <div className="px-3 py-2 border-t border-[#21262d]">
-        <div className="flex items-center gap-1.5 text-[10px] text-[#6e7681]">
+      <div className="px-3 py-2 border-t border-sidebar-border">
+        <div className="flex items-center gap-1.5 text-[10px] text-sidebar-foreground/40">
           <GripVertical className="h-3 w-3" />
           Drag into panes · click to open
         </div>
@@ -344,7 +332,7 @@ function TreeNode({
             className="absolute top-0 bottom-0 w-px"
             style={{
               left: 10 + d * 16,
-              backgroundColor: '#3d444d',
+              backgroundColor: 'var(--aw-bg-3)',
             }}
           />
         ))}
@@ -358,7 +346,7 @@ function TreeNode({
                 left: 10 + (depth - 1) * 16,
                 top: 0,
                 height: '50%',
-                backgroundColor: '#3d444d',
+                backgroundColor: 'var(--aw-bg-3)',
               }}
             />
             <div
@@ -367,7 +355,7 @@ function TreeNode({
                 left: 10 + (depth - 1) * 16,
                 top: '50%',
                 width: 14,
-                backgroundColor: '#3d444d',
+                backgroundColor: 'var(--aw-bg-3)',
               }}
             />
           </>
@@ -409,7 +397,7 @@ function TreeNode({
               className="absolute top-0 bottom-0 w-px"
               style={{
                 left: 10 + (depth) * 16,
-                backgroundColor: '#3d444d',
+                backgroundColor: 'var(--aw-bg-3)',
               }}
             />
           )}
@@ -487,9 +475,9 @@ function AgentRow({
   const depthColor = getDepthColor(agent.depth);
 
   return (
-    <div className={cn('border-b border-[#0d1117]', isOrchestrator && !treeMode && 'border-b-2 border-b-[#21262d] mb-1')}>
+    <div className={cn('border-b border-sidebar', isOrchestrator && !treeMode && 'border-b-2 border-b-sidebar-border mb-1')}>
       <div
-        className="group flex items-center gap-1.5 py-2 pr-2 hover:bg-[#161b22] cursor-grab active:cursor-grabbing select-none transition-colors"
+        className="group flex items-center gap-1.5 py-2 pr-2 hover:bg-sidebar-accent/80 cursor-grab active:cursor-grabbing select-none transition-colors"
         style={{ paddingLeft }}
         draggable
         onDragStart={handleDragStart}
@@ -498,7 +486,7 @@ function AgentRow({
         {/* Tree expand/collapse toggle */}
         {treeMode && hasChildren && (
           <button
-            className="shrink-0 p-0.5 rounded hover:bg-[#30363d] transition-colors"
+            className="shrink-0 p-0.5 rounded hover:bg-sidebar-accent transition-colors"
             onClick={e => { e.stopPropagation(); onToggle?.(); }}
           >
             <ChevronDown
@@ -514,8 +502,8 @@ function AgentRow({
         {/* Depth connector line (sequence mode) */}
         {!treeMode && depth > 0 && (
           <div className="shrink-0 flex items-center self-stretch" style={{ width: 12, marginLeft: -8 }}>
-            <div className="w-px h-full bg-[#30363d]" />
-            <div className="w-2 h-px bg-[#30363d]" />
+            <div className="w-px h-full bg-sidebar-border" />
+            <div className="w-2 h-px bg-sidebar-border" />
           </div>
         )}
 
@@ -530,7 +518,7 @@ function AgentRow({
           {/* Depth indicator dot */}
           {treeMode && depth > 0 && (
             <div
-              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#0d1117]"
+              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-sidebar"
               style={{ backgroundColor: depthColor }}
               title={`Depth ${depth}`}
             />
@@ -540,7 +528,7 @@ function AgentRow({
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-xs font-semibold text-[#e6edf3] leading-tight truncate min-w-0 flex-1" title={name}>{name}</span>
+            <span className="text-xs font-semibold text-sidebar-foreground leading-tight truncate min-w-0 flex-1" title={name}>{name}</span>
             {hasChildren && treeMode && (
               <span
                 className="text-[9px] px-1 py-0 rounded font-mono shrink-0"
@@ -576,14 +564,14 @@ function AgentRow({
             </div>
           )}
 
-          <div className="flex items-center gap-2 text-[10px] text-[#c9d1d9] mt-0.5 whitespace-nowrap overflow-hidden">
+          <div className="flex items-center gap-2 text-[10px] text-sidebar-foreground/80 mt-0.5 whitespace-nowrap overflow-hidden">
             <span className="font-mono shrink-0">{agent.model?.replace('claude-', '').slice(0, 12) || '—'}</span>
             <span className="shrink-0">{formatTokens(agent.tokenUsage.total)}</span>
             <span className="shrink-0">{formatDuration(agent.durationMs)}</span>
           </div>
         </div>
 
-        <GripVertical className="h-3.5 w-3.5 text-[#484f58] shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
+        <GripVertical className="h-3.5 w-3.5 text-sidebar-foreground/30 shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
       </div>
     </div>
   );

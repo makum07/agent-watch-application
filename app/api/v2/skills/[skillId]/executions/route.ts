@@ -21,7 +21,10 @@ export async function GET(
     ).get(skillId) as { count: number };
 
     const rows = db.prepare(`
-      SELECT se.*, COALESCE(a.description, NULL) as agent_name
+      SELECT se.*,
+        COALESCE(a.description, NULL) as agent_name,
+        (SELECT COUNT(*) FROM feedback_items fi
+         WHERE fi.session_id = se.session_id) as live_feedback_count
       FROM skill_executions se
       LEFT JOIN agents a ON a.id = se.agent_id
       WHERE se.skill_id = ?
@@ -38,7 +41,7 @@ export async function GET(
       timestamp: new Date(row.timestamp as number).toISOString(),
       durationMs: (row.duration_ms as number) ?? null,
       args: (row.args as string) ?? null,
-      feedbackCount: (row.feedback_count as number) ?? 0,
+      feedbackCount: (row.live_feedback_count as number) ?? 0,
     }));
 
     return NextResponse.json({ executions, total: totalRow.count });

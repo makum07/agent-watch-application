@@ -103,15 +103,8 @@ export async function POST(
     ).get(sessionId) as { n: number | null };
     const cycleNumber = (row?.n ?? 0) + 1;
 
-    let prompt: string;
-    let analysisCwd: string;
     const promptData = buildPromptData(sessionId, session, db);
-    if (customPrompt?.trim()) {
-      prompt = customPrompt.trim();
-    } else {
-      prompt = generateExecutionAnalysisPrompt(promptData);
-    }
-    analysisCwd = promptData.analysisDir || promptData.projectDir;
+    const prompt = customPrompt?.trim() || generateExecutionAnalysisPrompt(promptData);
 
     const cycleId = randomUUID();
     const now = Date.now();
@@ -123,7 +116,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, analysisCwd).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });
@@ -138,16 +131,33 @@ export async function POST(
   }
 }
 
+function readCwdFromJsonl(filePath: string): string | null {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(4096);
+    const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
+    fs.closeSync(fd);
+    const chunk = buf.toString('utf8', 0, bytesRead);
+    const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
+    if (match) return match[1].replace(/\\\\/g, '\\');
+  } catch { /* non-fatal */ }
+  return null;
+}
+
 function buildPromptData(sessionId: string, session: import('@/types/session').Session, db: ReturnType<typeof getDatabase>) {
   const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as
     | { file_path: string }
     | undefined;
-  // Decode actual project path from Claude metadata directory name
   let projectDir = session.project;
   if (conv) {
-    const metaDir = path.dirname(conv.file_path);
-    const dirName = path.basename(metaDir);
-    projectDir = decodeProjectPath(dirName);
+    const cwdFromHeader = readCwdFromJsonl(conv.file_path);
+    if (cwdFromHeader) {
+      projectDir = cwdFromHeader;
+    } else {
+      const metaDir = path.dirname(conv.file_path);
+      const dirName = path.basename(metaDir);
+      projectDir = decodeProjectPath(dirName);
+    }
   }
 
   const agentJsonlPaths = new Map<string, string>();
@@ -209,25 +219,35 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
     } catch { /* skip agents whose JSONL can't be parsed */ }
   }
 
-  // Determine analysis directory: if skills live in an external project, run the
-  // analysis there so the AI has native access to .claude/skills/ and .claude/agents/
-  let analysisDir: string | undefined;
+  // Detect external skill/agent directories — directories outside the session's
+  // project that contain .claude/skills or .claude/agents used during the run.
+  const externalSkillDirs = new Set<string>();
   if (skillDefinitionPaths.size > 0) {
     for (const skillPath of skillDefinitionPaths.values()) {
       if (!skillPath) continue;
       const dir = skillPath.replace(/[\\/][^\\/]+$/, '');
       const root = dir.replace(/[\\/]\.claude[\\/]skills$/, '').replace(/[\\/]\.claude[\\/]agents$/, '');
       if (root && root.toLowerCase() !== projectDir.toLowerCase()) {
-        analysisDir = root;
-        break;
+        externalSkillDirs.add(dir);
       }
+    }
+  }
+  // Also detect .claude/agents dirs for agent types used in the session
+  if (externalSkillDirs.size > 0) {
+    for (const skillDir of [...externalSkillDirs]) {
+      const agentsDir = skillDir.replace(/[\\/]skills$/, path.sep + 'agents');
+      try {
+        if (fs.statSync(agentsDir).isDirectory()) {
+          externalSkillDirs.add(agentsDir);
+        }
+      } catch { /* no agents dir — fine */ }
     }
   }
 
   return {
     session,
     projectDir,
-    analysisDir,
+    externalSkillDirs: [...externalSkillDirs],
     facts,
     agentJsonlPaths,
     agentToolTimelines,

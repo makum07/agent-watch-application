@@ -79,23 +79,23 @@ export function AgentMessage({ message, isFirst, isLast }: AgentMessageProps) {
     : isLast ? 'RESPONSE'
     : 'ASSISTANT';
 
-  const roleLabelColor = isPrompt ? '#f0883e'
-    : isUser ? '#58a6ff'
-    : '#e6edf3';
+  const roleLabelColor = isPrompt ? 'var(--aw-orange)'
+    : isUser ? 'var(--aw-blue)'
+    : 'var(--aw-text-0)';
 
   return (
     <div className={cn(
-      'border-b border-[#21262d] last:border-0',
-      isUser && 'bg-[#161b22]/40',
+      'border-b border-[var(--aw-bg-2)] last:border-0',
+      isUser && 'bg-[var(--aw-bg-1)]/40',
     )}>
       {/* Role + timestamp */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
         <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: roleLabelColor }}>
           {roleLabel}
         </span>
-        <span className="text-[11px] text-[#6e7681]">{formatTime(message.timestamp)}</span>
+        <span className="text-[11px] text-[var(--aw-text-3)]">{formatTime(message.timestamp)}</span>
         {message.tokenUsage && (
-          <span className="ml-auto text-[11px] text-[#6e7681]">
+          <span className="ml-auto text-[11px] text-[var(--aw-text-3)]">
             {(message.tokenUsage.input + message.tokenUsage.output).toLocaleString()} tok
           </span>
         )}

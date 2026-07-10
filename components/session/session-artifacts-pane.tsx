@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Loader2, Search, X, ChevronRight, ChevronDown,
   Plus, Pencil, NotebookPen, Folder, FolderOpen,
-  Files, Maximize2, Minimize2, Copy, Check,
+  Files, Copy, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/store/workspace-store';
@@ -60,9 +60,9 @@ interface SessionArtifactsPaneProps {
 }
 
 export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: SessionArtifactsPaneProps) {
-  const { closePane, maximizePane, restorePane, maximizedPaneId, refreshToken } = useWorkspaceStore();
+  const { closePane, refreshToken } = useWorkspaceStore();
   const { agentMap } = useSessionStore();
-  const isMaximized = maximizedPaneId === paneId;
+  
 
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,27 +158,20 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
   const modifiedCount = fileEntries.length - createdCount;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
+    <div className="flex flex-col h-full overflow-hidden bg-[var(--aw-bg-0)]">
       {/* Header — shown when single tab (matches agent-view header style) */}
       {isSingleTab && (
-        <div className="shrink-0 border-b border-[#21262d]">
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-[#161b22]">
-            <Files className="h-4 w-4 text-[#58a6ff] shrink-0" />
-            <span className="text-sm font-bold text-[#e6edf3] flex-1">Session Files</span>
+        <div className="shrink-0 border-b border-[var(--aw-bg-2)]">
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-[var(--aw-bg-1)]">
+            <Files className="h-4 w-4 text-[var(--aw-blue)] shrink-0" />
+            <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Session Files</span>
             {!isLoading && (
-              <span className="text-[11px] text-[#6e7681]">{fileEntries.length} files</span>
+              <span className="text-[11px] text-[var(--aw-text-3)]">{fileEntries.length} files</span>
             )}
             <div className="flex items-center gap-0.5 shrink-0">
               <button
-                onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-                title={isMaximized ? 'Restore pane' : 'Maximize pane'}
-              >
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                onClick={() => { restorePane(); closePane(paneId); }}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                onClick={() => closePane(paneId)}
+                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
                 title="Close pane"
               >
                 <X className="h-3.5 w-3.5" />
@@ -189,19 +182,19 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
       )}
 
       {/* Filter bar */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#21262d] shrink-0 bg-[#0d1117] flex-wrap gap-y-1">
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--aw-bg-2)] shrink-0 bg-[var(--aw-bg-0)] flex-wrap gap-y-1">
         {/* Search */}
         <div className="flex items-center gap-1 flex-1 min-w-[120px]">
-          <Search className="h-3 w-3 text-[#484f58] shrink-0" />
+          <Search className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search files…"
-            className="flex-1 text-[11px] bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none min-w-0"
+            className="flex-1 text-[11px] bg-transparent text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none min-w-0"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="text-[#6e7681] hover:text-[#c9d1d9]">
+            <button onClick={() => setSearch('')} className="text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]">
               <X className="h-3 w-3" />
             </button>
           )}
@@ -214,7 +207,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
               onClick={() => setFilter(f)}
               className={cn(
                 'text-[10px] px-2 py-0.5 rounded transition-colors',
-                filter === f ? 'bg-[#21262d] text-[#e6edf3]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+                filter === f ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
               )}
             >
               {f === 'all'
@@ -230,10 +223,10 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
       {/* Content */}
       {isLoading ? (
         <div className="flex items-center justify-center flex-1">
-          <Loader2 className="h-5 w-5 animate-spin text-[#6e7681]" />
+          <Loader2 className="h-5 w-5 animate-spin text-[var(--aw-text-3)]" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex items-center justify-center flex-1 text-sm text-[#6e7681]">
+        <div className="flex items-center justify-center flex-1 text-sm text-[var(--aw-text-3)]">
           {search || filter !== 'all' ? 'No matching files' : 'No files produced in this session'}
         </div>
       ) : (
@@ -246,16 +239,16 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
                   {/* Directory header */}
                   <button
                     onClick={() => toggleDir(dir)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[#161b22] transition-colors text-left"
+                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[var(--aw-bg-1)] transition-colors text-left"
                   >
                     {isCollapsed
-                      ? <FolderOpen className="h-3.5 w-3.5 text-[#f0883e] shrink-0" />
-                      : <Folder className="h-3.5 w-3.5 text-[#f0883e] shrink-0" />}
-                    <span className="text-[11px] font-mono text-[#8b949e] flex-1 truncate">{dir}</span>
-                    <span className="text-[10px] text-[#484f58] shrink-0">{entries.length}</span>
+                      ? <FolderOpen className="h-3.5 w-3.5 text-[var(--aw-orange)] shrink-0" />
+                      : <Folder className="h-3.5 w-3.5 text-[var(--aw-orange)] shrink-0" />}
+                    <span className="text-[11px] font-mono text-[var(--aw-text-2)] flex-1 truncate">{dir}</span>
+                    <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{entries.length}</span>
                     {isCollapsed
-                      ? <ChevronRight className="h-3 w-3 text-[#484f58] shrink-0" />
-                      : <ChevronDown className="h-3 w-3 text-[#484f58] shrink-0" />}
+                      ? <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+                      : <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />}
                   </button>
 
                   {/* Files in directory */}
@@ -295,10 +288,10 @@ function FileRow({
   onToggle: () => void;
 }) {
   return (
-    <div className="rounded border border-[#21262d] overflow-hidden">
+    <div className="rounded border border-[var(--aw-bg-2)] overflow-hidden">
       {/* Row header */}
       <div
-        className="flex items-center gap-2 px-2.5 py-2 bg-[#161b22] hover:bg-[#1c2128] transition-colors cursor-pointer"
+        className="flex items-center gap-2 px-2.5 py-2 bg-[var(--aw-bg-1)] hover:bg-[var(--aw-bg-5)] transition-colors cursor-pointer"
         onClick={onToggle}
       >
         {/* Type icon */}
@@ -313,7 +306,7 @@ function FileRow({
         </div>
 
         {/* Filename */}
-        <span className="text-[11px] font-mono font-medium text-[#e6edf3] flex-1 truncate min-w-0">
+        <span className="text-[11px] font-mono font-medium text-[var(--aw-text-0)] flex-1 truncate min-w-0">
           {entry.fileName}
         </span>
 
@@ -336,17 +329,17 @@ function FileRow({
             );
           })}
           {entry.agentIds.length > 3 && (
-            <span className="text-[9px] text-[#484f58]">+{entry.agentIds.length - 3}</span>
+            <span className="text-[9px] text-[var(--aw-text-4)]">+{entry.agentIds.length - 3}</span>
           )}
 
           {/* Operation count */}
           {entry.operationCount > 1 && (
-            <span className="text-[9px] text-[#484f58] font-mono">{entry.operationCount}×</span>
+            <span className="text-[9px] text-[var(--aw-text-4)] font-mono">{entry.operationCount}×</span>
           )}
 
           {/* Size */}
           {entry.contentSize > 0 && (
-            <span className="text-[10px] text-[#484f58]">
+            <span className="text-[10px] text-[var(--aw-text-4)]">
               {entry.contentSize > 1024 ? `${Math.round(entry.contentSize / 1024)}KB` : `${entry.contentSize}B`}
             </span>
           )}
@@ -360,8 +353,8 @@ function FileRow({
           </span>
 
           {isExpanded
-            ? <ChevronDown className="h-3 w-3 text-[#6e7681]" />
-            : <ChevronRight className="h-3 w-3 text-[#6e7681]" />}
+            ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-3)]" />
+            : <ChevronRight className="h-3 w-3 text-[var(--aw-text-3)]" />}
         </div>
       </div>
 
@@ -419,15 +412,15 @@ function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: 
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-5 bg-[#010409] border-t border-[#21262d]">
-        <Loader2 className="h-4 w-4 animate-spin text-[#6e7681]" />
+      <div className="flex items-center justify-center py-5 bg-[var(--aw-bg-4)] border-t border-[var(--aw-bg-2)]">
+        <Loader2 className="h-4 w-4 animate-spin text-[var(--aw-text-3)]" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="px-4 py-3 bg-[#010409] border-t border-[#21262d] text-[11px] text-[#6e7681]">
+      <div className="px-4 py-3 bg-[var(--aw-bg-4)] border-t border-[var(--aw-bg-2)] text-[11px] text-[var(--aw-text-3)]">
         {error === 'File not found' ? 'File no longer exists on disk' : error}
       </div>
     );
@@ -436,30 +429,30 @@ function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: 
   const lines = (content ?? '').split('\n');
 
   return (
-    <div className="border-t border-[#21262d] bg-[#010409]">
-      <div className="flex items-center gap-2 px-3 py-1 border-b border-[#21262d] bg-[#0d1117]">
-        <span className="text-[10px] font-mono text-[#484f58] flex-1">
+    <div className="border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-4)]">
+      <div className="flex items-center gap-2 px-3 py-1 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] flex-1">
           {lines.length} lines · {lang}
         </span>
         <button
           onClick={copy}
-          className="flex items-center gap-1 text-[10px] text-[#6e7681] hover:text-[#c9d1d9] transition-colors"
+          className="flex items-center gap-1 text-[10px] text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] transition-colors"
         >
-          {copied ? <Check className="h-3 w-3 text-[#3fb950]" /> : <Copy className="h-3 w-3" />}
+          {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
       <div className="flex text-[11px] font-mono leading-5 max-h-[320px] overflow-auto">
         <div
-          className="select-none text-right border-r border-[#21262d] sticky left-0 bg-[#010409] shrink-0"
+          className="select-none text-right border-r border-[var(--aw-bg-2)] sticky left-0 bg-[var(--aw-bg-4)] shrink-0"
           style={{ minWidth: '38px', padding: '8px 6px' }}
         >
           {lines.slice(0, 300).map((_, i) => (
-            <div key={i} className="text-[#484f58] leading-5">{i + 1}</div>
+            <div key={i} className="text-[var(--aw-text-4)] leading-5">{i + 1}</div>
           ))}
-          {lines.length > 300 && <div className="text-[#484f58] leading-5">…</div>}
+          {lines.length > 300 && <div className="text-[var(--aw-text-4)] leading-5">…</div>}
         </div>
-        <pre className="flex-1 p-2 text-[#c9d1d9] whitespace-pre overflow-x-auto leading-5">
+        <pre className="flex-1 p-2 text-[var(--aw-text-1)] whitespace-pre overflow-x-auto leading-5">
           {lines.slice(0, 300).join('\n')}
           {lines.length > 300 && `\n… (${lines.length - 300} more lines)`}
         </pre>

@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatDuration, formatTokens, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, Maximize2, Minimize2, X, RotateCcw, Activity, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, X, RotateCcw, Activity, Layers, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
@@ -87,7 +87,7 @@ interface ExecutionTimelineProps {
 
 export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionTimelineProps) {
   const { session } = useSessionStore();
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane } = useWorkspaceStore();
   const scrollSyncEnabled = useWorkspaceStore(s => s.scrollSyncEnabled);
   const scrollSyncTimestamp = useWorkspaceStore(s => s.scrollSyncTimestamp);
   const router = useRouter();
@@ -106,7 +106,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
   const [artifacts, setArtifacts] = useState<ArtifactMarker[]>([]);
   const [markersLoaded, setMarkersLoaded] = useState(false);
 
-  const isMaximized = paneId ? maximizedPaneId === paneId : false;
+  
 
   // Measure canvas width
   useEffect(() => {
@@ -254,7 +254,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
 
   if (!session) {
     return (
-      <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
+      <div className="flex items-center justify-center h-full text-[var(--aw-text-3)] text-sm">
         <Activity className="h-5 w-5 mr-2 opacity-40" /> No session loaded
       </div>
     );
@@ -263,22 +263,17 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
   const rows = viewMode === 'lanes' && lanesData ? lanesData : null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
+    <div className="flex flex-col h-full overflow-hidden bg-[var(--aw-bg-0)]">
       {/* Pane header */}
       {isSingleTab && paneId && (
-        <div className="shrink-0 border-b border-[#21262d]">
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-[#161b22]">
-            <Activity className="h-4 w-4 text-[#58a6ff] shrink-0" />
-            <span className="text-sm font-bold text-[#e6edf3] flex-1">Execution Timeline</span>
-            <span className="text-[11px] text-[#6e7681]">{session.agents.length} agents</span>
+        <div className="shrink-0 border-b border-[var(--aw-bg-2)]">
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-[var(--aw-bg-1)]">
+            <Activity className="h-4 w-4 text-[var(--aw-blue)] shrink-0" />
+            <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Execution Timeline</span>
+            <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-                title={isMaximized ? 'Restore' : 'Maximize'}>
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              <button onClick={() => closePane(paneId)}
+                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
                 title="Close pane">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -288,21 +283,21 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#21262d] bg-[#0d1117] shrink-0 flex-wrap gap-y-1">
-        <span className="text-[11px] text-[#6e7681] flex-1 truncate min-w-[120px]">
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)] shrink-0 flex-wrap gap-y-1">
+        <span className="text-[11px] text-[var(--aw-text-3)] flex-1 truncate min-w-[120px]">
           {formatDuration(sessionDurationMs)}
           {viewMode === 'lanes' && maxConcurrent > 0 && <> · {maxConcurrent} lane{maxConcurrent !== 1 ? 's' : ''}</>}
         </span>
 
         {/* View mode toggle */}
-        <div className="flex items-center bg-[#21262d] rounded overflow-hidden shrink-0">
+        <div className="flex items-center bg-[var(--aw-bg-2)] rounded overflow-hidden shrink-0">
           {(['list', 'lanes'] as ViewMode[]).map(m => (
             <button
               key={m}
               onClick={() => setViewMode(m)}
               className={cn(
                 'text-[10px] px-2 py-1 flex items-center gap-1 transition-colors',
-                viewMode === m ? 'bg-[#30363d] text-[#e6edf3]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+                viewMode === m ? 'bg-[var(--aw-bg-3)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
               )}
               title={m === 'list' ? 'One row per agent' : 'Swim lanes (concurrent agents grouped)'}
             >
@@ -317,11 +312,11 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
           onClick={() => setShowMarkers(v => !v)}
           className={cn(
             'text-[10px] px-2 py-1 rounded transition-colors shrink-0 flex items-center gap-1',
-            showMarkers ? 'bg-[#21262d] text-[#e6edf3]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+            showMarkers ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
           )}
           title="Toggle artifact markers"
         >
-          <span className="inline-block w-2 h-2 rounded-sm" style={{ background: showMarkers ? '#3fb950' : '#484f58' }} />
+          <span className="inline-block w-2 h-2 rounded-sm" style={{ background: showMarkers ? 'var(--aw-green)' : 'var(--aw-text-4)' }} />
           Markers
         </button>
 
@@ -330,17 +325,19 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
           onClick={() => useWorkspaceStore.getState().toggleScrollSync()}
           className={cn(
             'text-[10px] px-2 py-1 rounded transition-colors shrink-0',
-            scrollSyncEnabled ? 'bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+            scrollSyncEnabled ? 'bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] border border-[var(--aw-blue)]/30' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
           )}
           title="Sync scroll across panes"
         >
           Sync
         </button>
 
-        <button onClick={() => doZoom(1.5)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
-        <button onClick={() => doZoom(1 / 1.5)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
-        <button onClick={resetZoom} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Fit all"><RotateCcw className="h-3 w-3" /></button>
-        <span className="text-[10px] font-mono text-[#484f58] w-10 text-right shrink-0">
+        <button onClick={() => setPanOffset(0)} disabled={pan <= 0} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent" title="Jump to start"><ChevronsLeft className="h-3.5 w-3.5" /></button>
+        <button onClick={() => doZoom(1.5)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
+        <button onClick={() => doZoom(1 / 1.5)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
+        <button onClick={resetZoom} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Fit all"><RotateCcw className="h-3 w-3" /></button>
+        <button onClick={() => setPanOffset(maxPan)} disabled={pan >= maxPan} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent" title="Jump to end"><ChevronsRight className="h-3.5 w-3.5" /></button>
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] w-10 text-right shrink-0">
           {zoom ? `×${(effectiveZoom / fitZoom()).toFixed(1)}` : 'fit'}
         </span>
       </div>
@@ -348,9 +345,9 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
       {/* Timeline body */}
       <div className="flex-1 overflow-hidden flex flex-col relative">
         {/* Time axis header */}
-        <div className="flex shrink-0 border-b border-[#21262d] bg-[#0d1117]" style={{ height: HEADER_HEIGHT }}>
-          <div className="shrink-0 border-r border-[#21262d] flex items-center px-2" style={{ width: LABEL_WIDTH }}>
-            <span className="text-[10px] text-[#484f58] font-medium uppercase tracking-wide">
+        <div className="flex shrink-0 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]" style={{ height: HEADER_HEIGHT }}>
+          <div className="shrink-0 border-r border-[var(--aw-bg-2)] flex items-center px-2" style={{ width: LABEL_WIDTH }}>
+            <span className="text-[10px] text-[var(--aw-text-4)] font-medium uppercase tracking-wide">
               {viewMode === 'lanes' ? 'Lane' : 'Agent'}
             </span>
           </div>
@@ -360,8 +357,8 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
               return (
                 <div key={t} className="absolute top-0 flex flex-col items-center pointer-events-none"
                   style={{ left: x, transform: 'translateX(-50%)' }}>
-                  <span className="text-[9px] font-mono text-[#6e7681] mt-1 leading-tight">{formatTimeLabel(t)}</span>
-                  <div className="w-px h-2 bg-[#30363d] mt-0.5" />
+                  <span className="text-[9px] font-mono text-[var(--aw-text-3)] mt-1 leading-tight">{formatTimeLabel(t)}</span>
+                  <div className="w-px h-2 bg-[var(--aw-bg-3)] mt-0.5" />
                 </div>
               );
             })}
@@ -384,11 +381,11 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
 
               return (
                 <div key={agent.id}
-                  className={cn('flex border-b border-[#0d1117]', rowIdx % 2 === 0 ? 'bg-[#0d1117]' : 'bg-[#0a0e14]')}
+                  className={cn('flex border-b border-[var(--aw-bg-0)]', rowIdx % 2 === 0 ? 'bg-[var(--aw-bg-0)]' : 'bg-[var(--aw-canvas-medium)]')}
                   style={{ height: ROW_HEIGHT }}
                 >
                   {/* Label */}
-                  <div className="shrink-0 flex items-center gap-1.5 px-2 border-r border-[#21262d] cursor-pointer hover:bg-[#161b22] transition-colors"
+                  <div className="shrink-0 flex items-center gap-1.5 px-2 border-r border-[var(--aw-bg-2)] cursor-pointer hover:bg-[var(--aw-bg-1)] transition-colors"
                     style={{ width: LABEL_WIDTH }}
                     onClick={() => openAgent(agent)}
                     title={`Open ${shortName}`}
@@ -397,7 +394,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                       style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}>
                       {initials.slice(0, 2)}
                     </div>
-                    <span className="text-[10px] text-[#c9d1d9] truncate flex-1 leading-tight">{shortName}</span>
+                    <span className="text-[10px] text-[var(--aw-text-1)] truncate flex-1 leading-tight">{shortName}</span>
                     {(() => {
                       const st = getStatusDisplay(agent);
                       return (
@@ -432,7 +429,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                     {ticks.map(t => {
                       const x = t * effectiveZoom - pan;
                       if (x < 0 || x > canvasWidth) return null;
-                      return <div key={t} className="absolute top-0 bottom-0 w-px bg-[#21262d]/40" style={{ left: x }} />;
+                      return <div key={t} className="absolute top-0 bottom-0 w-px bg-[var(--aw-bg-2)]/40" style={{ left: x }} />;
                     })}
 
                     {visible && (
@@ -469,7 +466,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                         >
                           <svg width="7" height="5" viewBox="0 0 7 5" className="cursor-default">
                             <polygon points="3.5,0 7,5 0,5"
-                              fill={isCreate ? '#3fb950' : '#f0883e'} opacity="0.9" />
+                              fill={isCreate ? 'var(--aw-green)' : 'var(--aw-orange)'} opacity="0.9" />
                           </svg>
                         </div>
                       );
@@ -482,13 +479,13 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
             /* ── LANES MODE: one row per swim lane ── */
             (rows ?? []).map((row, rowIdx) => (
               <div key={row.lane}
-                className={cn('flex border-b border-[#0d1117]', rowIdx % 2 === 0 ? 'bg-[#0d1117]' : 'bg-[#0a0e14]')}
+                className={cn('flex border-b border-[var(--aw-bg-0)]', rowIdx % 2 === 0 ? 'bg-[var(--aw-bg-0)]' : 'bg-[var(--aw-canvas-medium)]')}
                 style={{ height: ROW_HEIGHT }}
               >
                 {/* Lane label */}
-                <div className="shrink-0 flex items-center gap-1.5 px-2 border-r border-[#21262d]"
+                <div className="shrink-0 flex items-center gap-1.5 px-2 border-r border-[var(--aw-bg-2)]"
                   style={{ width: LABEL_WIDTH }}>
-                  <span className="text-[9px] font-mono text-[#484f58] shrink-0 w-5">L{row.lane + 1}</span>
+                  <span className="text-[9px] font-mono text-[var(--aw-text-4)] shrink-0 w-5">L{row.lane + 1}</span>
                   <div className="flex items-center gap-0.5 flex-1 overflow-hidden">
                     {row.agents.slice(0, 4).map(({ agent }) => {
                       const { color, initials } = getAgentDisplay(agent);
@@ -504,10 +501,10 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                       );
                     })}
                     {row.agents.length > 4 && (
-                      <span className="text-[9px] text-[#484f58] ml-0.5">+{row.agents.length - 4}</span>
+                      <span className="text-[9px] text-[var(--aw-text-4)] ml-0.5">+{row.agents.length - 4}</span>
                     )}
                   </div>
-                  <span className="text-[9px] text-[#484f58] shrink-0">{row.agents.length}</span>
+                  <span className="text-[9px] text-[var(--aw-text-4)] shrink-0">{row.agents.length}</span>
                 </div>
 
                 {/* Bar cell with all agents in this lane */}
@@ -522,7 +519,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                   {ticks.map(t => {
                     const x = t * effectiveZoom - pan;
                     if (x < 0 || x > canvasWidth) return null;
-                    return <div key={t} className="absolute top-0 bottom-0 w-px bg-[#21262d]/40" style={{ left: x }} />;
+                    return <div key={t} className="absolute top-0 bottom-0 w-px bg-[var(--aw-bg-2)]/40" style={{ left: x }} />;
                   })}
 
                   {row.agents.map(({ agent, startMs, durMs }) => {
@@ -568,7 +565,7 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
                         >
                           <svg width="7" height="5" viewBox="0 0 7 5" className="cursor-default">
                             <polygon points="3.5,0 7,5 0,5"
-                              fill={isCreate ? '#3fb950' : '#f0883e'} opacity="0.9" />
+                              fill={isCreate ? 'var(--aw-green)' : 'var(--aw-orange)'} opacity="0.9" />
                           </svg>
                         </div>
                       );
@@ -595,16 +592,16 @@ export function ExecutionTimeline({ sessionId, paneId, isSingleTab }: ExecutionT
 
       {/* Legend for markers */}
       {showMarkers && artifacts.length > 0 && (
-        <div className="flex items-center gap-3 px-3 py-1 border-t border-[#21262d] bg-[#0d1117] shrink-0">
-          <span className="flex items-center gap-1 text-[10px] text-[#484f58]">
-            <svg width="7" height="5" viewBox="0 0 7 5"><polygon points="3.5,0 7,5 0,5" fill="#3fb950" /></svg>
+        <div className="flex items-center gap-3 px-3 py-1 border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)] shrink-0">
+          <span className="flex items-center gap-1 text-[10px] text-[var(--aw-text-4)]">
+            <svg width="7" height="5" viewBox="0 0 7 5"><polygon points="3.5,0 7,5 0,5" fill="var(--aw-green)" /></svg>
             Created
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-[#484f58]">
-            <svg width="7" height="5" viewBox="0 0 7 5"><polygon points="3.5,0 7,5 0,5" fill="#f0883e" /></svg>
+          <span className="flex items-center gap-1 text-[10px] text-[var(--aw-text-4)]">
+            <svg width="7" height="5" viewBox="0 0 7 5"><polygon points="3.5,0 7,5 0,5" fill="var(--aw-orange)" /></svg>
             Modified
           </span>
-          <span className="text-[10px] text-[#484f58] ml-auto">{artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''}</span>
+          <span className="text-[10px] text-[var(--aw-text-4)] ml-auto">{artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''}</span>
         </div>
       )}
 
@@ -623,11 +620,11 @@ function AgentTooltip({ tooltip, canvasWidth }: { tooltip: AgentTooltipData; can
   const top = HEADER_HEIGHT + barTop - 4;
 
   return (
-    <div className="absolute pointer-events-none z-50 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl px-3 py-2.5"
+    <div className="absolute pointer-events-none z-50 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded-lg shadow-xl px-3 py-2.5"
       style={{ left, top, width: tipWidth, transform: 'translateY(-100%)' }}>
       <div className="flex items-center gap-1.5 mb-2">
         <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: color.text }} />
-        <span className="text-xs font-semibold text-[#e6edf3] truncate flex-1">{name}</span>
+        <span className="text-xs font-semibold text-[var(--aw-text-0)] truncate flex-1">{name}</span>
         {(() => {
           const st = getStatusDisplay(agent);
           return (
@@ -642,25 +639,25 @@ function AgentTooltip({ tooltip, canvasWidth }: { tooltip: AgentTooltipData; can
         })()}
       </div>
       <div className="grid grid-cols-2 gap-x-3 text-[11px]">
-        <span className="text-[#6e7681]">Duration</span>
-        <span className="text-[#c9d1d9] text-right">{formatDuration(agent.durationMs)}</span>
-        <span className="text-[#6e7681]">Tokens</span>
-        <span className="text-[#c9d1d9] text-right">{formatTokens(agent.tokenUsage.total)}</span>
-        <span className="text-[#6e7681]">Messages</span>
-        <span className="text-[#c9d1d9] text-right">{agent.messageCount}</span>
+        <span className="text-[var(--aw-text-3)]">Duration</span>
+        <span className="text-[var(--aw-text-1)] text-right">{formatDuration(agent.durationMs)}</span>
+        <span className="text-[var(--aw-text-3)]">Tokens</span>
+        <span className="text-[var(--aw-text-1)] text-right">{formatTokens(agent.tokenUsage.total)}</span>
+        <span className="text-[var(--aw-text-3)]">Messages</span>
+        <span className="text-[var(--aw-text-1)] text-right">{agent.messageCount}</span>
         {agent.toolCalls.length > 0 && (
           <>
-            <span className="text-[#6e7681]">Tools</span>
-            <span className="text-[#c9d1d9] text-right">{agent.toolCalls.reduce((s, t) => s + t.count, 0)}</span>
+            <span className="text-[var(--aw-text-3)]">Tools</span>
+            <span className="text-[var(--aw-text-1)] text-right">{agent.toolCalls.reduce((s, t) => s + t.count, 0)}</span>
           </>
         )}
       </div>
       {agent.model && (
-        <div className="mt-1.5 pt-1.5 border-t border-[#21262d] text-[10px] font-mono text-[#484f58]">
+        <div className="mt-1.5 pt-1.5 border-t border-[var(--aw-bg-2)] text-[10px] font-mono text-[var(--aw-text-4)]">
           {agent.model.replace('claude-', '')}
         </div>
       )}
-      <div className="mt-1 text-[10px] text-[#58a6ff]">Click to open</div>
+      <div className="mt-1 text-[10px] text-[var(--aw-blue)]">Click to open</div>
     </div>
   );
 }

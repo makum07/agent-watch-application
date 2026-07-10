@@ -30,7 +30,10 @@ services:
       - CLAUDE_DB_PATH=/data/agentwatch.db
       # Set this to enable the source switcher UI.
       # Format: "Label:/container-mount-path,Label2:/container-mount-path2"
-      - AGENTWATCH_SOURCES=${AGENTWATCH_SOURCES:-}
+      # Reads COMPOSE_SOURCES from .env (not AGENTWATCH_SOURCES) so the app-level
+      # env var never leaks into the local dev server via .env.
+      - AGENTWATCH_SOURCES=${COMPOSE_SOURCES:-}
+      - AGENTWATCH_PUBLIC_URL=${AGENTWATCH_PUBLIC_URL:-http://localhost:3456}
     user: "1000:1000"
     restart: unless-stopped
 

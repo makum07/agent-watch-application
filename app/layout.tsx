@@ -1,6 +1,11 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist, Geist_Mono, Space_Grotesk } from 'next/font/google';
+import Script from 'next/script';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import './globals.css';
+import { cn } from "@/lib/utils";
+
+const spaceGrotesk = Space_Grotesk({subsets:['latin'],variable:'--font-sans'});
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -19,8 +24,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full dark`}>
-      <body className="h-full bg-background text-foreground antialiased">{children}</body>
+    <html lang="en" className={cn("h-full", "dark", geistSans.variable, geistMono.variable, "font-sans", spaceGrotesk.variable)}>
+      <body className="h-full bg-background text-foreground antialiased">
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('aw-theme')||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}` }}
+        />
+        <TooltipProvider>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

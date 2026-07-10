@@ -257,7 +257,7 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
                   containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
                 }
               }}
-              className="flex items-center justify-center w-7 h-7 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58] transition-colors shadow-lg"
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:border-[var(--aw-text-4)] transition-colors shadow-lg"
               title="Scroll to top"
             >
               <ChevronsDown className="h-3.5 w-3.5 rotate-180" />
@@ -273,7 +273,7 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
                   bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
                 }
               }}
-              className="flex items-center justify-center w-7 h-7 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58] transition-colors shadow-lg"
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:border-[var(--aw-text-4)] transition-colors shadow-lg"
               title="Scroll to bottom"
             >
               <ChevronsDown className="h-3.5 w-3.5" />
@@ -283,17 +283,17 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
       )}
     <div
       ref={containerRef}
-      className="h-full overflow-y-auto overflow-x-hidden bg-[#0d1117]"
+      className="h-full overflow-y-auto overflow-x-hidden bg-[var(--aw-bg-0)]"
       onScroll={() => handleScroll.current()}
     >
       <div className="min-h-full w-full py-3">
         {isLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-32">
-            <Loader2 className="h-5 w-5 animate-spin text-[#484f58]" />
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--aw-text-4)]" />
           </div>
         )}
         {!isLoading && turns.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-[#484f58] text-sm">No messages</div>
+          <div className="flex items-center justify-center h-32 text-[var(--aw-text-4)] text-sm">No messages</div>
         )}
 
         {turns.map((turn, ti) => (
@@ -310,7 +310,7 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
 
         {hasMore && (
           <div className="p-4 flex justify-center">
-            <button onClick={loadMore} disabled={isLoading} className="text-xs text-[#8b949e] hover:text-[#e6edf3]">
+            <button onClick={loadMore} disabled={isLoading} className="text-xs text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]">
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : `Load more (${total - messages.length} remaining)`}
             </button>
           </div>
@@ -323,11 +323,11 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
 }
 
 const ROUND_COLORS = [
-  { bg: '#0e1f35', border: '#2d5a8c', text: '#58a6ff', rail: '#1c3d6e' },
-  { bg: '#0e2516', border: '#2d6b47', text: '#39d353', rail: '#1a4a2e' },
-  { bg: '#2a1a08', border: '#6b4a1a', text: '#f0883e', rail: '#4a2f0d' },
-  { bg: '#1a0f30', border: '#4d3470', text: '#bc8cff', rail: '#2d1f45' },
-  { bg: '#2a0d0d', border: '#6b2020', text: '#ff7b7b', rail: '#4a1515' },
+  { bg: 'var(--aw-blue-bg-deep2)', border: 'var(--aw-blue-bg)', text: 'var(--aw-blue)', rail: 'var(--aw-blue-rail)' },
+  { bg: 'var(--aw-green-bg-deep2)', border: 'var(--aw-green-bg-2)', text: 'var(--aw-green-bright)', rail: 'var(--aw-green-rail)' },
+  { bg: 'var(--aw-orange-bg-deep)', border: 'var(--aw-orange-bg)', text: 'var(--aw-orange)', rail: 'var(--aw-orange-rail)' },
+  { bg: 'var(--aw-purple-bg-deep)', border: 'var(--aw-purple-border)', text: 'var(--aw-purple)', rail: 'var(--aw-purple-bg-deep2)' },
+  { bg: 'var(--aw-red-bg-deep)', border: 'var(--aw-red-border)', text: 'var(--aw-red-text-bright)', rail: 'var(--aw-red-rail)' },
 ];
 
 const COLLAPSE_LINE_THRESHOLD = 25;
@@ -376,7 +376,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
 
           {/* User message excerpt */}
           {userText && (
-            <span className="text-[11px] text-[#c9d1d9] truncate flex-1 italic">
+            <span className="text-[11px] text-[var(--aw-text-1)] truncate flex-1 italic">
               "{userText.slice(0, 70)}{userText.length > 70 ? '…' : ''}"
             </span>
           )}
@@ -384,7 +384,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
           {/* Spawned agent badges — click to open that agent in the current pane */}
           {spawnedAgents.length > 0 && (
             <div className="flex items-center gap-1.5 shrink-0">
-              <Users className="h-3 w-3 text-[#6e7681]" />
+              <Users className="h-3 w-3 text-[var(--aw-text-3)]" />
               {spawnedAgents.slice(0, 5).map(agent => {
                 const { color: ac, initials, name } = getAgentDisplay(agent);
                 return (
@@ -407,7 +407,7 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
                 );
               })}
               {spawnedAgents.length > 5 && (
-                <span className="text-[10px] text-[#6e7681]">+{spawnedAgents.length - 5}</span>
+                <span className="text-[10px] text-[var(--aw-text-3)]">+{spawnedAgents.length - 5}</span>
               )}
             </div>
           )}
@@ -436,9 +436,9 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
     <div className="relative mb-1 min-w-0 overflow-hidden">
       {isMultiRound && turn.userMessage && (
         <div className="flex items-center gap-3 px-4 py-2 my-1">
-          <div className="flex-1 h-px bg-[#21262d]" />
-          <span className="text-[10px] text-[#484f58] font-medium">{fmtTime(turn.userMessage.timestamp)}</span>
-          <div className="flex-1 h-px bg-[#21262d]" />
+          <div className="flex-1 h-px bg-[var(--aw-bg-2)]" />
+          <span className="text-[10px] text-[var(--aw-text-4)] font-medium">{fmtTime(turn.userMessage.timestamp)}</span>
+          <div className="flex-1 h-px bg-[var(--aw-bg-2)]" />
         </div>
       )}
       <div className="min-w-0">
@@ -517,9 +517,9 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
       <div data-message-id={message.id} className="group flex items-start gap-2 px-4 py-0.5 my-0.5">
         <div
           className="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 opacity-30 group-hover:opacity-60 transition-opacity"
-          style={{ backgroundColor: '#21262d', border: '1px solid #30363d' }}
+          style={{ backgroundColor: 'var(--aw-bg-2)', border: '1px solid var(--aw-bg-3)' }}
         >
-          <Bot className="h-2.5 w-2.5 text-[#8b949e]" />
+          <Bot className="h-2.5 w-2.5 text-[var(--aw-text-2)]" />
         </div>
         <div className="flex-1 min-w-0 space-y-0.5">
           {toolUses.map(tu => (
@@ -535,8 +535,8 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
             />
           ))}
           <div className="flex items-center gap-1 px-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <span className="text-[10px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
-            {tokTotal && <span className="text-[10px] text-[#484f58]">· {tokTotal} tok</span>}
+            <span className="text-[10px] text-[var(--aw-text-4)]">{fmtTime(message.timestamp)}</span>
+            {tokTotal && <span className="text-[10px] text-[var(--aw-text-4)]">· {tokTotal} tok</span>}
           </div>
         </div>
       </div>
@@ -545,10 +545,10 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
 
   // ── Message rows with text ──────────────────────────────────────────────
   const AvatarIcon = isUser ? User : isResponse ? Sparkles : Bot;
-  const avatarAccent = isUser ? '#58a6ff' : isResponse ? '#3fb950' : '#6e7681';
+  const avatarAccent = isUser ? 'var(--aw-blue)' : isResponse ? 'var(--aw-green)' : 'var(--aw-text-3)';
 
   // Bubble colors
-  const bubbleBg   = isUser ? '#0d2847' : '#1a1f27';
+  const bubbleBg   = isUser ? 'var(--aw-user-bubble)' : 'var(--aw-assistant-bubble)';
   const bubbleBorder = isUser ? 'rgba(88,166,255,0.25)' : 'rgba(48,54,61,0.8)';
   const bubbleShadow = isUser
     ? '0 2px 8px rgba(0,0,0,0.35), 0 0 0 1px rgba(88,166,255,0.08)'
@@ -609,7 +609,7 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
             {isLongMessage && (
               <button
                 onClick={() => setIsExpanded(v => !v)}
-                className="mt-2 flex items-center gap-1 text-[11px] text-[#58a6ff] hover:text-[#79c0ff] transition-colors"
+                className="mt-2 flex items-center gap-1 text-[11px] text-[var(--aw-blue)] hover:text-[var(--aw-blue-light)] transition-colors"
               >
                 {isExpanded
                   ? <><ChevronUp className="h-3 w-3" /> Show less</>
@@ -639,8 +639,8 @@ function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneI
 
         {/* Timestamp + tokens — outside the bubble, faint */}
         <div className={cn('flex items-center gap-1.5 px-1', isUser ? 'flex-row-reverse' : 'flex-row')}>
-          <span className="text-[10px] text-[#484f58]">{fmtTime(message.timestamp)}</span>
-          {tokTotal && <span className="text-[10px] text-[#484f58]">· {tokTotal} tok</span>}
+          <span className="text-[10px] text-[var(--aw-text-4)]">{fmtTime(message.timestamp)}</span>
+          {tokTotal && <span className="text-[10px] text-[var(--aw-text-4)]">· {tokTotal} tok</span>}
         </div>
       </div>
     </div>

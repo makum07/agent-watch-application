@@ -136,7 +136,6 @@ function computeEnhancedSummary(session: Session): EnhancedSummary {
 
   const outcomes = agents.map(a => determineOutcome(a).outcome);
   const successCount = outcomes.filter(o => o === 'success').length;
-  const failedCount = outcomes.filter(o => o === 'failed').length;
   const totalWithDenials = agents.filter(a => a.deniedToolCount > 0).length;
   const totalWithErrors = agents.filter(a => a.errorToolCount > 0).length;
 
@@ -606,7 +605,6 @@ function assessAgentTypeMatch(child: Agent): { match: 'appropriate' | 'questiona
 
 function buildExecutionNarrative(session: Session): ExecutionNarrative {
   const agents = session.agents;
-  const agentMap = new Map(agents.map(a => [a.id, a]));
   const rounds = groupAgentsByRound(agents);
 
   const phases: ExecutionPhase[] = rounds.map((roundAgents, i) => {
@@ -1040,9 +1038,6 @@ export function analyzeExecution(session: Session): EnhancedSessionAnalytics {
 // Part B: AI Analysis — Claude Code-powered deep analysis
 // ═══════════════════════════════════════════════════════════════════════
 
-function formatDateShort(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
-}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -1066,7 +1061,7 @@ export interface DefinitionContent {
 export interface AnalysisPromptData {
   session: Session;
   projectDir: string;
-  analysisDir?: string;
+  externalSkillDirs?: string[];
   facts?: ExecutionFacts;
   agentJsonlPaths?: Map<string, string>;
   agentToolTimelines?: Map<string, PromptToolCall[]>;
@@ -1079,20 +1074,21 @@ export interface AnalysisPromptData {
 }
 
 export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): string {
-  const { session, projectDir, analysisDir, facts, agentJsonlPaths, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths } = data;
-  const effectiveAnalysisDir = analysisDir || projectDir;
+  const { session, projectDir, facts, agentJsonlPaths, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths } = data;
   const lines: string[] = [];
 
   const agentMap = new Map(session.agents.map(a => [a.id, a]));
   const root = session.agents.find(a => a.parentId === null);
 
-  // ── Philosophy & session context ────────────────────────────────────
+  // ── Purpose ─────────────────────────────────────────────────────────
 
-  lines.push(`# Execution Analysis — ${session.project}\n`);
-  lines.push(`Analyze this multi-agent session by understanding the **intended design** — read the skill definitions, agent type definitions, and workflow scripts that drove this execution — then evaluate what actually happened against that intent.\n`);
-  lines.push(`The analytics below are a **starting point**, not the boundary. Use the flagged leads (⚑) to prioritize, but also look for issues the metrics don't surface: subtle misalignment between a skill's design and an agent's actual behavior, wasted work invisible in token counts, missing context that caused an agent to struggle, or orchestration patterns that could be improved.\n`);
+  lines.push(`# Session Analysis — ${session.project}\n`);
+  lines.push(`You are analyzing a completed multi-agent session running as Claude Code inside \`${projectDir}\`. Your goal is to surface specific observations the user can quickly review and add as feedback — not to produce a comprehensive report.\n`);
+  lines.push(`For each agent, read its definition file (skill or agent type), then read its JSONL conversation, and identify where the agent's actual behavior differed from what its definition instructs. Only surface findings grounded in a specific instruction the agent was given.\n`);
 
-  lines.push(`## Session Overview\n`);
+  // ── Session metadata ─────────────────────────────────────────────────
+
+  lines.push(`## Session\n`);
   lines.push(`| | |`);
   lines.push(`|---|---|`);
   lines.push(`| Project | ${session.project} |`);
@@ -1118,14 +1114,13 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     }
   }
 
-  // ── Execution flow ──────────────────────────────────────────────────
-  // The core of the prompt: every agent with its metrics, tools, errors,
-  // cost, and conversation path — structured as the execution tree.
-  // Analytics (cost outliers, critical path, failure categories) are
-  // woven in as flagged leads to investigate.
+  // ── Execution tree ───────────────────────────────────────────────────
+  // Each agent is listed with its definition path and JSONL path inline,
+  // so the read-definition → read-JSONL → compare flow is self-contained
+  // per agent. Flags (⚑) mark agents that warrant closer investigation.
 
-  lines.push(`\n## Execution Flow\n`);
-  lines.push(`Each agent is listed with its execution data. Leads worth investigating are flagged with \`⚑\`.\n`);
+  lines.push(`\n## Agents\n`);
+  lines.push(`For each agent: read its definition, then read its JSONL, and compare. Flags (⚑) mark agents worth prioritizing.\n`);
 
   // Pre-compute analytics to flag inline
   const costRanked = facts
@@ -1138,10 +1133,21 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     for (const cat of facts.failedToolCategories) {
       for (const id of cat.agentIds) {
         const cats = failedAgentCategories.get(id) || [];
-        if (!cats.includes(cat.category)) {
-          cats.push(cat.category);
-        }
+        if (!cats.includes(cat.category)) cats.push(cat.category);
         failedAgentCategories.set(id, cats);
+      }
+    }
+  }
+
+  // Build external definition directories set (for read-access note)
+  const definitionDirs = new Set<string>();
+  if (skillDefinitionPaths && skillDefinitionPaths.size > 0) {
+    for (const skillPath of skillDefinitionPaths.values()) {
+      if (!skillPath) continue;
+      const dir = skillPath.replace(/[\\/][^\\/]+$/, '');
+      const normalized = dir.replace(/[\\/]\.claude[\\/]skills$/, '').replace(/[\\/]\.claude[\\/]agents$/, '');
+      if (normalized && normalized.toLowerCase() !== projectDir.toLowerCase()) {
+        definitionDirs.add(normalized);
       }
     }
   }
@@ -1152,7 +1158,6 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     const status = agent.status === 'completed' && agent.errorToolCount === 0 && agent.deniedToolCount === 0
       ? 'OK' : agent.status === 'errored' ? 'FAIL' : agent.status;
 
-    // Collect flags for this agent
     const flags: string[] = [];
     if (agent.status === 'errored') flags.push('errored');
     if (agent.errorToolCount > 0) flags.push(`${agent.errorToolCount} tool errors`);
@@ -1161,15 +1166,27 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     if (criticalPathIds.has(agent.id)) flags.push('critical path');
     const failCats = failedAgentCategories.get(agent.id);
     if (failCats) flags.push(`failures: ${failCats.join(', ')}`);
-
     const flagStr = flags.length > 0 ? ` ⚑ ${flags.join(' | ')}` : '';
 
     lines.push(`${indent}**${agentDisplayName(agent)}** [${status}]${flagStr}`);
     lines.push(`${indent}  type: ${agent.subagentType || agent.type} | model: ${agent.model} | id: ${agent.id}`);
-    lines.push(`${indent}  ${formatMs(agent.durationMs)} | ${formatCostUsd(cost)} | ${fmtTokens(agent.tokenUsage.input)} in / ${fmtTokens(agent.tokenUsage.output)} out / ${fmtTokens(agent.tokenUsage.cacheRead)} cache`);
+    lines.push(`${indent}  ${formatMs(agent.durationMs)} | ${formatCostUsd(cost)} | ${fmtTokens(agent.tokenUsage.input)}in / ${fmtTokens(agent.tokenUsage.output)}out / ${fmtTokens(agent.tokenUsage.cacheRead)}cache`);
 
-    // Tool calls — show window around failures, summary for clean agents
-    // Skip timeline for forks that duplicate their parent's timeline
+    // Definition paths inline — what to read before evaluating this agent
+    for (const si of agent.skillInvocations) {
+      const defPath = skillDefinitionPaths?.get(si.skill);
+      if (defPath) lines.push(`${indent}  skill definition: \`${defPath}\``);
+      else lines.push(`${indent}  skill: ${si.skill} — find in .claude/skills/`);
+    }
+    if (agent.subagentType && agent.subagentType !== 'fork') {
+      lines.push(`${indent}  agent definition: ${agent.subagentType} — read in .claude/agents/${agent.subagentType}.md`);
+    }
+
+    // JSONL path — primary evidence for what the agent actually did
+    const jsonlPath = agentJsonlPaths?.get(agent.id);
+    if (jsonlPath) lines.push(`${indent}  conversation: \`${jsonlPath}\``);
+
+    // Tool summary — compact unless failures exist
     let timeline = agentToolTimelines?.get(agent.id);
     if (timeline && agent.subagentType === 'fork' && agent.parentId) {
       const parentTimeline = agentToolTimelines?.get(agent.parentId);
@@ -1182,7 +1199,6 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     const hasFailures = timeline && timeline.some(t => t.isError);
 
     if (timeline && hasFailures) {
-      // Build set of indices to include: each failure + 10 before + 10 after
       const WINDOW = 10;
       const includeIdx = new Set<number>();
       for (let i = 0; i < timeline.length; i++) {
@@ -1192,10 +1208,8 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
           }
         }
       }
-
       const failCount = timeline.filter(t => t.isError).length;
-      lines.push(`${indent}  tool calls (${timeline.length} total, ${failCount} failed — showing context around failures):`);
-
+      lines.push(`${indent}  tool calls (${timeline.length} total, ${failCount} failed — context around failures):`);
       let lastPrinted = -1;
       for (let i = 0; i < timeline.length; i++) {
         if (!includeIdx.has(i)) continue;
@@ -1219,15 +1233,6 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
       lines.push(`${indent}  tools(${tc}): ${toolSummary}`);
     }
 
-    if (agent.skillInvocations.length > 0) {
-      lines.push(`${indent}  skills: ${agent.skillInvocations.map(s => s.skill).join(', ')}`);
-    }
-
-    const jsonlPath = agentJsonlPaths?.get(agent.id);
-    if (jsonlPath) {
-      lines.push(`${indent}  conversation: \`${jsonlPath}\``);
-    }
-
     lines.push('');
     for (const childId of agent.children) {
       const child = agentMap.get(childId);
@@ -1235,32 +1240,17 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     }
   }
 
-  if (root) {
-    renderAgent(root, '');
-  }
+  if (root) renderAgent(root, '');
 
-  // ── Cost distribution ───────────────────────────────────────────────
-
-  if (facts && facts.costBreakdown.byModel.length > 1) {
-    lines.push(`\n### Cost by Model\n`);
-    for (const m of facts.costBreakdown.byModel) {
-      lines.push(`- ${m.model}: ${formatCostUsd(m.cost)} (${m.agentCount} agents, ${fmtTokens(m.tokens)} tokens)`);
-    }
-  }
-
-  // ── Critical path ───────────────────────────────────────────────────
-
-  if (facts && facts.criticalPath.length > 1) {
-    lines.push(`\n### Critical Path\n`);
-    lines.push(`Longest sequential chain — agents on this path directly determine wall-clock time:\n`);
-    lines.push(facts.criticalPath.map(n => `${n.name} (${formatMs(n.durationMs)})`).join(' → '));
-    lines.push(`\nTotal: ${formatMs(facts.criticalPath.reduce((sum, n) => sum + n.durationMs, 0))}`);
+  if (definitionDirs.size > 0) {
+    lines.push(`**External definition directories** (read access granted — use absolute paths):`);
+    for (const dir of definitionDirs) lines.push(`- \`${dir}\``);
+    lines.push('');
   }
 
   // ── Artifacts ───────────────────────────────────────────────────────
 
   if (artifacts && artifacts.length > 0) {
-    // Deduplicate to unique file paths — show last modifier
     const uniqueArtifacts = new Map<string, { type: string; agentName: string }>();
     for (const art of artifacts) {
       const fp = art.file_path as string;
@@ -1269,167 +1259,56 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
         : 'unknown';
       uniqueArtifacts.set(fp, { type: art.type as string, agentName });
     }
-
-    lines.push(`\n### Artifacts (${uniqueArtifacts.size} unique files)\n`);
-    lines.push(`Files created or modified during execution. Read them to judge output quality.\n`);
+    lines.push(`## Artifacts (${uniqueArtifacts.size} files produced)\n`);
     let count = 0;
     for (const [fp, { type, agentName }] of uniqueArtifacts) {
-      if (count >= 40) {
-        lines.push(`…and ${uniqueArtifacts.size - 40} more`);
-        break;
-      }
+      if (count >= 40) { lines.push(`…and ${uniqueArtifacts.size - 40} more`); break; }
       lines.push(`- \`${fp}\` (${type}) — ${agentName}`);
       count++;
     }
+    lines.push('');
   }
 
-  // ── AgentWatch data (not in session JSONL) ──────────────────────────
+  // ── AgentWatch supplementary data ────────────────────────────────────
+  // Not in session JSONLs — use as clues, not primary evidence
 
   if ((feedbackItems && feedbackItems.length > 0) || (improvementCycles && improvementCycles.length > 0)) {
-    lines.push(`\n## AgentWatch Data\n`);
-    lines.push(`The following data is stored in AgentWatch's database — it does not exist in session JSONL files and cannot be discovered by reading the session.\n`);
+    lines.push(`## Prior Context\n`);
+    lines.push(`This data is from AgentWatch — not in session JSONLs. Use as supplementary clues.\n`);
 
     if (feedbackItems && feedbackItems.length > 0) {
-      lines.push(`### User Feedback (${feedbackItems.length})\n`);
+      lines.push(`**Feedback already recorded (${feedbackItems.length}) — do not duplicate:**`);
       for (const fb of feedbackItems) {
-        lines.push(`- **[${fb.category}]** ${fb.text} *(agent: ${fb.agent_name || 'unknown'})*`);
+        lines.push(`- [${fb.category}] ${fb.text} *(${fb.agent_name || 'unknown'})*`);
       }
       lines.push('');
     }
 
     if (improvementCycles && improvementCycles.length > 0) {
-      lines.push(`### Prior Improvement Cycles (${improvementCycles.length})\n`);
-      lines.push(`Consider what was already addressed — do not re-recommend completed work.\n`);
+      lines.push(`**Prior improvement cycles (${improvementCycles.length}) — do not re-recommend what was already addressed:**`);
       for (const cycle of improvementCycles) {
-        lines.push(`#### Cycle #${cycle.cycle_number} — ${cycle.status}`);
-        if (cycle.generated_prompt) {
-          const prompt = cycle.generated_prompt as string;
-          lines.push(`**Prompt:** ${prompt.length > 600 ? prompt.slice(0, 600) + '…' : prompt}`);
-        }
-        if (cycle.claude_response) {
-          const response = cycle.claude_response as string;
-          lines.push(`**Response:** ${response.length > 800 ? response.slice(0, 800) + '…' : response}`);
-        }
-        if (cycle.file_changes) {
-          try {
-            const changes = JSON.parse(cycle.file_changes as string);
-            if (Array.isArray(changes) && changes.length > 0) {
-              lines.push(`**Files changed:** ${changes.map((c: Record<string, string>) => c.filePath || c.file_path || '?').join(', ')}`);
-            }
-          } catch { /* skip */ }
-        }
-        lines.push('');
+        const p = cycle.generated_prompt as string | undefined;
+        lines.push(`- Cycle #${cycle.cycle_number} (${cycle.status})${p ? ': ' + p.slice(0, 200) + (p.length > 200 ? '…' : '') : ''}`);
       }
+      lines.push('');
     }
   }
 
-  // ── Investigation & analysis instructions ───────────────────────────
+  // ── What constitutes a finding worth surfacing ───────────────────────
 
-  lines.push(`\n## How to Analyze\n`);
-  if (effectiveAnalysisDir !== projectDir) {
-    lines.push(`You are running as Claude Code inside \`${effectiveAnalysisDir}\` — this is where the skill and agent definitions live.`);
-    lines.push(`The session executed in a different project: \`${projectDir}\`. Use absolute paths when reading session artifacts, workspace files, or codebase files from that project.\n`);
-  } else {
-    lines.push(`You are running as Claude Code inside the project directory (\`${projectDir}\`).\n`);
-  }
+  lines.push(`## What to Look For\n`);
+  lines.push(`A finding is worth surfacing when a specific instruction in a skill or agent definition was not followed, or when an agent's output contradicts its defined responsibility. For each finding, establish:\n`);
+  lines.push(`- Which instruction in which definition file was not followed`);
+  lines.push(`- What the agent actually did (cite from the JSONL)`);
+  lines.push(`- Whether the deviation likely affected the result\n`);
+  lines.push(`Skip agents that executed cleanly against their definitions. Do not flag general observations not grounded in a specific instruction the agent was given.\n`);
 
-  // Collect definition directories — skill paths may live outside the project
-  const definitionDirs = new Set<string>();
-  if (skillDefinitionPaths && skillDefinitionPaths.size > 0) {
-    for (const skillPath of skillDefinitionPaths.values()) {
-      if (skillPath) {
-        const dir = skillPath.replace(/[\\/][^\\/]+$/, '');
-        const normalized = dir.replace(/[\\/]\.claude[\\/]skills$/, '').replace(/[\\/]\.claude[\\/]agents$/, '');
-        if (normalized && normalized.toLowerCase() !== projectDir.toLowerCase()) {
-          definitionDirs.add(normalized);
-        }
-      }
-    }
-  }
+  // ── Output ───────────────────────────────────────────────────────────
 
-  // Collect unique agent types used in session
-  const agentTypesUsed = new Set<string>();
-  for (const agent of session.agents) {
-    if (agent.subagentType && agent.subagentType !== 'fork') {
-      agentTypesUsed.add(agent.subagentType);
-    }
-  }
-
-  lines.push(`### 1. Understand the design intent`);
-  lines.push(`Before evaluating execution, read the definitions that drove it:\n`);
-
-  // Collect all skill names invoked in this session
-  const skillsInvoked = new Set<string>();
-  for (const agent of session.agents) {
-    for (const si of agent.skillInvocations) {
-      skillsInvoked.add(si.skill);
-    }
-  }
-
-  if (skillDefinitionPaths && skillDefinitionPaths.size > 0) {
-    lines.push(`**Skill definitions used in this session:**`);
-    for (const [name, filePath] of skillDefinitionPaths) {
-      lines.push(`- \`${name}\` → \`${filePath}\``);
-    }
-    // Add any skills invoked but without a resolved path
-    for (const name of skillsInvoked) {
-      if (!skillDefinitionPaths.has(name)) {
-        lines.push(`- \`${name}\` — find in \`.claude/skills/\``);
-      }
-    }
-    lines.push('');
-  } else if (skillsInvoked.size > 0) {
-    lines.push(`**Skills invoked:** ${[...skillsInvoked].map(s => `\`${s}\``).join(', ')}`);
-    lines.push(`Read their definitions in \`.claude/skills/\` to understand the intended orchestration flow.\n`);
-  }
-
-  // Filter out definition dirs the AI is already running in
-  const externalDirs = [...definitionDirs].filter(
-    d => d.toLowerCase() !== effectiveAnalysisDir.toLowerCase()
-  );
-
-  if (agentTypesUsed.size > 0) {
-    lines.push(`**Agent types used:** ${[...agentTypesUsed].join(', ')}`);
-    if (externalDirs.length > 0) {
-      lines.push(`Find their definitions in \`.claude/agents/\` (check both this project and the external directories listed below).\n`);
-    } else {
-      lines.push(`Read their definitions in \`.claude/agents/\` to understand intended responsibilities and constraints.\n`);
-    }
-  }
-
-  if (externalDirs.length > 0) {
-    lines.push(`**External definition directories:**`);
-    lines.push(`Some definitions live outside this project. Check these directories:`);
-    for (const dir of externalDirs) {
-      lines.push(`- \`${dir}\``);
-    }
-    lines.push('');
-  }
-
-  lines.push(`- **Workflow scripts** — if a workflow was used, read the script to understand the intended pipeline stages and success criteria.`);
-  lines.push(`- **Project instructions** — read CLAUDE.md / AGENTS.md for project-level conventions the agents were expected to follow.\n`);
-
-  lines.push(`### 2. Evaluate execution against intent`);
-  lines.push(`With the design understood, analyze what actually happened:`);
-  lines.push(`- Did each agent fulfill the role its definition prescribed?`);
-  lines.push(`- Did the orchestration flow follow the skill's intended sequence?`);
-  lines.push(`- Where did agents deviate, struggle, or waste effort — and was it a prompt gap, a definition gap, or a runtime issue?`);
-  lines.push(`- Read conversation JSONL files for agents that look problematic to see the full tool call sequence and reasoning.\n`);
-
-  lines.push(`### 3. For each finding, determine:`);
-  lines.push(`- **What happened** — specific evidence (quote, file path, tool output)`);
-  lines.push(`- **Did it matter** — real impact on session outcome, cost, or quality`);
-  lines.push(`- **Did recovery occur** — did the agent or a sibling recover`);
-  lines.push(`- **Is improvement needed** — if so, what specific change to which definition or prompt\n`);
-
-  // ── Output format ───────────────────────────────────────────────────
-
-  lines.push(`## Output Format\n`);
-  lines.push(`1. **Executive Summary** — 2-3 paragraphs: goal, what happened, quality assessment.`);
-  lines.push(`2. **Agent Findings** — Per-agent (skip clean agents): what it did, quality, issues with evidence.`);
-  lines.push(`3. **Workflow Assessment** — Architecture-level observations.`);
-  lines.push(`4. **Recommendations** — Prioritized list.\n`);
-  lines.push(`End with a JSON block:\n`);
+  lines.push(`## Output\n`);
+  lines.push(`Write one short observation per finding — specific enough that the user can immediately decide whether to add it as feedback. Group by agent. Each observation should name the instruction that was not followed, describe what actually happened, and state whether it mattered.\n`);
+  lines.push(`If no meaningful deviations were found, say so directly.\n`);
+  lines.push(`End with:\n`);
   lines.push('```json');
   lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "category": "prompt|agent_type|workflow|permissions|cost|skill_design", "agentId": "optional", "observation": "...", "rootCause": "...", "evidence": "...", "confidence": "high|medium|low", "recommendation": "..."}]}`);
   lines.push('```');
@@ -1532,7 +1411,8 @@ export async function runExecutionAnalysis(
   cycleId: string,
   sessionId: string,
   prompt: string,
-  cwd?: string
+  cwd?: string,
+  externalSkillDirs: string[] = [],
 ): Promise<void> {
   const wss = getWsServer();
 
@@ -1554,14 +1434,21 @@ export async function runExecutionAnalysis(
       text: `Starting execution analysis for session ${sessionId.slice(0, 12)}...`,
     });
 
-    const child = spawn('claude', [
+    const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
       '--model', 'claude-sonnet-4-6',
       '--dangerously-skip-permissions',
-    ], {
+    ];
+
+    // Grant read access to external skill/agent directories (quoted for paths with spaces)
+    for (const dir of externalSkillDirs) {
+      cliArgs.push('--add-dir', `"${dir}"`);
+    }
+
+    const child = spawn('claude', cliArgs, {
       shell: true,
       cwd: cwd || undefined,
       env: { ...process.env },
@@ -1683,11 +1570,44 @@ export async function runExecutionAnalysis(
         analysisResponse: responseChunks.join('') || null,
         streamEntries: streamLog.length > 0 ? streamLog : null,
       });
-      broadcast('execution_analysis_failed', { error: 'Analysis timed out after 5 minutes' });
+      broadcast('execution_analysis_failed', { error: 'Analysis timed out after 10 minutes' });
+      return;
+    }
+
+    if (exitCode !== 0) {
+      const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
+      streamLog.push({
+        id: `ea-${++streamIdCounter}`,
+        kind: 'system',
+        timestamp: Date.now(),
+        text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}`,
+      });
+      updateExecutionAnalysisCycle(cycleId, {
+        status: 'failed',
+        analysisResponse: responseChunks.join('') || null,
+        streamEntries: streamLog.length > 0 ? streamLog : null,
+      });
+      broadcast('execution_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
 
     const fullResponse = responseChunks.join('');
+
+    if (!fullResponse.trim()) {
+      const hint = stderr.trim() ? `stderr: ${stderr.trim().slice(0, 300)}` : 'No output received from Claude';
+      streamLog.push({
+        id: `ea-${++streamIdCounter}`,
+        kind: 'system',
+        timestamp: Date.now(),
+        text: `Analysis produced no output. ${hint}`,
+      });
+      updateExecutionAnalysisCycle(cycleId, {
+        status: 'failed',
+        streamEntries: streamLog.length > 0 ? streamLog : null,
+      });
+      broadcast('execution_analysis_failed', { error: 'Analysis produced no output' });
+      return;
+    }
 
     let recommendations: ExecutionRecommendation[] | null = null;
     const jsonMatch = fullResponse.match(/```json\s*([\s\S]*?)```/);

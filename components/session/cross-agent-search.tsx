@@ -35,9 +35,9 @@ function highlightSnippet(snippet: string, matchOffset: number, query: string): 
   const after = snippet.slice(matchOffset + query.length);
   return (
     <>
-      <span className="text-[#8b949e]">{before}</span>
+      <span className="text-[var(--aw-text-2)]">{before}</span>
       <mark className="bg-yellow-500/30 text-yellow-200 rounded-sm px-0.5">{match}</mark>
-      <span className="text-[#8b949e]">{after}</span>
+      <span className="text-[var(--aw-text-2)]">{after}</span>
     </>
   );
 }
@@ -127,27 +127,27 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0d1117]">
+    <div className="flex flex-col h-full bg-[var(--aw-bg-0)]">
       {/* Header */}
-      <div className="shrink-0 border-b border-[#21262d] px-3 py-2.5">
+      <div className="shrink-0 border-b border-[var(--aw-bg-2)] px-3 py-2.5">
         <div className="flex items-center gap-2 mb-2">
-          <Search className="h-3.5 w-3.5 text-[#484f58] shrink-0" />
+          <Search className="h-3.5 w-3.5 text-[var(--aw-text-4)] shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search across all agents…"
-            className="flex-1 text-sm bg-transparent text-[#e6edf3] placeholder-[#484f58] outline-none"
+            className="flex-1 text-sm bg-transparent text-[var(--aw-text-0)] placeholder-[var(--aw-text-4)] outline-none"
             autoFocus
           />
-          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#484f58] shrink-0" />}
+          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--aw-text-4)] shrink-0" />}
         </div>
 
         {/* Filters */}
         <div className="flex flex-wrap gap-2">
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-[#6e7681] uppercase tracking-wide">Role</span>
+            <span className="text-[10px] text-[var(--aw-text-3)] uppercase tracking-wide">Role</span>
             {ROLE_OPTIONS.map(({ value, label }) => (
               <button
                 key={value}
@@ -155,8 +155,8 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
                 className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded border transition-colors',
                   selectedRoles.includes(value)
-                    ? 'border-[#58a6ff] bg-[#58a6ff]/15 text-[#58a6ff]'
-                    : 'border-[#30363d] text-[#6e7681] hover:border-[#484f58]'
+                    ? 'border-[var(--aw-blue)] bg-[var(--aw-blue)]/15 text-[var(--aw-blue)]'
+                    : 'border-[var(--aw-bg-3)] text-[var(--aw-text-3)] hover:border-[var(--aw-text-4)]'
                 )}
               >
                 {label}
@@ -164,7 +164,7 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
             ))}
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-[#6e7681] uppercase tracking-wide">Type</span>
+            <span className="text-[10px] text-[var(--aw-text-3)] uppercase tracking-wide">Type</span>
             {AGENT_TYPE_OPTIONS.map(({ value, label }) => (
               <button
                 key={value}
@@ -172,8 +172,8 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
                 className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded border transition-colors',
                   selectedAgentTypes.includes(value)
-                    ? 'border-[#bc8cff] bg-[#bc8cff]/15 text-[#bc8cff]'
-                    : 'border-[#30363d] text-[#6e7681] hover:border-[#484f58]'
+                    ? 'border-[var(--aw-purple)] bg-[var(--aw-purple)]/15 text-[var(--aw-purple)]'
+                    : 'border-[var(--aw-bg-3)] text-[var(--aw-text-3)] hover:border-[var(--aw-text-4)]'
                 )}
               >
                 {label}
@@ -186,14 +186,14 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
         {!debouncedQuery.trim() && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-[#484f58]">
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--aw-text-4)]">
             <Search className="h-8 w-8 opacity-30" />
             <p className="text-sm">Type to search across all agent messages</p>
           </div>
         )}
 
         {debouncedQuery && !isLoading && results.length === 0 && !error && (
-          <div className="flex items-center justify-center h-32 text-[#484f58] text-sm">
+          <div className="flex items-center justify-center h-32 text-[var(--aw-text-4)] text-sm">
             No results for "{debouncedQuery}"
           </div>
         )}
@@ -204,26 +204,26 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
 
         {results.length > 0 && (
           <div className="py-1">
-            <div className="px-3 py-1.5 text-[10px] text-[#6e7681]">
+            <div className="px-3 py-1.5 text-[10px] text-[var(--aw-text-3)]">
               {total} match{total !== 1 ? 'es' : ''}
             </div>
             {Object.entries(grouped).map(([agentId, agentResults]) => {
               const agent = agentMap.get(agentId);
               const { shortName, color, initials, typeLabel } = agent
                 ? getAgentDisplay(agent)
-                : { shortName: agentResults[0].agentName, color: { bg: '#21262d', text: '#8b949e', border: '#30363d' }, initials: '?', typeLabel: agentResults[0].agentType };
+                : { shortName: agentResults[0].agentName, color: { bg: 'var(--aw-bg-2)', text: 'var(--aw-text-2)', border: 'var(--aw-bg-3)' }, initials: '?', typeLabel: agentResults[0].agentType };
               const isCollapsed = collapsed[agentId] ?? false;
 
               return (
-                <div key={agentId} className="border-b border-[#161b22] last:border-b-0">
+                <div key={agentId} className="border-b border-[var(--aw-bg-1)] last:border-b-0">
                   {/* Agent header */}
                   <button
                     onClick={() => setCollapsed(p => ({ ...p, [agentId]: !isCollapsed }))}
-                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#161b22] transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
                   >
                     {isCollapsed
-                      ? <ChevronRight className="w-3.5 h-3.5 text-[#484f58] shrink-0" />
-                      : <ChevronDown className="w-3.5 h-3.5 text-[#484f58] shrink-0" />
+                      ? <ChevronRight className="w-3.5 h-3.5 text-[var(--aw-text-4)] shrink-0" />
+                      : <ChevronDown className="w-3.5 h-3.5 text-[var(--aw-text-4)] shrink-0" />
                     }
                     <span
                       className="w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center shrink-0"
@@ -234,8 +234,8 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
                     <span className="text-xs font-medium truncate flex-1" style={{ color: color.text }}>
                       {shortName}
                     </span>
-                    <span className="text-[10px] text-[#6e7681] shrink-0">{typeLabel}</span>
-                    <span className="text-[10px] text-[#484f58] shrink-0 ml-1">
+                    <span className="text-[10px] text-[var(--aw-text-3)] shrink-0">{typeLabel}</span>
+                    <span className="text-[10px] text-[var(--aw-text-4)] shrink-0 ml-1">
                       {agentResults.length} match{agentResults.length !== 1 ? 'es' : ''}
                     </span>
                   </button>
@@ -247,22 +247,22 @@ export function CrossAgentSearch({ sessionId, paneId, isSingleTab }: CrossAgentS
                         <button
                           key={`${result.messageId}-${result.messageIndex}`}
                           onClick={() => openResult(result)}
-                          className="w-full flex items-start gap-2 px-4 py-2 hover:bg-[#161b22] transition-colors text-left group"
+                          className="w-full flex items-start gap-2 px-4 py-2 hover:bg-[var(--aw-bg-1)] transition-colors text-left group"
                         >
                           <span className={cn(
                             'text-[9px] px-1 py-0.5 rounded shrink-0 mt-0.5 font-medium',
-                            result.role === 'assistant' ? 'bg-[#1c3556] text-[#58a6ff]' :
-                            result.role === 'user' ? 'bg-[#1a3d2a] text-[#3fb950]' :
-                            'bg-[#21262d] text-[#6e7681]'
+                            result.role === 'assistant' ? 'bg-[var(--aw-phase-blue)] text-[var(--aw-blue)]' :
+                            result.role === 'user' ? 'bg-[var(--aw-green-bg)] text-[var(--aw-green)]' :
+                            'bg-[var(--aw-bg-2)] text-[var(--aw-text-3)]'
                           )}>
                             {result.role[0].toUpperCase()}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-[#c9d1d9] leading-relaxed break-words line-clamp-3">
+                            <p className="text-xs text-[var(--aw-text-1)] leading-relaxed break-words line-clamp-3">
                               {highlightSnippet(result.snippet, result.matchOffset, debouncedQuery)}
                             </p>
                           </div>
-                          <ExternalLink className="w-3 h-3 text-[#484f58] group-hover:text-[#8b949e] shrink-0 mt-0.5 transition-colors" />
+                          <ExternalLink className="w-3 h-3 text-[var(--aw-text-4)] group-hover:text-[var(--aw-text-2)] shrink-0 mt-0.5 transition-colors" />
                         </button>
                       ))}
                     </div>

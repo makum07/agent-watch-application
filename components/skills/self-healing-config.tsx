@@ -53,17 +53,17 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
   };
 
   return (
-    <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-4">
+    <div className="rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <HeartPulse className={cn('h-4 w-4', localEnabled ? 'text-green-400' : 'text-[#484f58]')} />
-          <span className="text-sm font-medium text-[#e6edf3]">Self-Healing</span>
+          <HeartPulse className={cn('h-4 w-4', localEnabled ? 'text-green-400' : 'text-[var(--aw-text-4)]')} />
+          <span className="text-sm font-medium text-[var(--aw-text-0)]">Self-Healing</span>
         </div>
         <button
           onClick={() => handleChange('enabled', !localEnabled)}
           className={cn(
             'relative h-5 w-9 rounded-full transition-colors',
-            localEnabled ? 'bg-green-500' : 'bg-[#30363d]'
+            localEnabled ? 'bg-green-500' : 'bg-[var(--aw-bg-3)]'
           )}
         >
           <span className={cn(
@@ -76,14 +76,14 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
       {localEnabled && (
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-[#8b949e] block mb-2">Mode</label>
+            <label className="text-xs text-[var(--aw-text-2)] block mb-2">Mode</label>
             <div className="space-y-2">
               {MODES.map(m => (
                 <label
                   key={m.value}
                   className={cn(
                     'flex items-start gap-2 p-2 rounded cursor-pointer transition-colors',
-                    localMode === m.value ? 'bg-[#21262d]' : 'hover:bg-[#21262d]/50'
+                    localMode === m.value ? 'bg-[var(--aw-bg-2)]' : 'hover:bg-[var(--aw-bg-2)]/50'
                   )}
                 >
                   <input
@@ -92,11 +92,11 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
                     value={m.value}
                     checked={localMode === m.value}
                     onChange={() => handleChange('mode', m.value)}
-                    className="mt-0.5 accent-[#58a6ff]"
+                    className="mt-0.5 accent-[var(--aw-blue)]"
                   />
                   <div>
-                    <div className="text-xs font-medium text-[#e6edf3]">{m.label}</div>
-                    <div className="text-[11px] text-[#8b949e]">{m.description}</div>
+                    <div className="text-xs font-medium text-[var(--aw-text-0)]">{m.label}</div>
+                    <div className="text-[11px] text-[var(--aw-text-2)]">{m.description}</div>
                   </div>
                 </label>
               ))}
@@ -104,7 +104,7 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
           </div>
 
           <div>
-            <label className="text-xs text-[#8b949e] block mb-1">
+            <label className="text-xs text-[var(--aw-text-2)] block mb-1">
               Trigger threshold (executions since last cycle)
             </label>
             <input
@@ -113,7 +113,7 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
               max={100}
               value={localThreshold}
               onChange={e => handleChange('threshold', Math.max(1, parseInt(e.target.value) || 5))}
-              className="w-20 text-xs px-2 py-1.5 rounded bg-[#0d1117] border border-[#30363d] text-[#e6edf3]"
+              className="w-20 text-xs px-2 py-1.5 rounded bg-[var(--aw-bg-0)] border border-[var(--aw-bg-3)] text-[var(--aw-text-0)]"
             />
           </div>
         </div>
@@ -123,7 +123,7 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
         <button
           onClick={handleSave}
           disabled={saving}
-          className="mt-4 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white transition-colors font-medium disabled:opacity-50"
+          className="mt-4 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white transition-colors font-medium disabled:opacity-50"
         >
           <Save className="h-3.5 w-3.5" />
           {saving ? 'Saving...' : 'Save Configuration'}

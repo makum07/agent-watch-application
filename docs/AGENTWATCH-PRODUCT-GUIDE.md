@@ -21,7 +21,7 @@ If AI agents today do work for us inside a black box, AgentWatch is the **glass 
 - When a result is wrong, people give **vague feedback** ("the test case is wrong, fix the skill") because they can't see *which* agent or *which* step actually caused the problem.
 - Vague feedback applied to the wrong place slowly **degrades** the workflow over time.
 - **AgentWatch** reads the data Claude already stores on your machine and presents it in a browser as a clear, navigable picture: who did what, in what order, using which information, and where things went wrong.
-- That visibility unlocks **precise feedback → targeted improvement → (eventually) self-healing workflows.**
+- That visibility unlocks **precise feedback → targeted improvement → self-healing workflows.**
 
 ---
 
@@ -109,6 +109,77 @@ So AgentWatch does one thing conceptually simple:
 
 Because it reads the **actual recorded session**, AgentWatch always shows **what really happened at that point in time** — not a guess, and not today's version of the workflow. Historical runs stay faithful even after the underlying skills or agents are later edited.
 
+### Integration with Claude Code
+
+AgentWatch doesn't just *read* from Claude Code — it integrates with Claude Code's native features to provide a seamless browser-based experience:
+
+- **Session resume** — improvement cycles resume the original Claude Code session (`--resume`), so the improvement agent has full context from the original run.
+- **PreToolUse hooks** — AgentWatch configures an HTTP hook (`--settings`) that routes Edit/Write permission requests to the browser UI instead of the terminal.
+- **Directory access** — cross-project skill directories are granted read access via `--add-dir`, so the improvement agent can read and edit skills wherever they're defined.
+- **Stream protocol** — real-time progress is delivered via Claude Code's `stream-json` output format, displayed live in the browser.
+
+This means the entire improvement workflow — from feedback to analysis to file edits to approval — happens in the browser. The terminal is only needed to *run* the original workflow; everything after that is handled by AgentWatch.
+
+### Terminal vs Browser: How AgentWatch Handles Claude Code Permissions
+
+#### How Claude Code normally works (terminal)
+
+In a standard terminal session, Claude Code is interactive. When the AI decides it needs to edit a file, Claude Code pauses and shows a permission prompt:
+
+```
+Edit file: src/agents/test-data-analysis.md
+Allow? (y/n)
+```
+
+The user reads the proposed change, types `y` or `n`, and Claude Code proceeds — applying the edit on approval or skipping it on denial. This works well because there is a human sitting at the terminal.
+
+#### The problem: headless invocation
+
+AgentWatch runs Claude Code programmatically — from a web server, not a terminal. It uses the `-p` (print) flag for non-interactive, headless execution. In this mode there is no terminal session, no human at a keyboard, and no way to display a permission prompt.
+
+With `--permission-mode default`, Claude Code does the safe thing: it **auto-denies** any Edit or Write because no human is available to approve. This is correct behavior — but it means a web application that invokes Claude Code cannot get file edits applied without solving the approval problem.
+
+#### AgentWatch's solution: native hooks, browser UI
+
+Rather than bypassing Claude Code's permission system, AgentWatch plugs into it using Claude Code's official **PreToolUse hook** API. The hook intercepts a tool call *before* it executes and delegates the approval decision to an external system — in this case, the browser.
+
+**How the flow works:**
+
+1. AgentWatch writes a temporary settings file containing an HTTP hook configuration and passes it to Claude Code via `--settings`.
+2. Claude Code runs and eventually attempts an Edit or Write.
+3. The PreToolUse hook fires and sends an HTTP POST to AgentWatch's `/api/v2/hooks/permission` endpoint, containing the tool name, target file, and proposed change.
+4. AgentWatch broadcasts the request to the browser over WebSocket.
+5. The user sees an **approval card** with the file path, a diff preview, and Approve / Deny buttons.
+6. The user's decision flows back: browser → WebSocket → hook endpoint → Claude Code.
+7. Claude Code receives `allow` or `deny` and acts accordingly — applying the edit itself on approval.
+
+| Aspect | Terminal | AgentWatch (Browser) |
+|---|---|---|
+| **Where the prompt appears** | Terminal (text) | Browser (visual card with diff) |
+| **How the user responds** | Types `y` or `n` | Clicks Approve or Deny |
+| **Who applies the edit** | Claude Code | Claude Code (same) |
+| **Headless compatible** | No — auto-denies | Yes — hook routes to browser |
+| **State consistency** | Always in sync | Always in sync (Claude Code applies natively) |
+| **Cross-project edits** | Requires manual directory trust | Automatic via `--add-dir` detection |
+
+#### Cross-project file access
+
+Workflows often span projects — a session runs in one repository but uses skills or agents defined in another. AgentWatch parses the session data to detect external `.claude/skills` and `.claude/agents` paths, then passes them via Claude Code's `--add-dir` flag to grant read access. Write operations to those external files go through the same browser approval gate.
+
+Because AgentWatch invokes Claude Code via a shell process, filesystem paths containing spaces (common on Windows — e.g. `C:\Users\makum\Zeroni Product\...`) must be explicitly quoted when passed as CLI arguments. Without quoting, the shell splits the path at the space and `--add-dir` silently receives a truncated path that doesn't exist, causing all reads to the external directory to be denied. AgentWatch handles this automatically — paths are always shell-safe.
+
+#### The key architectural point
+
+AgentWatch does not bypass, replace, or reimplement Claude Code's permission system. It uses the **official hook API** to relocate the human-in-the-loop from the terminal to the browser. Claude Code still:
+
+- Decides when a permission check is needed
+- Sends the hook event
+- Waits for the response
+- Applies the edit itself after approval
+- Maintains its own internal state
+
+AgentWatch provides the approval surface. Claude Code remains the authority.
+
 ---
 
 ## What AgentWatch is
@@ -122,7 +193,7 @@ It rests on four pillars:
 | **Observability** | See every agent, decision, artifact, and tool call clearly | ✅ Available |
 | **Feedback** | Attach precise notes to the exact agent/step that caused an issue | ✅ Available |
 | **Continuous Improvement** | Turn that feedback into targeted, evidence-based fixes — and track them over time | ✅ Available |
-| **Self-Healing** | Workflows that analyze their own runs and propose fixes automatically | 🔭 Planned |
+| **Self-Healing** | Workflows that analyze their own runs and propose fixes automatically | 🔧 In Progress |
 
 ---
 
@@ -131,26 +202,85 @@ It rests on four pillars:
 What you actually do in the app, and why each capability matters.
 
 ### Session Dashboard — *your runs become first-class*
-Browse projects and the sessions inside them, instead of digging through terminal history. Each run is a real, openable thing with a title, size, cost, and timing.
-**Value:** runs stop being throwaway terminal output and become a reviewable record.
+Browse projects and the sessions inside them, instead of digging through terminal history. Each run is a real, openable thing with a title, size, cost, and timing. Pin, favorite, tag, and annotate sessions to organize your work.
+**Value:** runs stop being throwaway terminal output and become a reviewable, searchable record.
 
 ### Agent Hierarchy — *see the team*
 A sidebar shows the full **tree** of agents: the orchestrator at the top and every specialist beneath it, in the order they ran, each labeled with its **real identity** (its actual name/role), model, tokens, duration, and health.
 **Value:** in seconds you understand *who did what and in what order* — the thing that's impossible in a terminal.
 
-> You can also switch to a **Sequence** (chronological) view, and **export the hierarchy** as clean text or an image for documentation, emails, and reviews.
+> You can also switch to a **Sequence** (chronological) view, and **export the hierarchy** as clean text, SVG, PNG, or structured JSON for documentation, emails, and reviews.
 
-### Multi-Pane View — *compare side by side*
-Drag any agent into a split pane and view several agents at once on a single screen.
-**Value:** instead of scrolling endlessly, you can compare two agents' work directly.
+### Multi-Pane Workspace — *your investigation surface*
+The workspace is a flexible, multi-pane environment. Open any agent, artifact, timeline, analytics view, or context graph in its own pane. Split horizontally or vertically and compare anything side by side. Your layout is automatically saved and restored as a **workspace snapshot**, so you can pick up exactly where you left off.
+**Value:** instead of scrolling endlessly, you build a focused investigation layout tailored to what you need to understand.
 
 ### Agent Detail — *the full record of one agent*
 Open any agent to see its **Conversation**, the **Artifacts** it produced, the **Context** it received, the **Tools** it used, a **Summary**, and a **Feedback** tab. Health is shown honestly — a clean success looks different from "finished, but with errors or blocked actions."
 **Value:** you can trace a single agent's reasoning and outputs without losing the thread.
 
 ### Artifact Viewing — *intermediate work becomes visible*
-The files agents create and pass between each other become **first-class, traceable items** rather than hidden intermediate outputs.
+The files agents create and pass between each other become **first-class, traceable items** rather than hidden intermediate outputs. Browse them in a folder structure, preview their content, and trace which agent produced each one.
 **Value:** you can follow the chain — which artifact influenced which result.
+
+### Cross-Agent Search — *find anything, anywhere*
+Full-text search across every agent's messages in a session. Filter by agent, role, or content type to locate specific decisions, tool calls, or outputs.
+**Value:** when you know *what* you're looking for but not *where*, search gets you there in seconds.
+
+### Context Flow — *trace information between agents*
+A visual graph showing how context flows between agents — which agent received information from which other agent, and what was passed along.
+**Value:** when a downstream agent makes a bad decision, you can trace it back to the context it received.
+
+### Execution Timeline — *see when things happened*
+A dedicated timeline view showing agents as they executed over time, with artifact markers. See parallelism, gaps, and ordering at a glance.
+**Value:** understand the *when* and *how long* alongside the *what* — spot bottlenecks and idle time.
+
+### Analytics Dashboard — *evidence-based execution metrics*
+
+The analytics page provides **computed facts** about every session:
+
+- **Summary metrics** — total agents, tokens, cost, duration, models used, cache efficiency
+- **Cost breakdown** — by model, by agent, and by phase
+- **Critical path** — the longest chain of dependent agents that determined total duration
+- **Debug alerts** — automatically detected issues: bottlenecks, retry loops, duplicate work, excessive tool usage, context bloat, long delegation chains
+- **Agent report cards** — per-agent outcome assessment with token efficiency and error categorization
+
+**Value:** you get an objective, quantitative view of what happened — not opinions, but evidence.
+
+### AI Execution Analysis — *Claude analyzes the run*
+
+Beyond algorithmic metrics, you can ask **Claude itself** to analyze a session. AgentWatch builds a rich prompt containing the full session structure, agent hierarchy, tool call timelines, artifacts, feedback, and skill definitions — then streams a live analysis powered by Claude.
+
+The AI analysis covers:
+- Root cause identification for failures
+- Agent delegation quality assessment
+- Workflow efficiency evaluation
+- Actionable improvement recommendations with specific targets
+
+#### Live streaming UI
+
+Analysis runs stream live in the browser using the same rich stream log design as the feedback review panel. While the analysis is running, the user sees real-time progress:
+
+- **Thinking blocks** — collapsible purple sections showing Claude's reasoning
+- **Tool calls** — color-coded by tool type (green for Bash, blue for Read, orange for Edit/Write, purple for Grep/Glob), with expandable input/output and paired results
+- **Text entries** — markdown-rendered analysis output as it's generated
+- **System messages** — status updates (starting, completed, failed with error details)
+
+The stream auto-scrolls during live analysis and the cycle card auto-expands so the user can immediately see what the analysis is doing. A spinner with "Starting analysis session..." appears while waiting for the first event from Claude.
+
+Each analysis cycle is displayed as a card with a left border color matching its status (blue for analyzing, green for completed, red for failed). The card shows the cycle number, status badge, timestamp, collapsible prompt section, the live/historical stream log, and AI recommendations.
+
+#### Reliability
+
+The analysis spawns a Claude Code session (`-p --output-format stream-json --input-format stream-json`) in the session's actual project directory. The project directory is resolved from the JSONL file header's `cwd` field — not decoded from the metadata directory name, which is lossy for paths containing hyphens or spaces.
+
+Real-time events are delivered via WebSocket. As a fallback for long-running analyses (which can take several minutes for large sessions), the UI polls the server every 10 seconds while an analysis is active. This ensures the UI recovers even if the WebSocket connection drops — `isAnalyzing` is reset based on actual cycle status from the database, not solely from WebSocket events.
+
+Non-zero exit codes and empty responses from Claude are detected and reported as failures with the actual error message, rather than silently marked as completed with zero recommendations.
+
+Analysis runs are stored as **analysis cycles** for future reference, including the full stream log, parsed recommendations, and the analysis response.
+
+**Value:** a second pair of (AI) eyes that can reason about the execution holistically and identify patterns a dashboard can't — with full visibility into what the analysis is doing while it runs.
 
 ### Feedback — *the most important capability*
 Feedback is attached to the **exact agent, the exact execution, and the exact artifact** that caused an issue — not to "the workflow" in general.
@@ -159,29 +289,194 @@ Feedback is attached to the **exact agent, the exact execution, and the exact ar
    Feedback  →  Specific Agent  →  Specific Execution  →  Specific Artifact
 ```
 
+Ten structured categories keep feedback precise: missing context, incorrect assumption, hallucinated conclusion, weak validation, missing edge case, missing artifact, missing code exploration, missing test coverage, workflow improvement, and other.
+
 **Value:** this is the fix for the core problem. Feedback becomes **specific and evidence-based**, so the right thing gets improved.
 
 ### Apply Improvements — *turn notes into a precise fix*
-AgentWatch summarizes the collected feedback and generates an improvement prompt grounded in **agent-specific evidence**, not vague impressions.
-**Value:** the improvement targets the real cause, so the workflow actually gets better.
+AgentWatch summarizes the collected feedback and generates an improvement prompt grounded in **agent-specific evidence**, not vague impressions. Claude then applies the fix in a live, streaming session — with an **edit approval gate** that lets you review and approve each file change directly in the browser before it lands.
+
+The approval gate uses Claude Code's native **PreToolUse hook** system. When AgentWatch spawns an improvement cycle, it configures an HTTP hook that intercepts Edit and Write operations. Instead of prompting in the terminal, the permission request is routed to the AgentWatch browser UI — you see a diff preview, the target file, and Approve / Deny buttons. When you approve, Claude Code applies the edit itself, keeping its internal state perfectly in sync with the filesystem.
+
+This means the improvement loop does **not depend on the terminal** for permission handling. Everything happens in the browser.
+
+**Value:** the improvement targets the real cause, you stay in control of what gets changed, and you never need to switch to the terminal to approve edits.
+
+### Cross-Project Skill Improvements — *fix skills wherever they live*
+Real-world workflows often span multiple projects. A session might run in project A (e.g. your application repo) but use skills and agents defined in project B (e.g. a shared Claude config repo). AgentWatch handles this automatically:
+
+1. **Detection** — When an improvement cycle starts, AgentWatch parses the session's JSONL to find every `.claude/skills` and `.claude/agents` path referenced during the run. Paths are matched in both JSON-escaped backslash form (`C:\\Users\\...`) and forward-slash form (`C:/Users/...`) to catch every reference regardless of how Claude Code serialized them. Any path outside the session's own project directory is identified as external.
+2. **Read access** — External directories are passed to Claude Code via the `--add-dir` flag, granting native read access without any extra approval prompts. Paths are shell-quoted to handle directory names containing spaces (e.g. `Zeroni Product`) — without quoting, the shell splits the path into fragments and `--add-dir` silently receives a truncated, non-existent directory.
+3. **Write access** — Edits to external files go through the same browser-based approval gate as local edits.
+
+The detection is deterministic and works for any project layout — it reads the actual session data rather than scanning the filesystem for sibling projects. If a session referenced a skill in `C:\Users\makum\Zeroni Product\ZER-claude-config\.claude\skills`, that exact directory is detected and granted access, regardless of where the session itself ran.
+
+This means if the improvement agent determines that a skill definition in a *different* project caused the issue, it can read and propose edits to that file — and you approve or deny the change in the browser, just like any other edit.
+
+**Value:** improvements land where the root cause actually lives, even when skills are maintained in a separate repository.
 
 ### Improvement History — *every change is traceable*
-Each improvement cycle is recorded — the feedback behind it, the generated prompt, and the response.
-**Value:** you can see *how a workflow evolved over time*, and why.
+Each improvement cycle is recorded — the feedback behind it, the generated prompt, the streaming response, and the file diffs it produced. You can **rewind** an improvement if it didn't work out.
+**Value:** you can see *how a workflow evolved over time*, why each change was made, and undo what didn't help.
+
+### Session Comparison — *learn across runs*
+Compare two sessions side by side — their agent hierarchies, metrics, and outcomes. See what changed between runs of the same workflow.
+**Value:** when you improve a workflow and re-run it, you can directly compare the before and after.
 
 ### Skills Dashboard & Skill Intelligence — *learn across many runs*
-Instead of improving one run at a time, AgentWatch aggregates feedback and trends across **many executions** of the same skill.
-**Value:** you stop fixing single executions and start improving the **workflow itself**.
 
-### Self-Healing *(planned)* — *workflows that improve themselves*
-The future direction: after a number of runs, a skill **analyzes its own history**, produces an improvement report and a suggested fix, you **review**, and **apply**.
+Instead of improving one run at a time, the Skills Dashboard aggregates execution data, feedback, and improvement history across **all sessions** that used a given skill. It answers the question: "How is this workflow performing over time, and what keeps going wrong?"
+
+#### Skills list — the entry point
+
+The top-level skills page shows every registered skill as a card, organized by **project** in a resizable sidebar. Each card displays:
+
+- **Name** — the skill's slash-command name (e.g. `/generate-test-cases`)
+- **Project** — which project the skill belongs to
+- **Description** — from the skill's `SKILL.md` frontmatter, if present
+- **Execution count** — total invocations across all sessions
+- **Session count** — how many distinct sessions used this skill
+- **Feedback count** — total feedback items from sessions where this skill ran (including feedback on sub-agents spawned by the skill)
+- **Average duration** — mean execution time
+- **Self-healing indicator** — a colored dot and icon showing whether self-healing is enabled and its current status (green = enabled, yellow = analyzing, grey = disabled)
+- **Version** and **last analyzed date**
+
+Skills are sortable by most used, most feedback, name, or last analyzed. A **Sync** button triggers a full rebuild: re-indexing sessions, normalizing project names, and refreshing execution data from the source JSONL files.
+
+#### Skill detail — the full picture for one skill
+
+Clicking a skill card opens a detail page with summary stats (executions, sessions, feedback, avg duration, analysis cycles) and four tabs:
+
+**Overview tab**
+- **Self-healing configuration** — toggle self-healing on/off, choose a mode (analysis only, analysis + fix, fully automatic), and set the execution threshold that triggers automatic analysis
+- **Skill metadata** — name, project, version, created date, last execution, last analysis
+- **Top feedback categories** — a quick summary of the most common feedback types
+
+**Executions tab**
+- A paginated table of every execution: which session, which agent invoked it, when, how long it took, and how many feedback items relate to that session
+- Each session ID links directly to the workspace view for that session
+- Pagination with configurable page size
+
+**Feedback tab** — three view modes:
+
+1. **By Session** — feedback items grouped by the session they came from, with expand/collapse per session. Each item shows its category (color-coded dot), the agent that received the feedback, the feedback text, timestamp, and whether it's **open** (unaddressed) or **closed** (addressed by an improvement cycle, with the cycle number shown)
+2. **By Category** — a horizontal bar chart showing feedback distribution across the ten structured categories (missing context, incorrect assumption, hallucinated conclusion, etc.), plus a table showing counts and percentages. Below, a "Top Agents by Feedback" breakdown shows which agents received the most feedback, with progress bars
+3. **History** — a unified timeline of all improvement activity for this skill:
+   - **Improvement cycles** — each expandable card shows the cycle number, status (completed/failed/pending/running), the session it ran in, duration, feedback items addressed, the generated prompt, Claude's response, and file changes produced. Feedback items referenced by the cycle are resolved and shown inline
+   - **Skill analysis cycles** — cards showing the analysis trigger (manual or auto), sessions and feedback analyzed, and parsed recommendations with severity badges (critical/high/medium/low)
+   - **Feedback items** — split into Open and Closed sections. Closed items show which improvement cycle addressed them and when
+
+**Analysis tab**
+- **Preview Prompt** — generates the analysis prompt (including session structure, feedback, and skill definitions) and shows it in a preview/edit view with character count. The user can review or edit the prompt before running
+- **Quick Analysis** — triggers analysis immediately with the default prompt
+- **Live stream** — while analysis is running, a live stream viewer shows thinking blocks, tool calls (color-coded by type), text output, and progress indicators, auto-scrolling as new events arrive
+- **Cycle history** — each completed analysis cycle is shown as an expandable card with a colored left border indicating status (blue = analyzing, green = completed, red = failed). Inside: sessions/feedback analyzed counts, collapsible generated prompt, activity log (the full tool-call stream, preserved for historical review), analysis report (rendered markdown), and parsed recommendations with severity, root cause, affected component, proposed change, and self-correction signal
+- **Fix prompt approval** — for cycles in `awaiting_review` status, an approval bar lets the user approve the fix as-is or edit the fix prompt before applying
+
+#### How skill data is built
+
+Skills are not configured manually — they are **discovered automatically** from Claude Code session data. When a session uses the `Skill` tool (slash commands like `/generate-test-cases`), AgentWatch's ingester records the invocation. The skill registry:
+
+1. Extracts skill invocations from the `agents` table (each agent stores its `skill_invocations` as JSON)
+2. Computes a deterministic skill ID from `sha256(project:skill_name)` — same skill in the same project always gets the same ID
+3. Upserts the skill entry and creates execution records linking skill → session → agent
+4. Enriches descriptions by reading `SKILL.md` frontmatter from the skill's `.claude/skills/` directory on disk
+5. Computes feedback counts at the **session level** — any feedback in a session where the skill ran counts toward the skill, because skills typically spawn sub-agents and the feedback lands on those sub-agents rather than the parent agent that invoked the skill
+
+The Sync operation additionally normalizes project display names across all sessions (ensuring sessions from the same project directory get the same name regardless of when they were indexed) and migrates analysis cycles from orphaned skill entries to their active replacements.
+
+**Value:** you stop fixing single executions and start improving the **workflow itself** — with evidence from every run, not just the last one.
+
+### Self-Healing — *workflows that improve themselves*
+After a number of runs, a skill **analyzes its own history**, produces an improvement report and a suggested fix, you **review**, and **apply**. The skill dashboard aggregates feedback and execution data across sessions and spawns a dedicated Claude Code session to perform the analysis.
 
 ```
    Skill  →  N Executions  →  Automatic Analysis  →  Improvement Report
-        →  Generated Fix Prompt  →  Human Review  →  Apply
+        →  Generated Fix  →  Human Review  →  Apply
 ```
 
+| Mode | Behavior |
+|---|---|
+| **Analysis only** | Produces the report and recommendations — you decide what to do |
+| **Analysis and fix** | Generates the fix — you review and approve before it lands |
+| **Fully automatic** | Analyzes, generates, and applies the fix — you review after the fact |
+
+#### Cross-project skill analysis
+
+Skills may be defined in a different project from where they are executed. For example, skill definitions might live in a shared `ZER-claude-config` repo while sessions run in `ZER-app`. AgentWatch resolves the skill's project directory automatically:
+
+1. **Project resolution** — The skill record stores a project display name. AgentWatch maps this back to the actual filesystem path by iterating Claude Code's project metadata directories, matching display names, and reading the `cwd` field from a session JSONL header.
+2. **CWD** — The spawned Claude Code session runs in the skill's project directory, so it can natively read `.claude/skills/` and `.claude/agents/` definitions.
+3. **Read-only analysis** — The analysis phase uses `--dangerously-skip-permissions` since it only reads files.
+4. **Fix application** — When a fix is applied, the same PreToolUse hook architecture used by the improvement loop gates Edit/Write operations through the browser. The hook is registered dynamically once Claude Code reports its session ID in the initial system event.
+
+#### Browser-based approval for skill fixes
+
+The `applySkillFix` flow mirrors the improvement loop's permission model:
+- A temporary settings file with a `PreToolUse` HTTP hook is written and passed via `--settings`.
+- Edit/Write tool calls are intercepted and broadcast to the browser via WebSocket.
+- The user approves or denies each change in the skill dashboard UI.
+- The hook settings file and active cycle registration are cleaned up in a `finally` block.
+
 **Value:** AgentWatch graduates from an *observability* tool to a **workflow-evolution platform**.
+
+### Threshold Alerts — *know when sessions need attention*
+
+As Claude Code sessions run — sometimes for hours, sometimes in parallel across projects — cost and duration can grow without anyone noticing. AgentWatch includes a **threshold monitoring system** that continuously watches active sessions and alerts you when they cross configurable limits.
+
+#### How it works
+
+A background monitor runs every **2 minutes** inside the AgentWatch server process. Each cycle:
+
+1. **Scans** all sources and projects for active JSONL session files
+2. **Computes** the current cost and duration of each active session
+3. **Compares** against your configured thresholds (cost in dollars, duration in hours)
+4. **Creates alerts** in the database for sessions that exceed a threshold
+5. **Broadcasts** real-time updates to the browser via WebSocket
+6. **Sends a consolidated Teams notification** listing every active session currently crossing the threshold
+7. **Auto-resolves** alerts when sessions end
+
+```
+   Active Sessions  →  Scan (every 2 min)  →  Threshold Check
+        →  DB Alert + WebSocket  →  Teams Notification (consolidated)
+```
+
+#### Alerts page
+
+The Alerts page in the browser shows:
+
+- **Active alerts** — sessions currently exceeding a threshold, with the session title (linked to the workspace), threshold type, actual vs. threshold value, cost, tokens, and duration. Each alert has a **Dismiss** button to suppress it for the remainder of that session
+- **Resolved alerts** — collapsible section showing alerts that auto-resolved when the session ended
+- **Settings** — a gear icon opens the configuration panel where you can set the cost threshold (dollars), duration threshold (hours), and the Teams webhook URL. Setting a threshold to 0 disables that check
+
+Alerts update in real time — when a new alert is created or an existing one is updated by the monitor, the browser receives a WebSocket event and refreshes automatically. The navbar badge shows the count of active alerts.
+
+#### Teams notifications
+
+Every monitor cycle sends a **single consolidated notification** to Microsoft Teams via a Power Automate webhook. The card matches the Adaptive Card format and includes:
+
+- A **header** with the check timestamp and threshold values
+- **Summary metrics** — total cost across all breaching sessions and session count
+- **Per-session rows** — each breaching session listed with its title (clickable link to AgentWatch workspace), cost, token count, duration, and source
+- An **action button** linking to the AgentWatch Alerts page
+
+Notifications are sent every cycle for every active session crossing the threshold — not just once per alert. This means if a session is still running and still over the threshold two minutes later, you get another notification with updated numbers. This provides continuous visibility rather than a single fire-and-forget alert.
+
+The Teams webhook URL is configured from the Alerts page settings in the browser — no environment variables or Docker configuration needed.
+
+#### Dismissed alerts
+
+When you dismiss an alert, the monitor will not re-create alerts for that session and threshold type for the remainder of the session. This prevents alert fatigue for sessions you've already reviewed and decided to let continue.
+
+**Value:** cost and duration surprises are caught early, with real-time browser alerts and recurring Teams notifications — no manual checking needed, and no separate cron job or Docker service to maintain.
+
+### Multi-Source Support — *WSL, Windows, and beyond*
+AgentWatch can read Claude data from **multiple sources** on the same machine — for example, a native Windows `.claude` folder and a WSL Linux `.claude` folder. Switch between sources from the home page.
+**Value:** if you use Claude across environments, you see all your work in one place.
+
+### Export — *take insights with you*
+Export session data as **JSON**, **Markdown**, or **HTML**. Export the agent hierarchy as **text**, **SVG**, **PNG**, or **JSON**. Copy the analytics summary as structured text for pasting into improvement prompts or reports.
+**Value:** insights are portable — share them in emails, documents, pull requests, and team discussions.
 
 ---
 
@@ -194,18 +489,22 @@ The future direction: after a number of runs, a skill **analyzes its own history
         ↓
 3. Read the agent hierarchy: see the orchestrator and every specialist agent.
         ↓
-4. Notice the final output has a problem (e.g. a wrong test case).
+4. Check the analytics dashboard for an objective execution summary:
+   cost, timing, cache efficiency, and any detected issues.
         ↓
-5. Trace it: open agents/artifacts, compare side-by-side, find the agent that
-   introduced the issue (e.g. the Application Context Agent).
+5. Notice a problem (e.g. a wrong test case). Trace it:
+   open agents in side-by-side panes, follow context flow,
+   search across messages, and find the agent that introduced the issue.
         ↓
 6. Leave precise feedback on THAT agent / artifact — not on "the skill."
         ↓
 7. Apply Improvements: AgentWatch turns the feedback into a targeted,
-   evidence-based fix prompt.
+   evidence-based fix prompt. Review and approve each change.
         ↓
-8. Track it in Improvement History; over many runs, watch trends in the
-   Skills Dashboard and improve the workflow itself.
+8. Re-run the workflow and compare sessions to verify the improvement.
+        ↓
+9. Over many runs, watch trends in the Skills Dashboard.
+   Enable self-healing to let the workflow analyze and improve itself.
 ```
 
 **Before AgentWatch:** scroll the terminal → guess the cause → give vague feedback → workflow drifts.
@@ -248,8 +547,16 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Artifact** | A file or output one agent produces and passes to the next |
 | **Skill** | A reusable, packaged workflow (e.g. "generate test cases") |
 | **Observability** | Being able to see and understand what happened inside a run |
+| **Execution analysis** | AI-powered deep analysis of a session's execution |
+| **Execution facts** | Algorithmically computed metrics about a session (cost, timing, errors) |
 | **Workflow drift / skill poisoning** | A workflow slowly getting worse because of vague, misdirected feedback |
 | **Self-healing** | A workflow that reviews its own runs and proposes its own fixes |
+| **Edit approval gate** | A browser-based review step — powered by Claude Code's PreToolUse hook — where you approve or deny each file change before it's applied |
+| **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
+| **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
+| **Skill analysis** | AI-powered cross-session analysis of a skill's execution history, feedback trends, and definition — runs in the skill's own project directory for native file access |
+| **Threshold alert** | A notification created when an active session's cost or duration exceeds a configured limit; shown in the browser and sent to Teams |
+| **Threshold monitor** | A background process that scans active sessions every 2 minutes and creates threshold alerts for breaching sessions |
 
 ---
 

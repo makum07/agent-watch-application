@@ -6,7 +6,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { formatTokens, formatDuration, cn } from '@/lib/utils';
-import { ZoomIn, ZoomOut, RotateCcw, GitFork, Maximize2, Minimize2, X } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, GitFork, X } from 'lucide-react';
 import type { Agent } from '@/types/session';
 import type { PaneTab, LayoutNode } from '@/types/workspace';
 
@@ -35,7 +35,13 @@ function buildSubtree(
   visited.add(agentId);
 
   const agent = agentMap.get(agentId);
-  const childIds = agent?.children ?? [];
+  const childIds = [...(agent?.children ?? [])].sort((a, b) => {
+    const aAgent = agentMap.get(a);
+    const bAgent = agentMap.get(b);
+    const aTime = aAgent?.startTime ? new Date(aAgent.startTime).getTime() : 0;
+    const bTime = bAgent?.startTime ? new Date(bAgent.startTime).getTime() : 0;
+    return aTime - bTime;
+  });
   const children = childIds.map(id => buildSubtree(id, agentMap, depth + 1, visited));
   const subtreeWidth = children.length === 0 ? 1 : children.reduce((s, c) => s + c.subtreeWidth, 0);
   return { agentId, x: 0, y: depth * ROW, subtreeWidth, children };
@@ -88,11 +94,11 @@ interface WorkflowPhaseData {
   color: string;
 }
 
-const PHASE_COLORS = ['#1c3556', '#1a3d2a', '#3d2a0e', '#2d1f45', '#3d1f1a', '#1a3038'];
+const PHASE_COLORS = ['var(--aw-phase-blue)', 'var(--aw-green-bg)', 'var(--aw-phase-orange)', '#2d1f45', '#3d1f1a', 'var(--aw-phase-teal)'];
 
 export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkflowPhases: defaultShowPhases }: AgentHierarchyGraphProps) {
   const { session, agentMap } = useSessionStore();
-  const { closePane, maximizePane, restorePane, maximizedPaneId } = useWorkspaceStore();
+  const { closePane } = useWorkspaceStore();
   const router = useRouter();
 
   const [zoom, setZoom] = useState(1);
@@ -104,7 +110,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
   const [phaseData, setPhaseData] = useState<WorkflowPhaseData[]>([]);
   const [phasesLoaded, setPhasesLoaded] = useState(false);
 
-  const isMaximized = paneId ? maximizedPaneId === paneId : false;
+  
 
   // Load workflow phases when toggled on
   useEffect(() => {
@@ -134,23 +140,26 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
   const { allNodes, edges, svgWidth, svgHeight, rootIds } = useMemo(() => {
     if (!session) return { allNodes: [], edges: [], svgWidth: 400, svgHeight: 200, rootIds: [] };
 
-    // Find roots (agents with no parent in this session)
-    const rootIds = session.agents.filter(a => !a.parentId || !agentMap.has(a.parentId))
+    // Find roots (agents with no parent in this session), sorted by start time
+    const rootIds = session.agents
+      .filter(a => !a.parentId || !agentMap.has(a.parentId))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
       .map(a => a.id);
 
     if (rootIds.length === 0) {
-      // Fallback: use rootAgentId
       rootIds.push(session.rootAgentId);
     }
 
     const visited = new Set<string>();
     const roots = rootIds.map(id => buildSubtree(id, agentMap, 0, visited));
 
-    // Assign any orphaned agents as extra roots
-    for (const agent of session.agents) {
+    // Assign any orphaned agents as extra roots, sorted by start time
+    const orphans = session.agents
+      .filter(a => !visited.has(a.id))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    for (const agent of orphans) {
       if (!visited.has(agent.id)) {
-        const orphan = buildSubtree(agent.id, agentMap, 0, visited);
-        roots.push(orphan);
+        roots.push(buildSubtree(agent.id, agentMap, 0, visited));
       }
     }
 
@@ -219,28 +228,24 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
 
   if (!session) {
     return (
-      <div className="flex items-center justify-center h-full text-[#6e7681] text-sm">
+      <div className="flex items-center justify-center h-full text-[var(--aw-text-3)] text-sm">
         <GitFork className="h-5 w-5 mr-2 opacity-40" /> No session loaded
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0d1117]">
+    <div className="flex flex-col h-full overflow-hidden bg-[var(--aw-bg-0)]">
       {/* Pane header when single tab */}
       {isSingleTab && paneId && (
-        <div className="shrink-0 border-b border-[#21262d]">
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-[#161b22]">
-            <GitFork className="h-4 w-4 text-[#bc8cff] shrink-0" />
-            <span className="text-sm font-bold text-[#e6edf3] flex-1">Agent Hierarchy</span>
-            <span className="text-[11px] text-[#6e7681]">{session.agents.length} agents</span>
+        <div className="shrink-0 border-b border-[var(--aw-bg-2)]">
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-[var(--aw-bg-1)]">
+            <GitFork className="h-4 w-4 text-[var(--aw-purple)] shrink-0" />
+            <span className="text-sm font-bold text-[var(--aw-text-0)] flex-1">Agent Hierarchy</span>
+            <span className="text-[11px] text-[var(--aw-text-3)]">{session.agents.length} agents</span>
             <div className="flex items-center gap-0.5 shrink-0">
-              <button onClick={() => isMaximized ? restorePane() : maximizePane(paneId)}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors">
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => { restorePane(); closePane(paneId); }}
-                className="p-1.5 rounded text-[#c9d1d9] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors">
+              <button onClick={() => closePane(paneId)}
+                className="p-1.5 rounded text-[var(--aw-text-1)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -249,31 +254,31 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#21262d] bg-[#0d1117] shrink-0">
-        <span className="text-[11px] text-[#6e7681] flex-1">
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)] shrink-0">
+        <span className="text-[11px] text-[var(--aw-text-3)] flex-1">
           {session.agents.length} agents · {session.agents.filter(a => a.parentId).length} subagents
         </span>
         <button
           onClick={() => { setShowPhases(v => !v); setPhasesLoaded(false); }}
           className={cn(
             'text-[10px] px-2 py-1 rounded transition-colors shrink-0',
-            showPhases ? 'bg-[#1a3d2a] text-[#3fb950] border border-[#2d6b47]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+            showPhases ? 'bg-[var(--aw-green-bg)] text-[var(--aw-green)] border border-[var(--aw-green-bg-2)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
           )}
           title="Show workflow phases"
         >
           Phases
         </button>
-        <button onClick={() => doZoom(1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
-        <button onClick={() => doZoom(1 / 1.3)} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
-        <button onClick={resetView} className="p-1 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors" title="Reset view"><RotateCcw className="h-3 w-3" /></button>
-        <span className="text-[10px] font-mono text-[#484f58] w-10 text-right">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => doZoom(1.3)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom in"><ZoomIn className="h-3.5 w-3.5" /></button>
+        <button onClick={() => doZoom(1 / 1.3)} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Zoom out"><ZoomOut className="h-3.5 w-3.5" /></button>
+        <button onClick={resetView} className="p-1 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors" title="Reset view"><RotateCcw className="h-3 w-3" /></button>
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] w-10 text-right">{Math.round(zoom * 100)}%</span>
       </div>
 
       {/* Phase legend */}
       {showPhases && phaseData.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-3 py-1.5 border-b border-[#21262d] bg-[#0a0e14] shrink-0">
+        <div className="flex flex-wrap gap-1.5 px-3 py-1.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-canvas-medium)] shrink-0">
           {phaseData.map((phase, i) => (
-            <span key={i} className="text-[10px] px-2 py-0.5 rounded border" style={{ backgroundColor: phase.color, borderColor: `${phase.color}80`, color: '#c9d1d9' }}>
+            <span key={i} className="text-[10px] px-2 py-0.5 rounded border" style={{ backgroundColor: phase.color, borderColor: `${phase.color}80`, color: 'var(--aw-text-1)' }}>
               {phase.title}
             </span>
           ))}
@@ -282,7 +287,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
 
       {/* Graph canvas */}
       <div
-        className="flex-1 relative overflow-hidden bg-[#060a0f]"
+        className="flex-1 relative overflow-hidden bg-[var(--aw-canvas-deep)]"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -294,7 +299,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
         <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
           <defs>
             <pattern id="grid" x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)} width={20 * zoom} height={20 * zoom} patternUnits="userSpaceOnUse">
-              <circle cx="1" cy="1" r="0.8" fill="#1c2128" />
+              <circle cx="1" cy="1" r="0.8" fill="var(--aw-bg-5)" />
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
@@ -330,7 +335,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
                   zIndex: 0,
                 }}
               >
-                <span className="absolute -top-5 left-2 text-[9px] font-semibold px-1.5 py-0.5 rounded-sm" style={{ backgroundColor: phase.color, color: '#c9d1d9' }}>
+                <span className="absolute -top-5 left-2 text-[9px] font-semibold px-1.5 py-0.5 rounded-sm" style={{ backgroundColor: phase.color, color: 'var(--aw-text-1)' }}>
                   {phase.title}
                 </span>
               </div>
@@ -355,7 +360,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
                   key={`${from.agentId}-${to.agentId}`}
                   d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`}
                   fill="none"
-                  stroke={isHovered ? '#58a6ff' : '#30363d'}
+                  stroke={isHovered ? 'var(--aw-blue)' : 'var(--aw-bg-3)'}
                   strokeWidth={isHovered ? 1.5 : 1}
                   strokeDasharray={isHovered ? undefined : undefined}
                   opacity={isHovered ? 1 : 0.6}
@@ -381,7 +386,7 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
                   top: node.y,
                   width: NODE_W,
                   height: NODE_H,
-                  backgroundColor: isHovered ? color.bg : '#161b22',
+                  backgroundColor: isHovered ? color.bg : 'var(--aw-bg-1)',
                   borderColor: isHovered ? color.text : color.border,
                   boxShadow: isRoot ? `0 0 10px ${color.text}30` : isHovered ? `0 0 6px ${color.text}20` : 'none',
                   zIndex: isHovered ? 10 : 1,
@@ -403,10 +408,10 @@ export function AgentHierarchyGraph({ sessionId, paneId, isSingleTab, showWorkfl
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] font-semibold truncate leading-tight"
-                      style={{ color: isHovered ? color.text : '#e6edf3' }}>
+                      style={{ color: isHovered ? color.text : 'var(--aw-text-0)' }}>
                       {shortName}
                     </div>
-                    <div className="text-[9px] text-[#6e7681] font-mono truncate leading-tight">
+                    <div className="text-[9px] text-[var(--aw-text-3)] font-mono truncate leading-tight">
                       {formatTokens(agent.tokenUsage.total)} · {formatDuration(agent.durationMs)}
                     </div>
                   </div>

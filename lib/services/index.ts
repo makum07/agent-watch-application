@@ -1,4 +1,5 @@
 import { getDatabase } from '@/lib/db/database';
+import { startThresholdMonitor } from './threshold-monitor';
 
 let initialized = false;
 
@@ -6,6 +7,7 @@ export function initServices() {
   if (initialized) return;
   initialized = true;
   getDatabase();
+  startThresholdMonitor();
 }
 
 export {

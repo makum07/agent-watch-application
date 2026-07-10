@@ -66,22 +66,22 @@ export function ArtifactsTab({ sessionId, agentId }: ArtifactsTabProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-5 w-5 animate-spin text-[#6e7681]" />
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--aw-text-3)]" />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#21262d] shrink-0 bg-[#0d1117]">
-        <Filter className="h-3 w-3 text-[#484f58] mr-0.5" />
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--aw-bg-2)] shrink-0 bg-[var(--aw-bg-0)]">
+        <Filter className="h-3 w-3 text-[var(--aw-text-4)] mr-0.5" />
         {(['all', 'write', 'edit'] as ArtifactFilter[]).map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
               'text-[11px] px-2 py-0.5 rounded transition-colors',
-              filter === f ? 'bg-[#21262d] text-[#e6edf3]' : 'text-[#6e7681] hover:text-[#c9d1d9]'
+              filter === f ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)]'
             )}
           >
             {f === 'all'
@@ -96,7 +96,7 @@ export function ArtifactsTab({ sessionId, agentId }: ArtifactsTabProps) {
       <ScrollArea className="flex-1">
         <div className="p-3 space-y-1.5">
           {filtered.length === 0 && (
-            <div className="text-sm text-[#6e7681] text-center py-8">
+            <div className="text-sm text-[var(--aw-text-3)] text-center py-8">
               {filter === 'all' ? 'No files produced' : filter === 'write' ? 'No files created' : 'No files modified'}
             </div>
           )}
@@ -110,10 +110,10 @@ export function ArtifactsTab({ sessionId, agentId }: ArtifactsTabProps) {
             const dirPath = parts.join('/');
 
             return (
-              <div key={a.id} className="rounded border border-[#21262d] overflow-hidden">
+              <div key={a.id} className="rounded border border-[var(--aw-bg-2)] overflow-hidden">
                 {/* Row header */}
                 <div
-                  className="flex items-center gap-2.5 p-2.5 bg-[#161b22] hover:bg-[#1c2128] transition-colors cursor-pointer"
+                  className="flex items-center gap-2.5 p-2.5 bg-[var(--aw-bg-1)] hover:bg-[var(--aw-bg-5)] transition-colors cursor-pointer"
                   onClick={() => toggleExpand(a.id)}
                 >
                   <div className={cn('p-1.5 rounded shrink-0',
@@ -126,12 +126,12 @@ export function ArtifactsTab({ sessionId, agentId }: ArtifactsTabProps) {
                       : <Pencil className="h-3.5 w-3.5 text-orange-400" />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-mono font-medium text-[#e6edf3] truncate">{fileName}</div>
-                    {dirPath && <div className="text-[11px] font-mono text-[#6e7681] truncate">{dirPath}</div>}
+                    <div className="text-xs font-mono font-medium text-[var(--aw-text-0)] truncate">{fileName}</div>
+                    {dirPath && <div className="text-[11px] font-mono text-[var(--aw-text-3)] truncate">{dirPath}</div>}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {a.content_size > 0 && (
-                      <span className="text-[10px] text-[#484f58]">
+                      <span className="text-[10px] text-[var(--aw-text-4)]">
                         {a.content_size > 1024 ? `${Math.round(a.content_size / 1024)}KB` : `${a.content_size}B`}
                       </span>
                     )}
@@ -142,8 +142,8 @@ export function ArtifactsTab({ sessionId, agentId }: ArtifactsTabProps) {
                       {isCreate ? 'Created' : 'Modified'}
                     </span>
                     {isExpanded
-                      ? <ChevronDown className="h-3.5 w-3.5 text-[#6e7681]" />
-                      : <ChevronRight className="h-3.5 w-3.5 text-[#6e7681]" />}
+                      ? <ChevronDown className="h-3.5 w-3.5 text-[var(--aw-text-3)]" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-[var(--aw-text-3)]" />}
                   </div>
                 </div>
 
@@ -197,15 +197,15 @@ function FileViewer({ sessionId, filePath, lang }: { sessionId: string; filePath
 
   if (state.loading) {
     return (
-      <div className="flex items-center justify-center py-6 bg-[#010409] border-t border-[#21262d]">
-        <Loader2 className="h-4 w-4 animate-spin text-[#6e7681]" />
+      <div className="flex items-center justify-center py-6 bg-[var(--aw-bg-4)] border-t border-[var(--aw-bg-2)]">
+        <Loader2 className="h-4 w-4 animate-spin text-[var(--aw-text-3)]" />
       </div>
     );
   }
 
   if (state.error) {
     return (
-      <div className="px-4 py-3 bg-[#010409] border-t border-[#21262d] text-[11px] text-[#6e7681]">
+      <div className="px-4 py-3 bg-[var(--aw-bg-4)] border-t border-[var(--aw-bg-2)] text-[11px] text-[var(--aw-text-3)]">
         {state.error === 'File not found' ? 'File no longer exists on disk' : state.error}
       </div>
     );
@@ -214,31 +214,31 @@ function FileViewer({ sessionId, filePath, lang }: { sessionId: string; filePath
   const lines = (state.content ?? '').split('\n');
 
   return (
-    <div className="border-t border-[#21262d] bg-[#010409]">
+    <div className="border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-4)]">
       {/* Viewer toolbar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#21262d] bg-[#0d1117]">
-        <span className="text-[10px] font-mono text-[#484f58] flex-1">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] flex-1">
           {lines.length} lines · {lang}
         </span>
         <button
           onClick={copy}
-          className="flex items-center gap-1 text-[10px] text-[#6e7681] hover:text-[#c9d1d9] transition-colors"
+          className="flex items-center gap-1 text-[10px] text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] transition-colors"
         >
-          {copied ? <Check className="h-3 w-3 text-[#3fb950]" /> : <Copy className="h-3 w-3" />}
+          {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
 
       {/* Code lines — capped at 300 lines to avoid huge renders */}
       <div className="flex text-[12px] font-mono leading-5 max-h-80 overflow-auto">
-        <div className="select-none text-right border-r border-[#21262d] sticky left-0 bg-[#010409] shrink-0"
+        <div className="select-none text-right border-r border-[var(--aw-bg-2)] sticky left-0 bg-[var(--aw-bg-4)] shrink-0"
           style={{ minWidth: '40px', padding: '10px 8px' }}>
           {lines.slice(0, 300).map((_, i) => (
-            <div key={i} className="text-[#484f58] leading-5">{i + 1}</div>
+            <div key={i} className="text-[var(--aw-text-4)] leading-5">{i + 1}</div>
           ))}
-          {lines.length > 300 && <div className="text-[#484f58] leading-5">…</div>}
+          {lines.length > 300 && <div className="text-[var(--aw-text-4)] leading-5">…</div>}
         </div>
-        <pre className="flex-1 p-2.5 text-[#c9d1d9] whitespace-pre overflow-x-auto leading-5">
+        <pre className="flex-1 p-2.5 text-[var(--aw-text-1)] whitespace-pre overflow-x-auto leading-5">
           {lines.slice(0, 300).join('\n')}
           {lines.length > 300 && `\n… (${lines.length - 300} more lines)`}
         </pre>

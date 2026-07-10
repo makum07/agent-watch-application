@@ -192,7 +192,7 @@ export function syncSkillRegistry(): number {
 
   // Step 1: Force re-index sessions that may have skills but were indexed before v5.
   const { discoverSessions, ingestSession } = require('@/lib/services/session-ingester');
-  const allDiscovered = discoverSessions() as Array<{ id: string; filePath: string; projectDisplayName: string }>;
+  const allDiscovered = discoverSessions() as Array<{ id: string; filePath: string; projectDisplayName: string; projectPath: string }>;
 
   const sessionsToIndex: string[] = [];
   for (const discovered of allDiscovered) {
@@ -232,7 +232,24 @@ export function syncSkillRegistry(): number {
     }
   }
 
-  // Step 3: Register execution data from agents that have skill invocations
+  // Step 1.5: Normalize conversations.project for ALL discovered sessions.
+  // Historical sessions may have been indexed with different display-name logic
+  // (e.g. decoded path "ZER/app" vs current display name "Zeroni-Product-ZER-app").
+  // This ensures all sessions from the same project directory get a consistent
+  // project name so skill IDs (sha256 of project:name) are deterministic.
+  const updateConvProject = db.prepare('UPDATE conversations SET project = ? WHERE id = ?');
+  const normalizeProjects = db.transaction(() => {
+    for (const d of allDiscovered) {
+      const project = d.projectDisplayName || d.projectPath;
+      updateConvProject.run(project, d.id);
+    }
+  });
+  normalizeProjects();
+
+  // Step 2: Clear ALL skill_executions for a clean rebuild.
+  db.exec('DELETE FROM skill_executions');
+
+  // Step 3: Register execution data from ALL agents (fresh, consistent project names)
   const agentRows = db.prepare(`
     SELECT id, session_id, skill_invocations FROM agents
     WHERE skill_invocations IS NOT NULL AND skill_invocations != '[]'
@@ -256,12 +273,40 @@ export function syncSkillRegistry(): number {
     execCount += invocations.length;
   }
 
-  // Step 3: Enrich descriptions from SKILL.md files on disk
+  // Step 4: Migrate analysis cycles from orphaned skill entries to their active replacements.
+  // Orphaned entries exist when the skill was re-registered under a corrected project name
+  // (new ID), leaving the old entry with cycles but no executions.
+  const orphanedWithCycles = db.prepare(`
+    SELECT DISTINCT sac.skill_id AS old_id, s.name
+    FROM skill_analysis_cycles sac
+    INNER JOIN skills s ON s.id = sac.skill_id
+    WHERE s.id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
+  `).all() as Array<{ old_id: string; name: string }>;
+
+  for (const orphan of orphanedWithCycles) {
+    const replacement = db.prepare(`
+      SELECT s.id FROM skills s
+      INNER JOIN skill_executions se ON se.skill_id = s.id
+      WHERE s.name = ?
+      GROUP BY s.id
+      ORDER BY COUNT(se.id) DESC
+      LIMIT 1
+    `).get(orphan.name) as { id: string } | undefined;
+
+    if (replacement) {
+      db.prepare('UPDATE skill_analysis_cycles SET skill_id = ? WHERE skill_id = ?')
+        .run(replacement.id, orphan.old_id);
+    }
+  }
+
+  // Step 5: Enrich descriptions from SKILL.md files on disk
   enrichSkillDescriptions();
 
-  // Step 4: Remove skills with no executions (previously added from filesystem)
+  // Step 6: Remove skills with no executions AND no analysis cycles
   db.prepare(`
-    DELETE FROM skills WHERE id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
+    DELETE FROM skills
+    WHERE id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
+      AND id NOT IN (SELECT DISTINCT skill_id FROM skill_analysis_cycles)
   `).run();
 
   return execCount;
@@ -329,11 +374,14 @@ export function listSkills(opts?: { project?: string }): SkillSummary[] {
     ) cycle_stats ON cycle_stats.skill_id = s.id
     LEFT JOIN (
       SELECT
-        se.skill_id,
-        COUNT(DISTINCT fi.id) as total_feedback
-      FROM skill_executions se
-      INNER JOIN feedback_items fi ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
-      GROUP BY se.skill_id
+        skill_id,
+        COUNT(DISTINCT fi_id) as total_feedback
+      FROM (
+        SELECT DISTINCT se.skill_id, fi.id AS fi_id
+        FROM skill_executions se
+        INNER JOIN feedback_items fi ON fi.session_id = se.session_id
+      )
+      GROUP BY skill_id
     ) fb_stats ON fb_stats.skill_id = s.id
     LEFT JOIN (
       SELECT
@@ -388,7 +436,7 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
   const execRows = db.prepare(`
     SELECT se.*, a.description as agent_name,
            (SELECT COUNT(*) FROM feedback_items fi
-            WHERE fi.session_id = se.session_id AND fi.agent_id = se.agent_id) as live_feedback_count
+            WHERE fi.session_id = se.session_id) as live_feedback_count
     FROM skill_executions se
     LEFT JOIN agents a ON a.id = se.agent_id
     WHERE se.skill_id = ?
@@ -408,11 +456,11 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
     feedbackCount: (row.live_feedback_count as number) ?? 0,
   }));
 
-  // Feedback by category — matched to agents that executed this skill
+  // Feedback by category — includes feedback from skill sub-agents in the same session
   const fbRows = db.prepare(`
     SELECT fi.category, COUNT(DISTINCT fi.id) as count
     FROM feedback_items fi
-    INNER JOIN skill_executions se ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
+    INNER JOIN skill_executions se ON fi.session_id = se.session_id
     WHERE se.skill_id = ?
     GROUP BY fi.category
     ORDER BY count DESC
@@ -430,24 +478,24 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
     };
   });
 
-  // Feedback by agent — matched to agents that executed this skill
+  // Feedback by agent — includes feedback from skill sub-agents in the same session
   const fbAgentRows = db.prepare(`
-    SELECT COALESCE(fi.agent_name, a.description, se.agent_id) as agent_name, COUNT(DISTINCT fi.id) as count
+    SELECT COALESCE(fi.agent_name, a.description, fi.agent_id) as agent_name, COUNT(DISTINCT fi.id) as count
     FROM feedback_items fi
-    INNER JOIN skill_executions se ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
-    LEFT JOIN agents a ON a.id = se.agent_id
+    INNER JOIN skill_executions se ON fi.session_id = se.session_id
+    LEFT JOIN agents a ON a.id = fi.agent_id
     WHERE se.skill_id = ?
     GROUP BY agent_name
     ORDER BY count DESC
     LIMIT 20
   `).all(skillId) as Array<{ agent_name: string; count: number }>;
 
-  // Individual feedback items with session context
+  // Individual feedback items with session context (session-level join catches sub-agent feedback)
   const feedbackItemRows = db.prepare(`
     SELECT DISTINCT fi.id, fi.session_id, fi.agent_id, fi.category, fi.text, fi.created_at,
            COALESCE(fi.agent_name, a.description, fi.agent_id) as agent_name
     FROM feedback_items fi
-    INNER JOIN skill_executions se ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
+    INNER JOIN skill_executions se ON fi.session_id = se.session_id
     LEFT JOIN agents a ON a.id = fi.agent_id
     WHERE se.skill_id = ?
     ORDER BY fi.created_at DESC
@@ -478,12 +526,12 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
     ORDER BY created_at DESC
   `).all(skillId) as Array<Record<string, unknown>>;
 
-  // Executions by session — feedback count computed dynamically
+  // Executions by session — feedback count computed dynamically (session-level)
   const sessionExecRows = db.prepare(`
     SELECT se.session_id, se.timestamp, se.agent_id, se.duration_ms,
            COALESCE(a.description, NULL) as agent_name,
            (SELECT COUNT(*) FROM feedback_items fi
-            WHERE fi.session_id = se.session_id AND fi.agent_id = se.agent_id) as live_feedback_count
+            WHERE fi.session_id = se.session_id) as live_feedback_count
     FROM skill_executions se
     LEFT JOIN agents a ON a.id = se.agent_id
     WHERE se.skill_id = ?
