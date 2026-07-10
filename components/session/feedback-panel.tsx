@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   X, Trash2, Zap, Loader2, ChevronDown, ChevronRight,
   MessageSquare, AlertCircle, Pencil, Check, FileText, RotateCcw,
-  FileCode2,
+  FileCode2, Sparkles,
 } from 'lucide-react';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
@@ -26,6 +26,12 @@ interface FeedbackPanelProps {
   onClose: () => void;
 }
 
+// Skills always offered as an option, regardless of what the session itself used.
+const FIXED_SKILLS: { id: string; hint: string }[] = [
+  { id: 'grill-me', hint: 'Interrogate the plan before committing to changes' },
+  { id: 'writing-great-skills', hint: 'Follow skill-authoring conventions when editing skill files' },
+];
+
 const STATUS_META: Record<string, { label: string; color: string }> = {
   applying:  { label: 'Applying…', color: 'var(--aw-blue)' },
   completed: { label: 'Completed', color: 'var(--aw-green)' },
@@ -35,7 +41,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 
 export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const {
-    items, cycles, isLoading, isApplying, lastError, lastCycle,
+    items, cycles, isLoading, isApplying, lastError, lastCycle, autoDetectedSkills,
     streamEntries, pendingApprovals,
     loadFeedback, loadCycles, deleteFeedback, updateFeedback,
     previewPrompt, applyImprovements, rewindCycle, deleteCycle, clearRewoundCycles,
@@ -70,6 +76,8 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const [promptDraft, setPromptDraft] = useState('');
   const [rewindFromCycle, setRewindFromCycle] = useState<number | null>(null);
   const [promptViewMode, setPromptViewMode] = useState<'preview' | 'edit'>('preview');
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [showSkillMenu, setShowSkillMenu] = useState(false);
 
   // Rewind confirmation
   const [rewindConfirm, setRewindConfirm] = useState<ImprovementCycle | null>(null);
@@ -127,18 +135,34 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   async function handlePreview() {
     setApplyStep('loading-preview');
     setRewindFromCycle(null);
-    const p = await previewPrompt(sessionId);
+    setSelectedSkillIds([]);
+    const p = await previewPrompt(sessionId, []);
     if (p) { setPromptDraft(p); setPromptViewMode('preview'); setApplyStep('editing-prompt'); }
     else setApplyStep('idle');
   }
 
   async function handleApply() {
     setApplyStep('applying');
-    const cycle = await applyImprovements(sessionId, promptDraft);
+    const cycle = await applyImprovements(sessionId, promptDraft, selectedSkillIds);
     if (cycle) setExpandedCycleId(cycle.id);
     setApplyStep('idle');
     setRewindFromCycle(null);
   }
+
+  function toggleSkill(id: string) {
+    setSelectedSkillIds(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
+  }
+
+  // Regenerate the draft whenever the skill selection changes — but never
+  // during a rewind re-edit, where promptDraft comes from the rewound cycle.
+  useEffect(() => {
+    if (applyStep !== 'editing-prompt' || rewindFromCycle !== null) return;
+    (async () => {
+      const p = await previewPrompt(sessionId, selectedSkillIds);
+      if (p) setPromptDraft(p);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSkillIds]);
 
   function handleRewind(cycle: ImprovementCycle) {
     setRewindConfirm(cycle);
@@ -157,6 +181,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
     setPromptDraft(rewindConfirm.generatedPrompt);
     setRewindFromCycle(rewindConfirm.cycleNumber);
     setPromptViewMode('preview');
+    setSelectedSkillIds([]);
     setApplyStep('editing-prompt');
   }
 
@@ -235,6 +260,69 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
                   <span className="text-xs font-semibold text-[var(--aw-text-0)] flex-1">Review &amp; Edit Prompt</span>
                 </>
               )}
+              {/* Skill selector */}
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => setShowSkillMenu(v => !v)}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] transition-colors',
+                    selectedSkillIds.length > 0
+                      ? 'border-[var(--aw-blue)]/40 text-[var(--aw-blue)] bg-[var(--aw-blue)]/10'
+                      : 'border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]',
+                  )}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Skills{selectedSkillIds.length > 0 && ` (${selectedSkillIds.length})`}
+                  <ChevronDown className="h-2.5 w-2.5" />
+                </button>
+                {showSkillMenu && (
+                  <div className="absolute top-full right-0 z-20 mt-1 w-60 bg-[var(--aw-bg-1)] border border-[var(--aw-bg-3)] rounded shadow-xl overflow-hidden">
+                    <div className="px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--aw-text-4)] border-b border-[var(--aw-bg-2)]">
+                      Apply with skill
+                    </div>
+                    {FIXED_SKILLS.map(sk => (
+                      <button
+                        key={sk.id}
+                        onClick={() => toggleSkill(sk.id)}
+                        className="w-full flex items-start gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-2)] transition-colors text-left"
+                      >
+                        <span className={cn(
+                          'mt-0.5 h-3 w-3 rounded-sm border flex items-center justify-center shrink-0',
+                          selectedSkillIds.includes(sk.id) ? 'bg-[var(--aw-blue)] border-[var(--aw-blue)]' : 'border-[var(--aw-bg-3)]',
+                        )}>
+                          {selectedSkillIds.includes(sk.id) && <Check className="h-2 w-2 text-white" />}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <div className="text-[10px] text-[var(--aw-text-0)] font-mono">/{sk.id}</div>
+                          <div className="text-[9px] text-[var(--aw-text-4)] leading-snug">{sk.hint}</div>
+                        </span>
+                      </button>
+                    ))}
+                    {autoDetectedSkills.length > 0 && (
+                      <>
+                        <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-[var(--aw-text-4)] border-t border-b border-[var(--aw-bg-2)]">
+                          Used in this session
+                        </div>
+                        {autoDetectedSkills.map(sk => (
+                          <button
+                            key={sk.id}
+                            onClick={() => toggleSkill(sk.id)}
+                            className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--aw-bg-2)] transition-colors text-left"
+                          >
+                            <span className={cn(
+                              'h-3 w-3 rounded-sm border flex items-center justify-center shrink-0',
+                              selectedSkillIds.includes(sk.id) ? 'bg-[var(--aw-blue)] border-[var(--aw-blue)]' : 'border-[var(--aw-bg-3)]',
+                            )}>
+                              {selectedSkillIds.includes(sk.id) && <Check className="h-2 w-2 text-white" />}
+                            </span>
+                            <span className="text-[10px] text-[var(--aw-text-0)] font-mono truncate">/{sk.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Preview / Edit toggle */}
               <div className="flex items-center shrink-0 rounded border border-[var(--aw-bg-3)] overflow-hidden text-[10px]">
                 <button

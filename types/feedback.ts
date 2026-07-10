@@ -41,6 +41,13 @@ export interface FeedbackItem {
   createdAt: string;
 }
 
+// A skill this session was observed to actually invoke (detected from its
+// transcript), offered as a selectable option alongside the fixed skills.
+export interface DetectedSkill {
+  id: string;
+  name: string;
+}
+
 export interface FileChange {
   filePath: string;
   type: 'create' | 'modify' | 'delete';

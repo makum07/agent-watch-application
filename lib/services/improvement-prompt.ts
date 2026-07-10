@@ -7,11 +7,19 @@ export interface FeedbackItem {
   agent_name: string | null;
 }
 
+// Fixed skills carry their content vendored inline (see skill-catalog.ts) so
+// they work regardless of the host's filesystem. Skills detected as actually
+// used by the session stay a path reference — Claude reads them live, which
+// needs a matching --add-dir Read grant.
+export type SkillRef =
+  | { kind: 'inline'; name: string; content: string }
+  | { kind: 'path'; name: string; dir: string };
+
 function formatCategory(c: string): string {
   return c.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-export function generateImprovementPrompt(sessionId: string, items: FeedbackItem[]): string {
+export function generateImprovementPrompt(sessionId: string, items: FeedbackItem[], skills: SkillRef[] = []): string {
   const byAgent = new Map<string, FeedbackItem[]>();
   for (const item of items) {
     if (!byAgent.has(item.agent_id)) byAgent.set(item.agent_id, []);
@@ -35,6 +43,21 @@ export function generateImprovementPrompt(sessionId: string, items: FeedbackItem
   lines.push(`\nYou are reviewing ${items.length} observation${items.length !== 1 ? 's' : ''} from a completed multi-agent workflow execution across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}.`);
   lines.push(`Your objective is to identify the design weaknesses that produced these failures and propose changes that make the workflow more reliable across all future executions — not fixes for this session's specific inputs, tasks, or artifacts.`);
   lines.push(`\nA design weakness is a gap in the orchestrator's logic, an agent's reasoning contract, a skill definition, or a coordination mechanism that would cause any agent to fail similarly, regardless of the specific task. Session-specific rules or hardcoded logic are not improvements.\n`);
+
+  if (skills.length > 0) {
+    lines.push(`## Required Skills\n`);
+    lines.push(`Apply the following skill(s) as part of this review:\n`);
+    for (const s of skills) {
+      if (s.kind === 'inline') {
+        lines.push(`### ${s.name}\n`);
+        lines.push(s.content.trim());
+        lines.push('');
+      } else {
+        lines.push(`- **${s.name}** — read \`${s.dir}/SKILL.md\` and follow its guidance for this review.`);
+      }
+    }
+    lines.push('');
+  }
 
   for (const [cat, catItems] of sortedCategories) {
     lines.push(`### ${formatCategory(cat)} (${catItems.length})\n`);
