@@ -40,9 +40,7 @@ export function generateImprovementPrompt(sessionId: string, items: FeedbackItem
   lines.push(`# Multi-Agent Workflow Design Review — ${new Date().toISOString().slice(0, 10)}`);
   lines.push(`\nSession: \`${sessionId}\``);
 
-  lines.push(`\nYou are reviewing ${items.length} observation${items.length !== 1 ? 's' : ''} from a completed multi-agent workflow execution across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}.`);
-  lines.push(`Your objective is to identify the design weaknesses that produced these failures and propose changes that make the workflow more reliable across all future executions — not fixes for this session's specific inputs, tasks, or artifacts.`);
-  lines.push(`\nA design weakness is a gap in the orchestrator's logic, an agent's reasoning contract, a skill definition, or a coordination mechanism that would cause any agent to fail similarly, regardless of the specific task. Session-specific rules or hardcoded logic are not improvements.\n`);
+  lines.push(`\nYou are reviewing ${items.length} observation${items.length !== 1 ? 's' : ''} from a completed multi-agent workflow execution across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}. Find design weaknesses — gaps in the orchestrator's logic, an agent's reasoning contract, a skill definition, or a coordination mechanism that would make any agent fail similarly regardless of task — and propose changes that generalize: fixes that make the workflow more reliable on future executions, not ones tailored to this session's particular inputs or artifacts.\n`);
 
   if (skills.length > 0) {
     lines.push(`## Required Skills\n`);
@@ -73,12 +71,15 @@ export function generateImprovementPrompt(sessionId: string, items: FeedbackItem
       const agentNames = [...new Set(catItems.map(i => i.agent_name || i.agent_id.slice(0, 12)))];
       return `${formatCategory(cat)} (${catItems.length} occurrences across ${agentNames.join(', ')})`;
     }).join('; ');
-    lines.push(`Note: ${summary} — these appeared across multiple agents and are likely systemic weaknesses rather than isolated mistakes.\n`);
+    lines.push(`Note: ${summary}. Recurrence across agents is evidence, not a verdict — weigh it using the questions below.\n`);
   }
 
-  lines.push(`Investigate the failure patterns above. For each class of failure, identify what is missing or incorrect in the workflow design that would cause similar failures in any future execution. Determine which component needs to change — orchestrator logic, an agent type's behavioral contract, a skill definition, or a coordination mechanism — and write a concrete change specific enough to directly edit the relevant system prompt or configuration.`);
-  lines.push(`\nBefore including any change, verify it applies correctly across future executions with entirely different tasks and inputs. Discard changes that only help for tasks similar to this session.\n`);
-  lines.push(`**After presenting your analysis and proposed changes, immediately apply them by editing the relevant files. Do not ask for confirmation. This prompt is the approval. If an edit fails or is denied, skip it and continue.**`);
+  lines.push(`Pursue only failures that reveal a genuine design gap generalizable beyond this session — a one-off mistake tied to this session's inputs is fine to set aside. For what remains:\n`);
+  lines.push(`- **Signal vs. noise** — does it recur across agents or executions, or is it isolated? Recurrence suggests a shared flaw, but check whether unrelated mistakes could explain it just as well.`);
+  lines.push(`- **Root cause and ownership** — what in the design, not the input, made this possible, and which piece owns it: orchestrator logic, an agent's behavioral contract, a skill, or coordination between agents?`);
+  lines.push(`- **Generality** — would the fix generalize to a different task and inputs, or does it only hold for this session's?\n`);
+  lines.push(`Write a concrete, directly-editable change for each failure that survives this reasoning.\n`);
+  lines.push(`**After presenting your analysis and proposed changes, apply them immediately by editing the relevant files. Do not ask for confirmation — this prompt is the approval. If an edit fails or is denied, skip it and continue.**`);
 
   return lines.join('\n');
 }

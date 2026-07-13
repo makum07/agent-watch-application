@@ -169,7 +169,7 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     lines.push(`## Prior Skill Analyses (${detail.analysisCycles.length})\n`);
-    lines.push(`Do not duplicate findings already recommended here.\n`);
+    lines.push(`Do not restate a finding below purely to repeat it. But if the historical data shows the same root cause still producing issues after a recommendation here was supposedly applied, that is a regression — surface it as high severity and note that the prior fix did not hold, rather than suppressing it as a duplicate.\n`);
 
     for (const cycle of sortedAnalysis) {
       lines.push(`### Analysis #${cycle.cycleNumber} — ${formatDate(cycle.createdAt)}`);

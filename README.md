@@ -76,7 +76,13 @@ There are two ways to run AgentWatch: directly with Node.js, or via Docker. Both
 
 **Step 1 — Configure your Claude data path**
 
-Create a `.env.local` file next to `package.json`:
+Copy the example file:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Then edit `.env.local` and set `CLAUDE_HOME` to your Claude data directory:
 
 ```env
 # macOS / Linux — default path, adjust if non-standard
@@ -85,6 +91,8 @@ CLAUDE_HOME=~/.claude
 # Windows
 CLAUDE_HOME=C:/Users/YourName/.claude
 ```
+
+Everything else in `.env.local.example` is optional and commented out — defaults work for most setups.
 
 **Step 2 — Install and start**
 
@@ -125,7 +133,13 @@ Open [http://localhost:3456](http://localhost:3456).
 
 #### Windows (PowerShell)
 
-Create a `.env` file next to `docker-compose.yml`:
+Copy the example file:
+
+```powershell
+copy .env.example .env
+```
+
+Then edit `.env` next to `docker-compose.yml` so it contains at least:
 
 ```env
 CLAUDE_HOME_WINDOWS=C:/Users/YourName/.claude

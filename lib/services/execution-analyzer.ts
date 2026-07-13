@@ -1052,12 +1052,6 @@ export interface PromptToolCall {
   durationMs: number | null;
 }
 
-export interface DefinitionContent {
-  name: string;
-  path: string;
-  content: string;
-}
-
 export interface AnalysisPromptData {
   session: Session;
   projectDir: string;
@@ -1069,8 +1063,6 @@ export interface AnalysisPromptData {
   feedbackItems?: Array<Record<string, unknown>>;
   improvementCycles?: Array<Record<string, unknown>>;
   skillDefinitionPaths?: Map<string, string>;
-  skillDefinitions?: DefinitionContent[];
-  agentDefinitions?: DefinitionContent[];
 }
 
 export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): string {
@@ -1084,7 +1076,7 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
 
   lines.push(`# Session Analysis — ${session.project}\n`);
   lines.push(`You are analyzing a completed multi-agent session running as Claude Code inside \`${projectDir}\`. Your goal is to surface specific observations the user can quickly review and add as feedback — not to produce a comprehensive report.\n`);
-  lines.push(`For each agent, read its definition file (skill or agent type), then read its JSONL conversation, and identify where the agent's actual behavior differed from what its definition instructs. Only surface findings grounded in a specific instruction the agent was given.\n`);
+  lines.push(`Work through the agents listed under **Agents** below one at a time, top to bottom: read its definition file(s), then read its own conversation JSONL, judge it against **What Counts as a Finding** while that definition and conversation are still the only ones in view, then move to the next agent. Do not read ahead into a later agent's files, and do not batch reads across agents — a comparison made after skimming several agents' worth of files at once is unreliable.\n`);
 
   // ── Session metadata ─────────────────────────────────────────────────
 
@@ -1114,13 +1106,69 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     }
   }
 
+  // ── What constitutes a finding worth surfacing ───────────────────────
+  // Stated before the agent list, not after, so the lens is already in
+  // hand when the per-agent read-definition → read-JSONL → judge loop
+  // below begins.
+
+  lines.push(`## What Counts as a Finding\n`);
+  lines.push(`A finding is worth surfacing in either of these cases:\n`);
+  lines.push(`1. **Violated instruction** — a specific instruction in a skill or agent definition was not followed, or the agent's output contradicts its defined responsibility.`);
+  lines.push(`2. **Missing guardrail** — the agent got stuck, thrashed, or wasted significant cost/time (e.g. repeatedly retrying a denied or failing operation through different tools instead of stopping and surfacing the blocker) and its definition has no instruction that would have prevented this. The absence of an instruction is itself the finding — don't require a violated rule to flag costly unproductive behavior.\n`);
+  lines.push(`For each one, establish:\n`);
+  lines.push(`- Which instruction was violated, or which guardrail is missing, in which definition file`);
+  lines.push(`- What the agent actually did (cite from the JSONL)`);
+  lines.push(`- Whether the deviation likely affected the result, and its cost/time impact if significant\n`);
+  lines.push(`If an agent's behavior matches its definition and it didn't waste significant cost/time on unproductive retries, move on without writing anything for it. Do not flag general observations that aren't grounded in specific evidence from the JSONL.\n`);
+
+  // ── AgentWatch supplementary data ────────────────────────────────────
+  // Not in session JSONLs — use as clues, not primary evidence. Surfaced
+  // before the agent list so it's already known while judging each one,
+  // rather than discovered afterward.
+
+  if ((feedbackItems && feedbackItems.length > 0) || (improvementCycles && improvementCycles.length > 0)) {
+    lines.push(`## Prior Context\n`);
+    lines.push(`This data is from AgentWatch — not in session JSONLs. Use as supplementary clues.\n`);
+
+    if (feedbackItems && feedbackItems.length > 0) {
+      lines.push(`**Feedback already recorded (${feedbackItems.length}) — do not duplicate:**`);
+      for (const fb of feedbackItems) {
+        lines.push(`- [${fb.category}] ${fb.text} *(${fb.agent_name || 'unknown'})*`);
+      }
+      lines.push('');
+    }
+
+    if (improvementCycles && improvementCycles.length > 0) {
+      // Collapse near-identical prompt previews (e.g. re-runs on the same
+      // feedback with no new observations) so repeats don't pad this
+      // section with copies that add no signal.
+      const seenPreviews = new Set<string>();
+      const dedupedCycles = improvementCycles.filter(cycle => {
+        const p = (cycle.generated_prompt as string | undefined)?.slice(0, 200) ?? '';
+        const key = p || `#${cycle.cycle_number}`;
+        if (seenPreviews.has(key)) return false;
+        seenPreviews.add(key);
+        return true;
+      });
+      const omitted = improvementCycles.length - dedupedCycles.length;
+
+      lines.push(`**Prior improvement cycles (${dedupedCycles.length}${omitted > 0 ? `, ${omitted} duplicate preview(s) omitted` : ''}):**`);
+      lines.push(`If a cycle below addressed an issue and this session shows the same failure pattern anyway, that is a regression worth flagging as high severity — do not suppress it just because it resembles something "already addressed." Only skip re-recommending fixes that are visibly absent from this session's failures.`);
+      for (const cycle of dedupedCycles) {
+        const p = cycle.generated_prompt as string | undefined;
+        lines.push(`- Cycle #${cycle.cycle_number} (${cycle.status})${p ? ': ' + p.slice(0, 200) + (p.length > 200 ? '…' : '') : ''}`);
+      }
+      lines.push('');
+    }
+  }
+
   // ── Execution tree ───────────────────────────────────────────────────
   // Each agent is listed with its definition path and JSONL path inline,
   // so the read-definition → read-JSONL → compare flow is self-contained
   // per agent. Flags (⚑) mark agents that warrant closer investigation.
 
   lines.push(`\n## Agents\n`);
-  lines.push(`For each agent: read its definition, then read its JSONL, and compare. Flags (⚑) mark agents worth prioritizing.\n`);
+  lines.push(`Evaluate the agents below in order, finishing one completely — read, judge, note or move on — before opening any file for the next. Flags (⚑) mark agents worth prioritizing if you're short on time, but every agent still gets read and judged.\n`);
 
   // Pre-compute analytics to flag inline
   const costRanked = facts
@@ -1199,7 +1247,7 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     const hasFailures = timeline && timeline.some(t => t.isError);
 
     if (timeline && hasFailures) {
-      const WINDOW = 10;
+      const WINDOW = 5;
       const includeIdx = new Set<number>();
       for (let i = 0; i < timeline.length; i++) {
         if (timeline[i].isError) {
@@ -1208,6 +1256,23 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
           }
         }
       }
+
+      // Repeated identical failures (same tool, same input, same error — a
+      // stuck retry loop) are the main source of bloat once a session has
+      // many of them. Print the first occurrence in full and collapse the
+      // rest to a short back-reference instead of repeating the same block.
+      const errorSignature = (t: PromptToolCall) => `${t.name}::${t.inputSummary}::${t.errorMessage ?? ''}`;
+      const errorFirstIdx = new Map<string, number>();
+      const errorTotal = new Map<string, number>();
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        if (!t.isError) continue;
+        const sig = errorSignature(t);
+        errorTotal.set(sig, (errorTotal.get(sig) ?? 0) + 1);
+        if (!errorFirstIdx.has(sig)) errorFirstIdx.set(sig, i);
+      }
+      const errorSeenCount = new Map<string, number>();
+
       const failCount = timeline.filter(t => t.isError).length;
       lines.push(`${indent}  tool calls (${timeline.length} total, ${failCount} failed — context around failures):`);
       let lastPrinted = -1;
@@ -1219,6 +1284,19 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
         const t = timeline[i];
         const dur = t.durationMs != null ? ` (${formatMs(t.durationMs)})` : '';
         const marker = t.isError ? '✗' : '→';
+
+        if (t.isError) {
+          const sig = errorSignature(t);
+          const total = errorTotal.get(sig) ?? 1;
+          const seen = (errorSeenCount.get(sig) ?? 0) + 1;
+          errorSeenCount.set(sig, seen);
+          if (total > 1 && seen > 1) {
+            lines.push(`${indent}    ${i + 1}. ${marker} ${t.name}${dur} — same error as #${errorFirstIdx.get(sig)! + 1} (${seen}/${total})`);
+            lastPrinted = i;
+            continue;
+          }
+        }
+
         lines.push(`${indent}    ${i + 1}. ${marker} ${t.name}${dur} ${t.inputSummary}`);
         if (t.isError && t.errorMessage) {
           lines.push(`${indent}       error: ${t.errorMessage}`);
@@ -1233,6 +1311,7 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
       lines.push(`${indent}  tools(${tc}): ${toolSummary}`);
     }
 
+    lines.push(`${indent}  → read the definition(s) and conversation above, judge against the criteria, then continue.`);
     lines.push('');
     for (const childId of agent.children) {
       const child = agentMap.get(childId);
@@ -1268,40 +1347,6 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
     }
     lines.push('');
   }
-
-  // ── AgentWatch supplementary data ────────────────────────────────────
-  // Not in session JSONLs — use as clues, not primary evidence
-
-  if ((feedbackItems && feedbackItems.length > 0) || (improvementCycles && improvementCycles.length > 0)) {
-    lines.push(`## Prior Context\n`);
-    lines.push(`This data is from AgentWatch — not in session JSONLs. Use as supplementary clues.\n`);
-
-    if (feedbackItems && feedbackItems.length > 0) {
-      lines.push(`**Feedback already recorded (${feedbackItems.length}) — do not duplicate:**`);
-      for (const fb of feedbackItems) {
-        lines.push(`- [${fb.category}] ${fb.text} *(${fb.agent_name || 'unknown'})*`);
-      }
-      lines.push('');
-    }
-
-    if (improvementCycles && improvementCycles.length > 0) {
-      lines.push(`**Prior improvement cycles (${improvementCycles.length}) — do not re-recommend what was already addressed:**`);
-      for (const cycle of improvementCycles) {
-        const p = cycle.generated_prompt as string | undefined;
-        lines.push(`- Cycle #${cycle.cycle_number} (${cycle.status})${p ? ': ' + p.slice(0, 200) + (p.length > 200 ? '…' : '') : ''}`);
-      }
-      lines.push('');
-    }
-  }
-
-  // ── What constitutes a finding worth surfacing ───────────────────────
-
-  lines.push(`## What to Look For\n`);
-  lines.push(`A finding is worth surfacing when a specific instruction in a skill or agent definition was not followed, or when an agent's output contradicts its defined responsibility. For each finding, establish:\n`);
-  lines.push(`- Which instruction in which definition file was not followed`);
-  lines.push(`- What the agent actually did (cite from the JSONL)`);
-  lines.push(`- Whether the deviation likely affected the result\n`);
-  lines.push(`Skip agents that executed cleanly against their definitions. Do not flag general observations not grounded in a specific instruction the agent was given.\n`);
 
   // ── Output ───────────────────────────────────────────────────────────
 
