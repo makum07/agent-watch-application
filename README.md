@@ -1,72 +1,19 @@
 # AgentWatch
 
-A self-hosted web application for visualizing and debugging Claude Code multi-agent sessions. AgentWatch reads your local Claude session files and gives you an interactive workspace to understand what happened across all agents, tool calls, and artifacts in a session.
-
----
-
-## What problem does it solve?
-
-When you run a complex Claude Code session — one that spawns multiple subagents, runs workflows, generates files, and makes hundreds of tool calls — the only way to review it is scrolling through terminal output or raw JSONL files. There is no visual way to:
-
-- See which agents ran, in what order, and how long each took
-- Read one agent's conversation without losing track of the others
-- Compare what two agents produced side by side
-- Find which agent wrote a specific file
-- Understand the relationship between the orchestrator and its subagents
-
-AgentWatch solves this by turning your raw session data into a navigable, multi-pane workspace.
-
----
-
-## What it looks like
-
-The UI has three areas:
-
-**Left sidebar** — lists all agents in the session, grouped by orchestration round. Each round is collapsible and shows the agents that were spawned in that exchange. Click any agent to open it in a pane.
-
-**Main workspace** — one or more resizable panes, each showing a different agent. You can split horizontally or vertically to compare agents side by side. Each pane has five tabs:
-
-| Tab | Shows |
-|-----|-------|
-| Conversation | The full message thread, grouped into rounds. Rounds that spawned agents get a colored banner. Write/Edit tool calls show inline artifact cards. |
-| Artifacts | Files created or modified by this agent |
-| Context | The prompt this agent received from its parent |
-| Tools | Every tool call this agent made, grouped by tool name |
-| Summary | Token usage, duration, model, status |
-
-**Artifact viewer** — clicking "Open in pane" on any artifact opens a document viewer in a new pane, with a markdown Preview mode and a line-numbered Source mode.
-
-**Feedback Review panel** — a side panel for collecting feedback on agent behavior and applying improvements:
-
-| Feature | Description |
-|---------|-------------|
-| Feedback collection | Add categorized notes per agent (10 categories: Missing Context, Incorrect Assumption, etc.) |
-| Apply improvements | Generates a prompt from your feedback, sends it to Claude via structured streaming |
-| Live activity log | Watch Claude's thinking, tool calls, and responses in real time as a collapsible tree |
-| Edit approval gate | Claude proposes file edits; you see the diff and approve or deny each one |
-| Files touched | See which files were read, edited, or created during the cycle |
-| Rewind | Roll back a cycle and re-apply with a refined prompt |
-
----
-
-## How it works
-
-Claude Code writes session data to `~/.claude/projects/` on your machine. Each session is a folder containing:
-
-- A root `.jsonl` file — the orchestrator's conversation
-- A `subagents/` subdirectory — one `.jsonl` file per named subagent (Agent/Task tool calls)
-- A `subagents/workflows/` subdirectory — subagents spawned by Workflow tool calls
-- A `workflows/` directory — workflow run data including agent labels
-
-AgentWatch reads these files directly — no upload, no cloud, no account. It parses the JSONL format, correlates each subagent back to the root session, stores the indexed data in a local SQLite database, and serves it through a Next.js API.
-
-Sessions are only indexed when you open them. Subsequent opens are instant (served from SQLite) unless the source file has changed.
+A self-hosted web application for visualizing and debugging Claude Code multi-agent sessions.
 
 ---
 
 ## Getting started
 
 There are two ways to run AgentWatch: directly with Node.js, or via Docker. Both can coexist on the same machine — no configuration changes needed when switching between them.
+
+**Clone the repository:**
+
+```bash
+git clone https://github.com/makum07/agent-watch-application.git
+cd agent-watch-application
+```
 
 ---
 
@@ -121,7 +68,20 @@ The `.env` file is used only by docker compose for volume path substitution. It 
 
 #### macOS / Linux
 
-No configuration needed. Your `~/.claude` directory is mounted automatically.
+Copy the example file:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` next to `docker-compose.yml` so it contains at least:
+
+```env
+COMPOSE_SOURCES=Home:/claude-data-wsl
+PORT=3456
+```
+
+Your `~/.claude` directory is mounted automatically — `COMPOSE_SOURCES` just tells the app which mounted path to read from.
 
 ```bash
 docker compose up --build -d
