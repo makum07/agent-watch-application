@@ -154,60 +154,26 @@ function captureFileChanges(projectCwd: string): import('@/types/feedback').File
   return changes;
 }
 
-// Encode a filesystem path the same way Claude Code encodes CWD into project slugs.
-// Windows: C:\Users\foo\bar baz → C--Users-foo-bar-baz
-function encodePathToSlug(p: string): string {
-  return p.replace(/^([A-Za-z]):\\/, '$1--').replace(/[\\/ ]/g, '-');
-}
-
-// Find the real directory whose slug encoding matches the given slug.
-// Walks the filesystem starting from the user's home dir, using slug-prefix
-// pruning so only directories that could possibly match are visited.
-function findProjectDirBySlug(slug: string): string | null {
-  // Only handle the Windows C--Users-<username>-... pattern for now
-  const m = slug.match(/^([A-Za-z])--Users-([^-]+)-/);
-  if (!m) return null;
-
-  const drive = m[1].toUpperCase();
-  const username = m[2];
-  const startDir = path.join(`${drive}:`, 'Users', username);
-
-  function search(dir: string, depth: number): string | null {
-    if (depth <= 0) return null;
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch { return null; }
-
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const full = path.join(dir, e.name);
-      const encoded = encodePathToSlug(full);
-      if (encoded === slug) return full;
-      // Prune: only recurse if this path is a prefix of the target slug
-      if (slug.startsWith(encoded + '-')) {
-        const hit = search(full, depth - 1);
-        if (hit) return hit;
-      }
-    }
-    return null;
-  }
-
-  return search(startDir, 6);
-}
-
 // ── Stream-JSON runner ───────────────────────────────────────────────────────
 
+// The session's own JSONL transcript records the real working directory
+// Claude Code was run from (the "cwd" field on its first line) — read that
+// directly rather than guessing the project's location from its Claude
+// Code slug, which breaks for any project outside the user's home directory.
 function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string): string {
-  let projectCwd = process.cwd();
   try {
     const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
-    if (conv?.file_path) {
-      const slug = path.basename(path.dirname(conv.file_path));
-      const found = findProjectDirBySlug(slug);
-      if (found) projectCwd = found;
+    if (conv?.file_path && fs.existsSync(conv.file_path)) {
+      const fd = fs.openSync(conv.file_path, 'r');
+      const buf = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
+      fs.closeSync(fd);
+      const chunk = buf.toString('utf8', 0, bytesRead);
+      const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
+      if (match) return match[1].replace(/\\\\/g, '\\');
     }
   } catch { /* fall back to server cwd */ }
-  return projectCwd;
+  return process.cwd();
 }
 
 async function runClaudeResumeAsync(
@@ -549,16 +515,8 @@ export async function POST(
         return NextResponse.json({ error: 'All cycles from this point are already rewound' }, { status: 400 });
       }
 
-      // Resolve the project working directory (same slug-decode logic as apply)
-      let projectCwd = process.cwd();
-      try {
-        const conv = db.prepare(`SELECT file_path FROM conversations WHERE id = ?`).get(sessionId) as { file_path: string } | undefined;
-        if (conv?.file_path) {
-          const slug = path.basename(path.dirname(conv.file_path));
-          const found = findProjectDirBySlug(slug);
-          if (found) projectCwd = found;
-        }
-      } catch { /* fall back to server cwd */ }
+      // Resolve the project working directory (same logic as apply)
+      const projectCwd = resolveProjectCwd(db, sessionId);
 
       // Delegate to Claude Code's built-in /rewind for each cycle.
       // Each improvement cycle adds exactly one conversation turn, so one

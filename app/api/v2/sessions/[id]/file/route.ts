@@ -4,50 +4,21 @@ import { resolveSessionSource } from '@/lib/api/resolve-source';
 import path from 'path';
 import fs from 'fs';
 
-function encodePathToSlug(p: string): string {
-  return p.replace(/^([A-Za-z]):\\/, '$1--').replace(/[\\/ ]/g, '-');
-}
-
-function findProjectDirBySlug(slug: string): string | null {
-  const m = slug.match(/^([A-Za-z])--Users-([^-]+)-/);
-  if (!m) return null;
-  const drive = m[1].toUpperCase();
-  const username = m[2];
-  const startDir = path.join(`${drive}:`, 'Users', username);
-
-  function search(dir: string, depth: number): string | null {
-    if (depth <= 0) return null;
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch { return null; }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const full = path.join(dir, e.name);
-      const encoded = encodePathToSlug(full);
-      if (encoded === slug) return full;
-      if (slug.startsWith(encoded + '-')) {
-        const hit = search(full, depth - 1);
-        if (hit) return hit;
-      }
-    }
-    return null;
-  }
-
-  return search(startDir, 6);
-}
-
 function resolveProjectCwd(sessionId: string, sourceId?: string): string {
   const db = getDatabase(sourceId);
-  let projectCwd = process.cwd();
   try {
     const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
-    if (conv?.file_path) {
-      const slug = path.basename(path.dirname(conv.file_path));
-      const found = findProjectDirBySlug(slug);
-      if (found) projectCwd = found;
+    if (conv?.file_path && fs.existsSync(conv.file_path)) {
+      const fd = fs.openSync(conv.file_path, 'r');
+      const buf = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
+      fs.closeSync(fd);
+      const chunk = buf.toString('utf8', 0, bytesRead);
+      const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
+      if (match) return match[1].replace(/\\\\/g, '\\');
     }
   } catch { /* fall back to server cwd */ }
-  return projectCwd;
+  return process.cwd();
 }
 
 export async function GET(
