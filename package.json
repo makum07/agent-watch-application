@@ -2,12 +2,24 @@
   "name": "agent-watch",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0 <21.0.0 || >=22.0.0"
+  },
+  "volta": {
+    "node": "25.3.0"
+  },
   "scripts": {
+    "preinstall": "node scripts/check-node-version.js",
+    "predev": "node scripts/check-node-version.js",
     "dev": "next dev -p 3456",
+    "predev:server": "node scripts/check-node-version.js",
     "dev:server": "tsx server.ts",
+    "prebuild": "node scripts/check-node-version.js",
     "build": "next build",
+    "prestart": "node scripts/check-node-version.js",
     "start": "NODE_ENV=production node server.js",
     "lint": "eslint",
+    "pretest": "node scripts/check-node-version.js",
     "test": "vitest",
     "db:reset": "node -e \"const fs=require('fs');const p=require('path').join(process.cwd(),'data','agentwatch.db');[p,p+'-wal',p+'-shm'].forEach(f=>{try{fs.unlinkSync(f);console.log('Deleted',f)}catch{}});console.log('DB reset — will recreate on next request')\"",
     "rebuild-native": "npm rebuild better-sqlite3",
