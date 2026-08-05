@@ -11,6 +11,7 @@ import { generateImprovementPrompt } from '@/lib/services/improvement-prompt';
 import { findExternalSkillDirsFromSession, findInvokedSkillsFromSession } from '@/lib/services/external-dirs';
 import { resolveSelectedSkills } from '@/lib/services/skill-catalog';
 import { applyEditLocally, isNativePermissionBlock } from '@/lib/services/direct-edit-apply';
+import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 
 interface DbFeedbackItem {
   id: string;
@@ -164,13 +165,8 @@ function resolveProjectCwd(db: ReturnType<typeof getDatabase>, sessionId: string
   try {
     const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
     if (conv?.file_path && fs.existsSync(conv.file_path)) {
-      const fd = fs.openSync(conv.file_path, 'r');
-      const buf = Buffer.alloc(4096);
-      const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-      fs.closeSync(fd);
-      const chunk = buf.toString('utf8', 0, bytesRead);
-      const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
-      if (match) return match[1].replace(/\\\\/g, '\\');
+      const cwd = readCwdFromJsonl(conv.file_path);
+      if (cwd) return cwd;
     }
   } catch { /* fall back to server cwd */ }
   return process.cwd();
@@ -190,14 +186,57 @@ async function runClaudeResumeAsync(
     wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
   };
 
-  const projectCwd = resolvedProjectCwd ?? resolveProjectCwd(db, sessionId);
+  // Detect WSL sessions by scanning all configured sources.
+  // AGENTWATCH_SOURCES format: "Label:/path,Label2:/path2" — colon-split on first colon.
+  type WslCtx = { distro: string; wslCwd: string };
+  let wslCtx: WslCtx | undefined;
+  let sessionDb = db;
+  const rawSources = process.env.AGENTWATCH_SOURCES ?? '';
+  if (rawSources) {
+    for (const entry of rawSources.split(',')) {
+      const ci = entry.indexOf(':');
+      if (ci < 0) continue;
+      const label = entry.slice(0, ci).trim();
+      const srcPath = entry.slice(ci + 1).trim();
+      const srcId = label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const distroMatch = srcPath.match(/^\/\/wsl[^/]*\/([^/]+)/i);
+      if (!distroMatch) continue; // not a WSL source
+      // Step 1: check if this session exists in the WSL DB (separate try-catch)
+      let wslDistro: string | undefined;
+      let jsonlFilePath: string | undefined;
+      try {
+        const wslDb = getDatabase(srcId);
+        const row = wslDb.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
+        if (row?.file_path) {
+          sessionDb = wslDb;
+          wslDistro = distroMatch[1];
+          jsonlFilePath = row.file_path;
+        }
+      } catch { /* DB not accessible */ }
+      if (!wslDistro) continue;
+
+      // Step 2: read cwd from JSONL — optional, fallback to home dir
+      let wslCwd = '~';
+      const cwdFromJsonl = readCwdFromJsonl(jsonlFilePath!);
+      if (cwdFromJsonl) wslCwd = cwdFromJsonl;
+      wslCtx = { distro: wslDistro, wslCwd };
+      break;
+    }
+  }
+
+  const projectCwd = resolvedProjectCwd ?? resolveProjectCwd(sessionDb, sessionId);
 
   // Snapshot the working tree before Claude runs so rewind can restore it.
-  try {
-    execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
-      cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe',
-    });
-  } catch { /* not a git repo, or nothing to stash — non-fatal */ }
+  // Skip for WSL sessions (cmd.exe can't run git in WSL cwd) and when the
+  // cwd fell back to process.cwd() — that would stash AgentWatch's own files.
+  const appCwd = process.cwd();
+  if (!wslCtx && path.resolve(projectCwd) !== path.resolve(appCwd)) {
+    try {
+      execSync(`git stash push --include-untracked -m "agentwatch-pre-${cycleId}"`, {
+        cwd: projectCwd, shell: 'cmd.exe', stdio: 'pipe',
+      });
+    } catch { /* not a git repo, or nothing to stash — non-fatal */ }
+  }
 
   const responseChunks: string[] = [];
   let streamIdCounter = 0;
@@ -234,7 +273,6 @@ async function runClaudeResumeAsync(
       '--verbose',
       '--permission-mode', 'default',
       '--settings', `"${settingsPath}"`,
-      '--include-hook-events',
     ];
 
     // Grant Read access to external skill/agent directories.
@@ -243,12 +281,30 @@ async function runClaudeResumeAsync(
       cliArgs.push('--add-dir', `"${dir}"`);
     }
 
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: projectCwd,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let child: ReturnType<typeof spawn>;
+    if (wslCtx) {
+      // WSL session: spawn claude inside WSL so it can access its own session data.
+      // Routed through `bash -lc` (login shell) rather than exec'd directly —
+      // `wsl -- claude` only sees the bare system PATH and fails with
+      // "claude: command not found" even when claude works fine in a normal
+      // terminal, because PATH additions from .bashrc/.profile (nvm,
+      // ~/.local/bin, etc.) are only sourced by a login shell.
+      const wslSettings = settingsPath
+        .replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`)
+        .replace(/\\/g, '/');
+      const claudeCmd = [
+        'claude', '--resume', `"${sessionId}"`, '-p',
+        '--output-format', 'stream-json', '--input-format', 'stream-json',
+        '--verbose', '--permission-mode', 'default', '--settings', `"${wslSettings}"`,
+        ...externalSkillDirs.flatMap(d => ['--add-dir', `"${d}"`]),
+      ].join(' ');
+      const wslArgs = ['-d', wslCtx.distro, '--cd', wslCtx.wslCwd, '--', 'bash', '-lc', claudeCmd];
+      child = spawn('wsl', wslArgs, { shell: false, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    } else {
+      child = spawn('claude', cliArgs, {
+        shell: true, cwd: projectCwd, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    }
 
     const userMsg = JSON.stringify({
       type: 'user',

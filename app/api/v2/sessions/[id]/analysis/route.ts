@@ -5,6 +5,7 @@ import { getDatabase } from '@/lib/db/database';
 import { ingestSession } from '@/lib/services/session-ingester';
 import { computeExecutionFacts } from '@/lib/services/execution-facts';
 import { parseJsonlFile, resolveToolCalls, decodeProjectPath } from '@/lib/parser/jsonl-parser';
+import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
 import {
@@ -129,19 +130,6 @@ export async function POST(
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
-}
-
-function readCwdFromJsonl(filePath: string): string | null {
-  try {
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(4096);
-    const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-    fs.closeSync(fd);
-    const chunk = buf.toString('utf8', 0, bytesRead);
-    const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
-    if (match) return match[1].replace(/\\\\/g, '\\');
-  } catch { /* non-fatal */ }
-  return null;
 }
 
 function buildPromptData(sessionId: string, session: import('@/types/session').Session, db: ReturnType<typeof getDatabase>) {

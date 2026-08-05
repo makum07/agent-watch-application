@@ -6,8 +6,8 @@ function rowToSnapshot(row: Record<string, unknown>): WorkspaceSnapshot {
   return JSON.parse(row.snapshot_data as string) as WorkspaceSnapshot;
 }
 
-export function saveSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
-  const db = getDatabase();
+export function saveSnapshot(snapshot: WorkspaceSnapshot, sourceId?: string): WorkspaceSnapshot {
+  const db = getDatabase(sourceId);
   const data = JSON.stringify(snapshot);
 
   if (snapshot.isAutoSave) {
@@ -30,8 +30,8 @@ export function saveSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   return snapshot;
 }
 
-export function getLatestSnapshot(sessionId: string): WorkspaceSnapshot | null {
-  const db = getDatabase();
+export function getLatestSnapshot(sessionId: string, sourceId?: string): WorkspaceSnapshot | null {
+  const db = getDatabase(sourceId);
   const row = db.prepare(`
     SELECT * FROM workspace_snapshots
     WHERE session_id = ?
@@ -42,8 +42,8 @@ export function getLatestSnapshot(sessionId: string): WorkspaceSnapshot | null {
   return row ? rowToSnapshot(row) : null;
 }
 
-export function getAutoSave(sessionId: string): WorkspaceSnapshot | null {
-  const db = getDatabase();
+export function getAutoSave(sessionId: string, sourceId?: string): WorkspaceSnapshot | null {
+  const db = getDatabase(sourceId);
   const row = db.prepare(`
     SELECT * FROM workspace_snapshots
     WHERE session_id = ? AND is_auto_save = 1
@@ -54,8 +54,8 @@ export function getAutoSave(sessionId: string): WorkspaceSnapshot | null {
   return row ? rowToSnapshot(row) : null;
 }
 
-export function listNamedSnapshots(sessionId: string): WorkspaceSnapshot[] {
-  const db = getDatabase();
+export function listNamedSnapshots(sessionId: string, sourceId?: string): WorkspaceSnapshot[] {
+  const db = getDatabase(sourceId);
   const rows = db.prepare(`
     SELECT * FROM workspace_snapshots
     WHERE session_id = ? AND is_auto_save = 0
@@ -66,8 +66,8 @@ export function listNamedSnapshots(sessionId: string): WorkspaceSnapshot[] {
   return rows.map(rowToSnapshot);
 }
 
-export function deleteSnapshot(snapshotId: string): boolean {
-  const db = getDatabase();
+export function deleteSnapshot(snapshotId: string, sourceId?: string): boolean {
+  const db = getDatabase(sourceId);
   const result = db.prepare('DELETE FROM workspace_snapshots WHERE id = ?').run(snapshotId);
   return result.changes > 0;
 }

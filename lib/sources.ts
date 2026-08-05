@@ -39,3 +39,18 @@ export function resolveSource(id?: string | null): SourceConfig {
 function slugify(s: string): string {
   return s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
+
+// A WSL source's own recorded paths (session cwd, tool-call file paths) are
+// native Linux paths, exactly as Claude Code saw them (e.g. "/home/user/proj").
+// When AgentWatch itself runs on native Windows, a bare Linux path isn't
+// fs-accessible — Node resolves it against the current drive root and every
+// existsSync/readFileSync silently fails. Rewrite it through the same WSL UNC
+// mount already configured for that source in AGENTWATCH_SOURCES (the prefix
+// that ingestion already reads that source's own .claude folder through).
+export function toAccessiblePath(linuxPath: string, sourceId?: string): string {
+  if (process.platform !== 'win32') return linuxPath;
+  if (!linuxPath.startsWith('/') || linuxPath.startsWith('//')) return linuxPath;
+  const source = sourceId ? getSourceById(sourceId) : undefined;
+  const uncMatch = source?.path.match(/^(\/\/[^/]+\/[^/]+)/);
+  return uncMatch ? uncMatch[1] + linuxPath : linuxPath;
+}

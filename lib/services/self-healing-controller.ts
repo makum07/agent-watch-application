@@ -12,6 +12,7 @@ import {
   listProjectDirs,
   getProjectDisplayName,
 } from '@/lib/parser/jsonl-parser';
+import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 import {
   getSkillDetail,
   getNextCycleNumber,
@@ -50,15 +51,8 @@ function resolveSkillProjectCwd(projectDisplayName: string): string | null {
 
       for (const file of files) {
         const fp = path.join(metaDir, file);
-        const fd = fs.openSync(fp, 'r');
-        const buf = Buffer.alloc(4096);
-        const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-        fs.closeSync(fd);
-        const chunk = buf.toString('utf8', 0, bytesRead);
-        const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
-        if (match) {
-          return match[1].replace(/\\\\/g, '\\');
-        }
+        const cwd = readCwdFromJsonl(fp);
+        if (cwd) return cwd;
       }
     }
   } catch { /* non-fatal */ }

@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string; agentId: string }> }
 ) {
-  const { agentId } = await params;
+  const { id: sessionId, agentId } = await params;
   try {
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const rows = db.prepare(`
       SELECT id, file_path, tool_name, type, timestamp, content_size
       FROM artifacts

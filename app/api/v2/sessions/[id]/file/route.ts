@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
 import { resolveSessionSource } from '@/lib/api/resolve-source';
+import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
+import { toAccessiblePath } from '@/lib/sources';
 import path from 'path';
 import fs from 'fs';
 
@@ -9,13 +11,8 @@ function resolveProjectCwd(sessionId: string, sourceId?: string): string {
   try {
     const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as { file_path: string } | undefined;
     if (conv?.file_path && fs.existsSync(conv.file_path)) {
-      const fd = fs.openSync(conv.file_path, 'r');
-      const buf = Buffer.alloc(4096);
-      const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-      fs.closeSync(fd);
-      const chunk = buf.toString('utf8', 0, bytesRead);
-      const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
-      if (match) return match[1].replace(/\\\\/g, '\\');
+      const cwd = readCwdFromJsonl(conv.file_path);
+      if (cwd) return cwd;
     }
   } catch { /* fall back to server cwd */ }
   return process.cwd();
@@ -33,8 +30,9 @@ export async function GET(
     }
 
     const sourceId = await resolveSessionSource(req, sessionId);
-    const projectCwd = resolveProjectCwd(sessionId, sourceId);
-    const abs = path.isAbsolute(filePath) ? filePath : path.join(projectCwd, filePath);
+    const projectCwd = toAccessiblePath(resolveProjectCwd(sessionId, sourceId), sourceId);
+    const accessibleFilePath = toAccessiblePath(filePath, sourceId);
+    const abs = path.isAbsolute(accessibleFilePath) ? accessibleFilePath : path.join(projectCwd, accessibleFilePath);
 
     // Security: ensure the resolved path is within the project directory
     const resolved = path.resolve(abs);
