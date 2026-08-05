@@ -54,3 +54,13 @@ export function toAccessiblePath(linuxPath: string, sourceId?: string): string {
   const uncMatch = source?.path.match(/^(\/\/[^/]+\/[^/]+)/);
   return uncMatch ? uncMatch[1] + linuxPath : linuxPath;
 }
+
+// Distro name for a WSL-backed source (its AGENTWATCH_SOURCES path looks like
+// "//wsl.localhost/Ubuntu-24.04/..."), or null if this source isn't WSL-backed.
+// Used to decide whether a `claude` spawn needs routing through `wsl -d <distro>`.
+export function getWslDistro(sourceId?: string): string | null {
+  if (process.platform !== 'win32' || !sourceId) return null;
+  const source = getSourceById(sourceId);
+  const match = source?.path.match(/^\/\/wsl[^/]*\/([^/]+)/i);
+  return match ? match[1] : null;
+}

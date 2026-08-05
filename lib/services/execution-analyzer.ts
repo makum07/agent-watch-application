@@ -20,6 +20,7 @@ import { analyzeSession, findCriticalPath } from './debug-analyzer';
 import { estimateAgentCost } from '@/lib/utils';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
+import { getWslDistro } from '@/lib/sources';
 import type { StreamEntry } from '@/types/feedback';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -1393,9 +1394,10 @@ export function updateExecutionAnalysisCycle(
     analysisResponse?: string | null;
     recommendations?: ExecutionRecommendation[] | null;
     streamEntries?: StreamEntry[] | null;
-  }
+  },
+  sourceId?: string
 ): void {
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const sets: string[] = [];
   const values: unknown[] = [];
 
@@ -1458,6 +1460,7 @@ export async function runExecutionAnalysis(
   prompt: string,
   cwd?: string,
   externalSkillDirs: string[] = [],
+  sourceId?: string,
 ): Promise<void> {
   const wss = getWsServer();
 
@@ -1470,7 +1473,7 @@ export async function runExecutionAnalysis(
 
   try {
     broadcast('execution_analysis_started', {});
-    updateExecutionAnalysisCycle(cycleId, { status: 'analyzing' });
+    updateExecutionAnalysisCycle(cycleId, { status: 'analyzing' }, sourceId);
 
     streamLog.push({
       id: `ea-${++streamIdCounter}`,
@@ -1493,12 +1496,24 @@ export async function runExecutionAnalysis(
       cliArgs.push('--add-dir', `"${dir}"`);
     }
 
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: cwd || undefined,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // WSL-sourced sessions: cwd is a native Linux path, and a Windows-side
+    // spawn can't cd into it (cmd.exe rejects UNC paths as a cwd outright).
+    // Route through `wsl -d <distro> -- bash -lc` instead — bash -lc sources
+    // .bashrc/.profile so PATH additions (nvm, ~/.local/bin) still resolve
+    // `claude`, matching the fix already proven for the improvements flow.
+    const wslDistro = getWslDistro(sourceId);
+    const child = wslDistro && cwd
+      ? spawn('wsl', ['-d', wslDistro, '--cd', cwd, '--', 'bash', '-lc', ['claude', ...cliArgs].join(' ')], {
+          shell: false,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      : spawn('claude', cliArgs, {
+          shell: true,
+          cwd: cwd || undefined,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
     const userMsg = JSON.stringify({
       type: 'user',
@@ -1614,7 +1629,7 @@ export async function runExecutionAnalysis(
         status: 'failed',
         analysisResponse: responseChunks.join('') || null,
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
       broadcast('execution_analysis_failed', { error: 'Analysis timed out after 10 minutes' });
       return;
     }
@@ -1631,7 +1646,7 @@ export async function runExecutionAnalysis(
         status: 'failed',
         analysisResponse: responseChunks.join('') || null,
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
       broadcast('execution_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
@@ -1649,7 +1664,7 @@ export async function runExecutionAnalysis(
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
       broadcast('execution_analysis_failed', { error: 'Analysis produced no output' });
       return;
     }
@@ -1677,7 +1692,7 @@ export async function runExecutionAnalysis(
       analysisResponse: fullResponse,
       recommendations,
       streamEntries: streamLog.length > 0 ? streamLog : null,
-    });
+    }, sourceId);
 
     broadcast('execution_analysis_complete', { status: 'completed' });
   } catch (err) {
@@ -1692,10 +1707,10 @@ export async function runExecutionAnalysis(
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
     } catch {
       try {
-        getDatabase().prepare('UPDATE execution_analysis_cycles SET status = ?, completed_at = ? WHERE id = ?')
+        getDatabase(sourceId).prepare('UPDATE execution_analysis_cycles SET status = ?, completed_at = ? WHERE id = ?')
           .run('failed', Date.now(), cycleId);
       } catch { /* best effort */ }
     }

@@ -6,6 +6,7 @@ import { ingestSession } from '@/lib/services/session-ingester';
 import { computeExecutionFacts } from '@/lib/services/execution-facts';
 import { parseJsonlFile, resolveToolCalls, decodeProjectPath } from '@/lib/parser/jsonl-parser';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
 import {
@@ -51,11 +52,12 @@ export async function GET(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
 
     const preview = req.nextUrl.searchParams.get('preview');
     if (preview === '1') {
-      const session = ingestSession(sessionId);
+      const session = ingestSession(sessionId, sourceId);
       if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
 
       const promptData = buildPromptData(sessionId, session, db);
@@ -79,9 +81,10 @@ export async function POST(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
 
-    const session = ingestSession(sessionId);
+    const session = ingestSession(sessionId, sourceId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -117,7 +120,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });
@@ -264,7 +267,8 @@ export async function DELETE(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const cycleId = req.nextUrl.searchParams.get('cycleId');
     if (!cycleId) return NextResponse.json({ error: 'Missing cycleId' }, { status: 400 });
 
