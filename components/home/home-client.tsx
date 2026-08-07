@@ -1,20 +1,22 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
-import { Pin, Clock, FolderOpen, Layers, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { Pin, Clock, Layers, TerminalSquare, MessageSquare } from 'lucide-react';
 import { SessionCard } from './session-card';
 import { LocalDate } from './local-date';
 import { SourceSwitcher } from '@/components/source-switcher';
-import { NavBar } from '@/components/shared/navbar';
+import { NavBarBrand } from '@/components/shared/navbar-brand';
+import { NavBarTabs } from '@/components/shared/navbar-tabs';
+import { SidebarNavItem } from '@/components/shared/sidebar-nav-item';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { shortenProjectPath, projectColorVar, parseSessionTitle, MIN_TITLE_LEN } from '@/lib/utils';
 import type { SessionHistory } from '@/types/history';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 
 type PanelSession =
   | { kind: 'history'; data: SessionHistory }
-  | { kind: 'discovered'; id: string; lastModified: string; label: string };
+  | { kind: 'discovered'; id: string; lastModified: string; label: string; isCommand: boolean };
 
 interface DiscoveredSession {
   id: string;
@@ -23,12 +25,18 @@ interface DiscoveredSession {
   projectDisplayName?: string;
 }
 
+interface FirstUserMessageInfo {
+  title: string | null;
+  isCommand: boolean;
+}
+
 interface Props {
   pinned: SessionHistory[];
   recent: SessionHistory[];
   byProject: [string, DiscoveredSession[]][];
   historyMap: [string, SessionHistory][];
-  firstUserMessages: [string, string | null][];
+  firstUserMessages: [string, FirstUserMessageInfo][];
+  projectNames: [string, string][];
   totalSessions: number;
   sourceId: string;
 }
@@ -56,35 +64,95 @@ function groupByRecency(sessions: PanelSession[]) {
   return { today, week, older };
 }
 
-function PanelSessionCard({ session }: { session: PanelSession }) {
-  if (session.kind === 'history') return <SessionCard session={session.data} />;
+function PanelSessionCard({
+  session, msgMap, projectNameMap,
+}: {
+  session: PanelSession;
+  msgMap: Map<string, FirstUserMessageInfo>;
+  projectNameMap: Map<string, string>;
+}) {
+  if (session.kind === 'history') {
+    const info = msgMap.get(session.data.sessionId);
+    // Old history rows can have a title that was truncated mid-XML-tag by a since-fixed
+    // bug (raw <command-name>/<local-command-caveat> wrappers cut off before their closing
+    // tag), or a stale bare `/model`/`/clear` cached before the too-short-title skip-ahead
+    // existed — neither can be cleanly recovered after the fact. Re-derive from the JSONL
+    // instead — it's already recomputed fresh on every page load for the sidebar list.
+    const isTainted = session.data.title.includes('<');
+    const isTooShort = session.data.title.trim().length < MIN_TITLE_LEN;
+    const titleOverride = (isTainted || isTooShort) ? info?.title : undefined;
+    // Same story for project names: rows ingested before real-cwd resolution was added
+    // still have the lossy dash-decoded slug baked into session_history.project.
+    const projectOverride = projectNameMap.get(session.data.sessionId);
+    return (
+      <SessionCard
+        session={session.data}
+        titleOverride={titleOverride ?? undefined}
+        projectOverride={projectOverride}
+        // The displayed title can be an AI-generated summary of the whole session (or a
+        // later message, if the first was too short) — whether this was a slash-command
+        // session must come from the actual first message, not from that display text.
+        isCommandOverride={info?.isCommand}
+      />
+    );
+  }
+  const { text: title } = parseSessionTitle(session.label);
+  const isCommand = session.isCommand;
   return (
     <Link href={`/session/${session.id}/workspace`}>
-      <div className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer group">
-        <div className="text-xs truncate group-hover:text-foreground text-muted-foreground">{session.label}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">
+      <div className="p-4 rounded-md border border-[var(--aw-bg-3)] bg-card hover:bg-[var(--aw-bg-5)] transition-colors cursor-pointer group">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+            {isCommand
+              ? <TerminalSquare className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[var(--aw-purple)]" />
+              : <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[var(--aw-text-3)]" />}
+            <div className="text-sm font-medium leading-tight line-clamp-2 group-hover:text-foreground text-[var(--aw-text-1)]">
+              {title || 'Untitled session'}
+            </div>
+          </div>
+          {isCommand && (
+            <span className="shrink-0 text-[10px] uppercase tracking-wide font-medium text-[var(--aw-purple)] bg-[var(--aw-purple)]/10 px-1.5 py-0.5 rounded">
+              Command
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[var(--aw-text-3)]">
           <LocalDate iso={session.lastModified} />
+          <span>·</span>
+          <span>not opened yet</span>
         </div>
       </div>
     </Link>
   );
 }
 
-function SessionGroup({ label, sessions }: { label: string; sessions: PanelSession[] }) {
+function SessionGroup({
+  label, sessions, msgMap, projectNameMap,
+}: {
+  label: string;
+  sessions: PanelSession[];
+  msgMap: Map<string, FirstUserMessageInfo>;
+  projectNameMap: Map<string, string>;
+}) {
   if (sessions.length === 0) return null;
   return (
     <div>
       <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{label}</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 mb-6">
         {sessions.map(s => (
-          <PanelSessionCard key={s.kind === 'history' ? s.data.sessionId : s.id} session={s} />
+          <PanelSessionCard
+            key={s.kind === 'history' ? s.data.sessionId : s.id}
+            session={s}
+            msgMap={msgMap}
+            projectNameMap={projectNameMap}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-export function HomeClient({ pinned, recent, byProject, historyMap: historyMapArr, firstUserMessages, totalSessions, sourceId }: Props) {
+export function HomeClient({ pinned, recent, byProject, historyMap: historyMapArr, firstUserMessages, projectNames, totalSessions, sourceId }: Props) {
   const [selected, setSelected] = useState<Selection>('recent');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarPanelRef = usePanelRef();
@@ -92,6 +160,7 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
 
   const historyMap = useMemo(() => new Map(historyMapArr), [historyMapArr]);
   const msgMap = useMemo(() => new Map(firstUserMessages), [firstUserMessages]);
+  const projectNameMap = useMemo(() => new Map(projectNames), [projectNames]);
   const projectMap = useMemo(() => new Map(byProject), [byProject]);
 
   function getProjectSessions(projectName: string): PanelSession[] {
@@ -100,7 +169,14 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
       .map((s): PanelSession => {
         const h = historyMap.get(s.id);
         if (h) return { kind: 'history', data: h };
-        return { kind: 'discovered', id: s.id, lastModified: s.lastModified, label: msgMap.get(s.id) ?? `${s.id.slice(0, 8)}…` };
+        const info = msgMap.get(s.id);
+        return {
+          kind: 'discovered',
+          id: s.id,
+          lastModified: s.lastModified,
+          label: info?.title ?? `${s.id.slice(0, 8)}…`,
+          isCommand: info?.isCommand ?? false,
+        };
       })
       .sort((a, b) => getTimestamp(b) - getTimestamp(a));
   }
@@ -111,25 +187,9 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
         const t = new Date(s.lastModified).getTime();
         return t > best ? t : best;
       }, 0);
-      return { name, count: sessions.length, latest };
+      return { name, count: sessions.length, latest, displayName: shortenProjectPath(name) };
     }).sort((a, b) => b.latest - a.latest);
-
-    if (items.length > 1) {
-      const names = items.map(i => i.name);
-      let prefix = '';
-      const first = names[0];
-      for (let i = 0; i < first.length; i++) {
-        const ch = first.slice(0, i + 1);
-        if (names.every(n => n.startsWith(ch))) prefix = ch;
-        else break;
-      }
-      const dashIdx = prefix.lastIndexOf('-');
-      const stripPrefix = dashIdx > 0 ? prefix.slice(0, dashIdx + 1) : '';
-      if (stripPrefix && items.every(i => i.name !== stripPrefix.slice(0, -1))) {
-        return items.map(i => ({ ...i, displayName: i.name.slice(stripPrefix.length) || i.name }));
-      }
-    }
-    return items.map(i => ({ ...i, displayName: i.name }));
+    return items;
   }, [byProject]);
 
   const panelContent = useMemo((): PanelSession[] => {
@@ -151,23 +211,33 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
     if (collapsedRef.current) { panel.expand(); } else { panel.collapse(); }
   }
 
+  // Below `md`, default to the collapsed icon rail rather than eating ~220px of a
+  // narrow viewport — the resizable panel's own pixel-based auto-shrink only kicked
+  // in at extreme widths and did so abruptly. This only fires once per breakpoint
+  // crossing so it never fights a manual toggle afterwards.
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)');
+    const collapseForMobile = () => {
+      if (mql.matches && !collapsedRef.current) toggleSidebar();
+    };
+    collapseForMobile();
+    mql.addEventListener('change', collapseForMobile);
+    return () => mql.removeEventListener('change', collapseForMobile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      <NavBar
-        activePage="home"
-        rightSlot={<SourceSwitcher initialSourceId={sourceId} />}
-      />
-
       <Group orientation="horizontal" className="flex-1 overflow-hidden">
         {/* Resizable sidebar */}
         <Panel
           id="home-sidebar"
           panelRef={sidebarPanelRef}
-          defaultSize={220}
-          minSize={160}
-          maxSize={400}
+          defaultSize={260}
+          minSize={260}
+          maxSize={440}
           collapsible
-          collapsedSize={40}
+          collapsedSize={44}
           onResize={(size) => {
             const collapsed = size.inPixels <= 44;
             if (collapsed !== collapsedRef.current) {
@@ -175,90 +245,72 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
               setSidebarCollapsed(collapsed);
             }
           }}
-          className="flex flex-col border-r border-border bg-background overflow-hidden"
+          className="flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground overflow-hidden"
         >
-          {/* Sidebar header with toggle */}
-          <div className={cn('flex items-center px-2 py-3 shrink-0', sidebarCollapsed ? 'justify-center' : 'justify-end')}>
-            <button
-              onClick={toggleSidebar}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              {sidebarCollapsed
-                ? <PanelLeftOpen className="h-4 w-4" />
-                : <PanelLeftClose className="h-4 w-4" />}
-            </button>
-          </div>
+          <NavBarBrand collapsed={sidebarCollapsed} sidebarToggle={{ onToggle: toggleSidebar }} />
 
           {/* Sidebar nav items */}
-          <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
+          <div className="flex-1 overflow-y-auto px-2 pt-3 space-y-0.5">
             {/* Fixed items */}
             {([
               { id: 'pinned', label: 'Pinned', icon: Pin, count: pinned.length },
               { id: 'recent', label: 'Recent', icon: Clock, count: recent.length },
             ] as const).map(({ id, label, icon: Icon, count }) => (
-              <button
+              <SidebarNavItem
                 key={id}
+                active={selected === id}
+                collapsed={sidebarCollapsed}
                 onClick={() => setSelected(id)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
-                  selected === id
-                    ? 'bg-muted text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
-                )}
-                title={sidebarCollapsed ? label : undefined}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {!sidebarCollapsed && (
-                  <>
-                    <span className="truncate">{label}</span>
-                    {count > 0 && <span className="ml-auto text-xs opacity-60">{count}</span>}
-                  </>
-                )}
-              </button>
+                icon={<Icon className="h-4 w-4" />}
+                label={label}
+                trailing={count > 0 ? count : undefined}
+              />
             ))}
 
             {/* Projects */}
             {sidebarProjects.length > 0 && !sidebarCollapsed && (
-              <div className="pt-3">
-                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <div className="mt-3 pt-3 border-t border-sidebar-border/50">
+                <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
                   Projects
                 </p>
                 {sidebarProjects.map(({ name, displayName, count, latest }) => (
-                  <button
+                  <SidebarNavItem
                     key={name}
+                    active={selected === name}
                     onClick={() => setSelected(name)}
-                    className={cn(
-                      'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
-                      selected === name
-                        ? 'bg-muted text-foreground font-medium'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
-                    )}
-                  >
-                    <FolderOpen className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{displayName}</span>
-                    <span className="ml-auto text-xs opacity-60 shrink-0">{timeAgo(latest)}</span>
-                  </button>
+                    title={name}
+                    accentVar={projectColorVar(name)}
+                    icon={
+                      <span
+                        className="h-1.5 w-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: `var(${projectColorVar(name)})` }}
+                      />
+                    }
+                    label={displayName}
+                    trailing={timeAgo(latest)}
+                  />
                 ))}
               </div>
             )}
 
             {/* Projects icon-only when collapsed */}
             {sidebarProjects.length > 0 && sidebarCollapsed && (
-              <div className="pt-2 space-y-0.5">
+              <div className="mt-2 pt-2 border-t border-sidebar-border/50 space-y-0.5">
                 {sidebarProjects.map(({ name, displayName }) => (
-                  <button
+                  <SidebarNavItem
                     key={name}
+                    active={selected === name}
+                    collapsed
                     onClick={() => setSelected(name)}
-                    title={displayName}
-                    className={cn(
-                      'w-full flex items-center justify-center py-1.5 rounded-md transition-colors',
-                      selected === name
-                        ? 'bg-muted text-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
-                    )}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                  </button>
+                    title={name}
+                    icon={
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: `var(${projectColorVar(name)})` }}
+                      />
+                    }
+                    label={displayName}
+                  />
                 ))}
               </div>
             )}
@@ -266,24 +318,30 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
         </Panel>
 
         {/* Drag handle */}
-        <Separator className="shrink-0 bg-border hover:bg-primary/40 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
+        <Separator className="shrink-0 bg-sidebar-border hover:bg-primary/40 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
 
         {/* Main content */}
-        <Panel id="home-main" minSize={300} className="overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-6 py-8">
-            <h2 className="text-sm font-semibold mb-5 truncate">{panelTitle}</h2>
-            {isEmpty ? (
-              <div className="text-center py-16 text-muted-foreground">
-                <Layers className="h-8 w-8 mx-auto mb-3 opacity-20" />
-                <p className="text-sm">No sessions here yet</p>
-              </div>
-            ) : (
-              <>
-                <SessionGroup label="Today" sessions={grouped.today} />
-                <SessionGroup label="This week" sessions={grouped.week} />
-                <SessionGroup label="Older" sessions={grouped.older} />
-              </>
-            )}
+        <Panel id="home-main" minSize={300} className="flex flex-col overflow-hidden">
+          <NavBarTabs
+            activePage="home"
+            rightSlot={<SourceSwitcher initialSourceId={sourceId} />}
+          />
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-[1800px] mx-auto px-6 py-8">
+              <h2 className="text-sm font-semibold mb-5 truncate">{panelTitle}</h2>
+              {isEmpty ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Layers className="h-8 w-8 mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">No sessions here yet</p>
+                </div>
+              ) : (
+                <>
+                  <SessionGroup label="Today" sessions={grouped.today} msgMap={msgMap} projectNameMap={projectNameMap} />
+                  <SessionGroup label="This week" sessions={grouped.week} msgMap={msgMap} projectNameMap={projectNameMap} />
+                  <SessionGroup label="Older" sessions={grouped.older} msgMap={msgMap} projectNameMap={projectNameMap} />
+                </>
+              )}
+            </div>
           </div>
         </Panel>
       </Group>

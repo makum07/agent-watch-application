@@ -199,5 +199,6 @@ function isMeaninglessTitle(title: string): boolean {
   if (!title) return true;
   if (/^[0-9a-f]{8}/i.test(title)) return true;
   if (/ — \d+ agents?$/.test(title)) return true;
+  if (/<[a-z-]+>/.test(title)) return true; // leaked command/caveat XML wrapper
   return false;
 }

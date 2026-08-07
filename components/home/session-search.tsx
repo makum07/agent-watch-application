@@ -56,9 +56,9 @@ export function SessionSearch() {
   return (
     <div className="relative w-full">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          className="pl-9 pr-9 bg-muted/50 border-border"
+          className="h-10 pl-10 pr-10 text-sm bg-muted/50 border-border"
           placeholder="Search sessions or paste ID / path…"
           value={query}
           onChange={e => setQuery(e.target.value)}

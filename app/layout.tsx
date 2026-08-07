@@ -1,11 +1,10 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Space_Grotesk } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 import Script from 'next/script';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { spaceGrotesk } from '@/lib/fonts';
 import './globals.css';
 import { cn } from "@/lib/utils";
-
-const spaceGrotesk = Space_Grotesk({subsets:['latin'],variable:'--font-sans'});
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -20,6 +19,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'AgentWatch — Multi-Agent Session Visualizer',
   description: 'Visualize and debug Claude Code multi-agent sessions',
+  icons: {
+    icon: '/agentwatch-logo.png',
+    shortcut: '/agentwatch-logo.png',
+    apple: '/agentwatch-logo.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

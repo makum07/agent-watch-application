@@ -11,6 +11,8 @@ import {
   decodeProjectPath,
   getProjectDisplayName,
   getClaudeProjectsDir,
+  resolveProjectCwd,
+  relativeToHome,
 } from '@/lib/parser/jsonl-parser';
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
@@ -37,9 +39,10 @@ export function discoverSessions(sourceId?: string): DiscoveredSession[] {
 
   for (const dirName of projectDirs) {
     const projectDir = path.join(projectsDir, dirName);
-    const projectPath = decodeProjectPath(dirName);
-    const projectDisplayName = getProjectDisplayName(dirName);
     const files = listJsonlFiles(projectDir);
+    const realCwd = resolveProjectCwd(files);
+    const projectPath = realCwd || decodeProjectPath(dirName);
+    const projectDisplayName = realCwd ? relativeToHome(realCwd) : getProjectDisplayName(dirName);
 
     for (const filePath of files) {
       try {
@@ -76,6 +79,16 @@ export function ingestSession(sessionId: string, sourceId?: string): Session | n
       return buildSessionFromDb(sessionId, db);
     }
     return null;
+  }
+
+  // Keep the stored project name in sync with cwd-based resolution even when nothing else
+  // needs a reindex — older rows were indexed before cwd resolution existed and are stuck
+  // with a lossy dash-decoded directory name (see decodeProjectPath/getProjectDisplayName).
+  if (cached) {
+    const freshProject = found.projectDisplayName || found.projectPath;
+    if (freshProject && freshProject !== cached.project) {
+      db.prepare('UPDATE conversations SET project = ? WHERE id = ?').run(freshProject, sessionId);
+    }
   }
 
   // Also re-index if any non-root agent is missing its prompt (old schema gap)
