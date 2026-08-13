@@ -30,3 +30,13 @@ export interface SessionHistoryUpdate {
   tags?: string[];
   notes?: string;
 }
+
+export interface SessionSearchResult {
+  sessionId: string;
+  title: string;
+  project: string;
+  lastOpened: string;
+  /** Surrounding text from the matched prompt/response, with … wrapping the hit — null for title matches. */
+  snippet: string | null;
+  matchType: 'title' | 'content';
+}

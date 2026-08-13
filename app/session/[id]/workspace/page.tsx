@@ -10,7 +10,7 @@ import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
 import { SessionPinToggle } from '@/components/shared/session-pin-toggle';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
+import { Loader2, Layers, Home, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -278,10 +278,17 @@ export default function WorkspacePage({ params }: Props) {
             <div className="flex items-center gap-3 px-3 h-12 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] shrink-0 overflow-x-auto overflow-y-hidden">
               {/* Breadcrumb cluster — shrinks/truncates before the controls do */}
               <div className="flex items-center gap-2 min-w-0 shrink">
-                <Link href="/" title="Back to dashboard" className="text-[var(--aw-text-3)] hover:text-[var(--aw-text-0)] shrink-0 transition-colors">
-                  /
+                <Link href="/" title="Back to dashboard" className="flex items-center shrink-0 text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors">
+                  <Home className="h-4 w-4" />
                 </Link>
-                <span className="text-sm font-semibold text-[var(--aw-text-0)] truncate min-w-[3ch]" title={projectName}>{projectName}</span>
+                <span className="text-[var(--aw-text-4)] shrink-0">/</span>
+                <Link
+                  href={`/?project=${encodeURIComponent(session.project)}`}
+                  title={`Back to ${projectName}`}
+                  className="text-sm font-semibold text-[var(--aw-text-0)] truncate min-w-[3ch] hover:text-[var(--aw-blue)] transition-colors"
+                >
+                  {projectName}
+                </Link>
                 <div className="flex items-center gap-1 ml-1 text-[11px] text-[var(--aw-text-3)] shrink-0 hidden lg:flex whitespace-nowrap">
                   <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
                   <span>·</span>

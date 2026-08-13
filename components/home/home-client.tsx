@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Pin, Clock, Layers, TerminalSquare, MessageSquare } from 'lucide-react';
 import { SessionCard } from './session-card';
 import { LocalDate } from './local-date';
@@ -153,7 +154,12 @@ function SessionGroup({
 }
 
 export function HomeClient({ pinned, recent, byProject, historyMap: historyMapArr, firstUserMessages, projectNames, totalSessions, sourceId }: Props) {
-  const [selected, setSelected] = useState<Selection>('recent');
+  const searchParams = useSearchParams();
+  const [selected, setSelected] = useState<Selection>(() => {
+    const requestedProject = searchParams.get('project');
+    const exists = requestedProject && byProject.some(([name]) => name === requestedProject);
+    return exists ? requestedProject! : 'recent';
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarPanelRef = usePanelRef();
   const collapsedRef = useRef(false);

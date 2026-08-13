@@ -73,6 +73,23 @@ function addTabToPane(node: LayoutNode, paneId: string, tab: PaneTab): LayoutNod
   return node;
 }
 
+function removeTabFromTree(node: LayoutNode, paneId: string, index: number): { node: LayoutNode; removed: PaneTab | null } {
+  if (node.type === 'pane' && node.id === paneId) {
+    const removed = node.tabs[index] ?? null;
+    if (!removed) return { node, removed: null };
+    const newTabs = node.tabs.filter((_, i) => i !== index);
+    const activeTab = Math.min(node.activeTab, Math.max(newTabs.length - 1, 0));
+    return { node: { ...node, tabs: newTabs, activeTab }, removed };
+  }
+  if (node.type === 'split') {
+    const left = removeTabFromTree(node.children[0], paneId, index);
+    if (left.removed) return { node: { ...node, children: [left.node, node.children[1]] }, removed: left.removed };
+    const right = removeTabFromTree(node.children[1], paneId, index);
+    return { node: { ...node, children: [node.children[0], right.node] }, removed: right.removed };
+  }
+  return { node, removed: null };
+}
+
 function setActiveTabInTree(node: LayoutNode, paneId: string, index: number): LayoutNode {
   if (node.type === 'pane' && node.id === paneId) {
     return { ...node, activeTab: index };
@@ -122,6 +139,7 @@ export interface WorkspaceStore {
   updateRatio: (node: LayoutNode, sizes: number[]) => void;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   addTabToPane: (paneId: string, tab: PaneTab) => void;
+  moveTab: (fromPaneId: string, tabIndex: number, toPaneId: string) => void;
   setActiveTab: (paneId: string, index: number) => void;
   closeTab: (paneId: string, index: number) => void;
   updatePaneState: (paneId: string, updates: Partial<PaneState>) => void;
@@ -186,6 +204,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       const { layout } = get();
       if (!layout) return;
       set({ layout: addTabToPane(layout, paneId, tab) });
+    },
+
+    moveTab: (fromPaneId, tabIndex, toPaneId) => {
+      const { layout } = get();
+      if (!layout || fromPaneId === toPaneId) return;
+      const { node: withoutTab, removed } = removeTabFromTree(layout, fromPaneId, tabIndex);
+      if (!removed) return;
+      set({ layout: addTabToPane(withoutTab, toPaneId, removed), focusedPaneId: toPaneId });
     },
 
     setActiveTab: (paneId, index) => {

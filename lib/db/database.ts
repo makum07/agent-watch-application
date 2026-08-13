@@ -406,6 +406,19 @@ function runMigrations(db: Database.Database) {
     `);
   }
 
+  if (currentVersion < 14) {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+        text,
+        session_id UNINDEXED,
+        role UNINDEXED,
+        ts UNINDEXED
+      );
+
+      INSERT INTO schema_version (version, applied_at) VALUES (14, ${Date.now()});
+    `);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

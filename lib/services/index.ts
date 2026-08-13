@@ -14,6 +14,7 @@ export {
   discoverSessions,
   ingestSession,
   getAgentMessages,
+  backfillContentIndex,
 } from './session-ingester';
 
 export {
@@ -21,6 +22,7 @@ export {
   getSessionHistory,
   listSessionHistory,
   searchSessionHistory,
+  searchSessions,
   updateSessionHistory,
 } from './session-history';
 

@@ -5,12 +5,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Loader2, Search, X, ChevronRight, ChevronDown,
   Plus, Pencil, NotebookPen, Folder, FolderOpen,
-  Files, Copy, Check,
+  Files, Copy, Check, ExternalLink, Eye, Code,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/store/workspace-store';
 import { useSessionStore } from '@/store/session-store';
 import { getAgentDisplay } from '@/lib/agent-display';
+import { InlineMarkdown } from '@/components/agent/artifact-card';
 
 interface ArtifactRow {
   id: string;
@@ -259,6 +260,7 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
                           key={entry.filePath}
                           entry={entry}
                           sessionId={sessionId}
+                          paneId={paneId}
                           agentMap={agentMap}
                           isExpanded={expandedPath === entry.filePath}
                           onToggle={() => setExpandedPath(prev => prev === entry.filePath ? null : entry.filePath)}
@@ -279,10 +281,11 @@ export function SessionArtifactsPane({ sessionId, paneId, isSingleTab }: Session
 // ─── File Row ─────────────────────────────────────────────────────────────────
 
 function FileRow({
-  entry, sessionId, agentMap, isExpanded, onToggle,
+  entry, sessionId, paneId, agentMap, isExpanded, onToggle,
 }: {
   entry: FileEntry;
   sessionId: string;
+  paneId: string;
   agentMap: Map<string, import('@/types/session').Agent>;
   isExpanded: boolean;
   onToggle: () => void;
@@ -360,7 +363,7 @@ function FileRow({
 
       {/* Inline file viewer */}
       {isExpanded && (
-        <FileViewer sessionId={sessionId} filePath={entry.filePath} lang={detectLang(entry.filePath)} contentPreview={entry.contentPreview} />
+        <FileViewer sessionId={sessionId} paneId={paneId} filePath={entry.filePath} lang={detectLang(entry.filePath)} contentPreview={entry.contentPreview} />
       )}
     </div>
   );
@@ -368,12 +371,15 @@ function FileRow({
 
 // ─── Inline File Viewer ────────────────────────────────────────────────────────
 
-function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: string; filePath: string; lang: string; contentPreview: string | null }) {
+function FileViewer({ sessionId, paneId, filePath, lang, contentPreview }: { sessionId: string; paneId: string; filePath: string; lang: string; contentPreview: string | null }) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isPreviewOnly, setIsPreviewOnly] = useState(false);
+  const isMarkdown = lang === 'markdown';
+  const [viewMode, setViewMode] = useState<'rendered' | 'source'>(isMarkdown ? 'rendered' : 'source');
+  const { addTabToPane, setFocusedPane } = useWorkspaceStore();
 
   useEffect(() => {
     setLoading(true);
@@ -410,6 +416,19 @@ function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: 
     });
   };
 
+  const fileName = filePath.split(/[/\\]/).pop() || filePath;
+
+  const openAsTab = () => {
+    if (!content) return;
+    const artifactId = `file:${sessionId}:${filePath}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    w.__artifactCache = w.__artifactCache || {};
+    w.__artifactCache[artifactId] = { filePath, content, lang };
+    addTabToPane(paneId, { type: 'artifact-content' as const, artifactId, label: fileName });
+    setFocusedPane(paneId);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-5 bg-[var(--aw-bg-4)] border-t border-[var(--aw-bg-2)]">
@@ -430,33 +449,74 @@ function FileViewer({ sessionId, filePath, lang, contentPreview }: { sessionId: 
 
   return (
     <div className="border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-4)]">
-      <div className="flex items-center gap-2 px-3 py-1 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
-        <span className="text-[10px] font-mono text-[var(--aw-text-4)] flex-1">
-          {lines.length} lines · {lang}
+      <div className="flex items-center gap-1 px-3 py-1 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
+        <span className="text-[10px] font-mono text-[var(--aw-text-4)] flex-1 truncate min-w-0">
+          {lines.length} lines · {lang}{isPreviewOnly ? ' · preview only' : ''}
         </span>
+        {isMarkdown && (
+          <div className="flex rounded border border-[var(--aw-bg-3)] overflow-hidden shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode('rendered')}
+              title="Preview"
+              className={cn(
+                'flex items-center justify-center p-1 transition-colors',
+                viewMode === 'rendered' ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]'
+              )}
+            >
+              <Eye className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('source')}
+              title="Source"
+              className={cn(
+                'flex items-center justify-center p-1 border-l border-[var(--aw-bg-3)] transition-colors',
+                viewMode === 'source' ? 'bg-[var(--aw-bg-2)] text-[var(--aw-text-0)]' : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)]'
+              )}
+            >
+              <Code className="h-3 w-3" />
+            </button>
+          </div>
+        )}
         <button
+          type="button"
           onClick={copy}
-          className="flex items-center gap-1 text-[10px] text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] transition-colors"
+          title={copied ? 'Copied' : 'Copy'}
+          className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] transition-colors shrink-0"
         >
           {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
-          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button
+          type="button"
+          onClick={openAsTab}
+          title="Open as tab"
+          className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-text-1)] hover:bg-[var(--aw-bg-2)] transition-colors shrink-0"
+        >
+          <ExternalLink className="h-3 w-3" />
         </button>
       </div>
-      <div className="flex text-[11px] font-mono leading-5 max-h-[320px] overflow-auto">
-        <div
-          className="select-none text-right border-r border-[var(--aw-bg-2)] sticky left-0 bg-[var(--aw-bg-4)] shrink-0"
-          style={{ minWidth: '38px', padding: '8px 6px' }}
-        >
-          {lines.slice(0, 300).map((_, i) => (
-            <div key={i} className="text-[var(--aw-text-4)] leading-5">{i + 1}</div>
-          ))}
-          {lines.length > 300 && <div className="text-[var(--aw-text-4)] leading-5">…</div>}
+      {isMarkdown && viewMode === 'rendered' ? (
+        <div className="max-h-[320px] overflow-auto">
+          <InlineMarkdown content={content ?? ''} />
         </div>
-        <pre className="flex-1 p-2 text-[var(--aw-text-1)] whitespace-pre overflow-x-auto leading-5">
-          {lines.slice(0, 300).join('\n')}
-          {lines.length > 300 && `\n… (${lines.length - 300} more lines)`}
-        </pre>
-      </div>
+      ) : (
+        <div className="flex text-[11px] font-mono leading-5 max-h-[320px] overflow-auto min-w-0">
+          <div
+            className="select-none text-right border-r border-[var(--aw-bg-2)] sticky left-0 bg-[var(--aw-bg-4)] shrink-0"
+            style={{ minWidth: '38px', padding: '8px 6px' }}
+          >
+            {lines.slice(0, 300).map((_, i) => (
+              <div key={i} className="text-[var(--aw-text-4)] leading-5">{i + 1}</div>
+            ))}
+            {lines.length > 300 && <div className="text-[var(--aw-text-4)] leading-5">…</div>}
+          </div>
+          <pre className="flex-1 min-w-0 p-2 text-[var(--aw-text-1)] whitespace-pre-wrap break-words leading-5">
+            {lines.slice(0, 300).join('\n')}
+            {lines.length > 300 && `\n… (${lines.length - 300} more lines)`}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
