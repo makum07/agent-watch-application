@@ -16,15 +16,26 @@ export function getActiveCycleId(sessionId: string): string | undefined {
   return activeCycles.get(sessionId);
 }
 
-export function waitForApproval(requestId: string, timeoutMs = 5 * 60 * 1000): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+export interface ApprovalResult {
+  approved: boolean;
+  /** True if no response arrived before the timeout — distinct from an explicit user denial. */
+  expired: boolean;
+}
+
+// Claude Code's own PreToolUse HTTP hook waits up to 600s (see
+// writePermissionHookSettings in lib/services/claude-cli.ts) before it gives
+// up on our endpoint. Our own wait must resolve well before that so we
+// control the "expired" messaging ourselves, rather than Claude Code's HTTP
+// client timing out the request with a less graceful error.
+export function waitForApproval(requestId: string, timeoutMs = 9 * 60 * 1000): Promise<ApprovalResult> {
+  return new Promise<ApprovalResult>((resolve) => {
     const timeout = setTimeout(() => {
       pendingApprovals.delete(requestId);
-      resolve(false);
+      resolve({ approved: false, expired: true });
     }, timeoutMs);
 
     pendingApprovals.set(requestId, {
-      resolve: (val) => { clearTimeout(timeout); resolve(val); },
+      resolve: (val) => { clearTimeout(timeout); resolve({ approved: val, expired: false }); },
     });
   });
 }

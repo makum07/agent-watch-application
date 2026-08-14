@@ -419,6 +419,14 @@ function runMigrations(db: Database.Database) {
     `);
   }
 
+  if (currentVersion < 15) {
+    const icCols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!icCols.find(c => c.name === 'permission_mode')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN permission_mode TEXT DEFAULT 'approve';`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (15, ${Date.now()});`);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

@@ -31,7 +31,7 @@ interface FeedbackStore {
   updateFeedback: (sessionId: string, itemId: string, updates: { text?: string; category?: FeedbackCategory }) => Promise<void>;
   deleteFeedback: (sessionId: string, itemId: string) => Promise<void>;
   previewPrompt: (sessionId: string, skillIds?: string[]) => Promise<string | null>;
-  applyImprovements: (sessionId: string, customPrompt?: string, skillIds?: string[]) => Promise<ImprovementCycle | null>;
+  applyImprovements: (sessionId: string, customPrompt?: string, skillIds?: string[], skipPermissions?: boolean) => Promise<ImprovementCycle | null>;
   rewindCycle: (sessionId: string, cycleId: string) => Promise<{ ok: boolean; error?: string }>;
   deleteCycle: (sessionId: string, cycleId: string) => Promise<void>;
   clearRewoundCycles: (sessionId: string) => Promise<void>;
@@ -136,7 +136,7 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
-  applyImprovements: async (sessionId, customPrompt, skillIds) => {
+  applyImprovements: async (sessionId, customPrompt, skillIds, skipPermissions) => {
     set({ isApplying: true, lastError: null });
     try {
       const res = await fetch(`/api/v2/sessions/${sessionId}/improvements`, {
@@ -145,6 +145,7 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
         body: JSON.stringify({
           ...(customPrompt ? { customPrompt } : {}),
           ...(skillIds?.length ? { skillIds } : {}),
+          ...(skipPermissions ? { skipPermissions: true } : {}),
         }),
       });
       if (!res.ok) {

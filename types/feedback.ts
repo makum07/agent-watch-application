@@ -79,6 +79,7 @@ export interface ImprovementCycle {
   snapshotSize: number | null;
   fileChanges: FileChange[] | null;
   streamEntries: StreamEntry[] | null;
+  permissionMode: 'approve' | 'skip';
 }
 
 // Live streaming state for an active improvement cycle

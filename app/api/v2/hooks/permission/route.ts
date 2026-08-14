@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     toolInput: tool_input,
   } as never);
 
-  const approved = await waitForApproval(requestId);
+  const { approved, expired } = await waitForApproval(requestId);
 
   wss.broadcast({
     type: 'improvement_permission_resolved',
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
     cycleId,
     requestId,
     approved,
+    expired,
   } as never);
 
   return NextResponse.json({
@@ -56,7 +57,9 @@ export async function POST(req: NextRequest) {
       permissionDecision: approved ? 'allow' : 'deny',
       permissionDecisionReason: approved
         ? 'User approved via AgentWatch'
-        : 'User denied via AgentWatch',
+        : expired
+          ? 'No response via AgentWatch before the approval request expired'
+          : 'User denied via AgentWatch',
     },
   });
 }

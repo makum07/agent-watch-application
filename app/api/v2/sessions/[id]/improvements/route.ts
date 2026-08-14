@@ -44,6 +44,7 @@ interface DbCycle {
   jsonl_snapshot_size: number | null;
   file_changes: string | null;
   stream_entries: string | null;
+  permission_mode: string | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -60,6 +61,7 @@ function mapCycle(row: DbCycle) {
     snapshotSize: row.jsonl_snapshot_size ?? null,
     fileChanges: row.file_changes ? JSON.parse(row.file_changes) : null,
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
+    permissionMode: row.permission_mode ?? 'approve',
   };
 }
 
@@ -189,6 +191,7 @@ async function runClaudeResumeAsync(
   prompt: string,
   resolvedProjectCwd?: string,
   externalSkillDirs: string[] = [],
+  skipPermissions = false,
 ) {
   const wss = getWsServer();
   const db = getDatabase();
@@ -207,12 +210,17 @@ async function runClaudeResumeAsync(
   const responseChunks: string[] = [];
   const log = createStreamLogger('s');
 
-  // Write a temporary settings file with a PreToolUse hook that POSTs
-  // directly to AgentWatch's endpoint for browser-based approval.
-  const { settingsPath, cleanup: cleanupSettings } = writePermissionHookSettings('agentwatch-hook', cycleId);
-
-  // Register this cycle so the hook endpoint knows which session is active
-  registerActiveCycle(sessionId, cycleId);
+  // In skip-permissions mode there's no PreToolUse hook to wire up — Claude
+  // runs with --dangerously-skip-permissions and never calls out for approval.
+  let cleanupSettings: () => void = () => {};
+  let settingsPath: string | undefined;
+  if (!skipPermissions) {
+    const hookSettings = writePermissionHookSettings('agentwatch-hook', cycleId);
+    settingsPath = hookSettings.settingsPath;
+    cleanupSettings = hookSettings.cleanup;
+    // Register this cycle so the hook endpoint knows which session is active
+    registerActiveCycle(sessionId, cycleId);
+  }
 
   try {
     broadcast('improvement_started', {});
@@ -220,7 +228,7 @@ async function runClaudeResumeAsync(
     const child = spawnClaudeCli({
       resumeSessionId: sessionId,
       cwd: projectCwd,
-      permission: { mode: 'hook', settingsPath },
+      permission: skipPermissions ? { mode: 'skipPermissions' } : { mode: 'hook', settingsPath: settingsPath! },
       // Grant Read access to external skill/agent directories.
       externalDirs: externalSkillDirs,
     });
@@ -275,16 +283,26 @@ async function runClaudeResumeAsync(
     }
 
     async function handleBlockedEdit(name: string, input: Record<string, unknown>) {
-      const requestId = randomUUID();
-      broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
-      const approved = await waitForApproval(requestId);
-      broadcast('improvement_permission_resolved', { requestId, approved });
-
       const filePath = String(input.file_path ?? 'unknown file');
+      let approved: boolean;
+
+      if (skipPermissions) {
+        // Skip mode is meant to be fully autonomous — a native "sensitive
+        // file" block isn't the interactive permission system, so it still
+        // needs this path, but it shouldn't stop and ask either.
+        approved = true;
+      } else {
+        const requestId = randomUUID();
+        broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
+        const result = await waitForApproval(requestId);
+        approved = result.approved;
+        broadcast('improvement_permission_resolved', { requestId, approved: result.approved, expired: result.expired });
+      }
+
       if (!approved) {
         directApplyOutcomes.push({ file: filePath, applied: false, reason: 'denied by user' });
       } else {
-        const result = applyEditLocally(name, input);
+        const result = applyEditLocally(name, input, projectCwd);
         directApplyOutcomes.push({ file: filePath, applied: result.ok, reason: result.error });
       }
     }
@@ -421,6 +439,20 @@ export async function POST(
       );
     }
 
+    // Hard guard against a second cycle starting (or a rewind running) while
+    // one is still applying — the pre-run `git stash` snapshots the whole
+    // working tree, so an overlapping cycle would stash away (and appear to
+    // silently discard) the first cycle's not-yet-committed edits.
+    const activeCycle = db.prepare(
+      `SELECT id FROM improvement_cycles WHERE session_id = ? AND status = 'applying'`
+    ).get(sessionId) as { id: string } | undefined;
+    if (activeCycle) {
+      return NextResponse.json(
+        { error: 'An improvement cycle is already running for this session. Wait for it to finish before starting another.' },
+        { status: 409 },
+      );
+    }
+
     const rewindCycleId = req.nextUrl.searchParams.get('rewind');
     if (rewindCycleId) {
       const targetCycle = db.prepare(
@@ -482,9 +514,10 @@ export async function POST(
       return NextResponse.json({ ok: true, rewoundCycles: cyclesToRewind });
     }
 
-    // Allow an optional custom prompt and skill selection from the client
-    let body: { customPrompt?: string; skillIds?: string[] } = {};
+    // Allow an optional custom prompt, skill selection, and permission mode from the client
+    let body: { customPrompt?: string; skillIds?: string[]; skipPermissions?: boolean } = {};
     try { body = await req.json(); } catch { /* no body is fine */ }
+    const skipPermissions = body.skipPermissions === true;
 
     const row = db.prepare(
       `SELECT MAX(cycle_number) as n FROM improvement_cycles WHERE session_id = ?`
@@ -516,12 +549,12 @@ export async function POST(
 
     db.prepare(`
       INSERT INTO improvement_cycles
-        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, jsonl_snapshot_size, created_at)
-      VALUES (?, ?, ?, ?, ?, 'applying', ?, ?)
-    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, now);
+        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, jsonl_snapshot_size, permission_mode, created_at)
+      VALUES (?, ?, ?, ?, ?, 'applying', ?, ?, ?)
+    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, skipPermissions ? 'skip' : 'approve', now);
 
     // Fire-and-forget — client polls GET or listens via WebSocket
-    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs));
+    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs, skipPermissions));
 
     const cycle = db.prepare(`SELECT * FROM improvement_cycles WHERE id = ?`).get(cycleId) as DbCycle;
     return NextResponse.json(mapCycle(cycle), { status: 201 });
