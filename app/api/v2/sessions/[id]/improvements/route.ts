@@ -2,15 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
-import { spawn, execSync } from 'child_process';
+import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval, waitForApproval } from '@/lib/hooks/permission-state';
 import { generateImprovementPrompt } from '@/lib/services/improvement-prompt';
 import { findExternalSkillDirsFromSession, findInvokedSkillsFromSession } from '@/lib/services/external-dirs';
 import { resolveSelectedSkills } from '@/lib/services/skill-catalog';
 import { applyEditLocally, isNativePermissionBlock } from '@/lib/services/direct-edit-apply';
+import {
+  spawnClaudeCli,
+  writeUserTurn,
+  attachStreamJsonParser,
+  waitForClaudeExit,
+  writePermissionHookSettings,
+} from '@/lib/services/claude-cli';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster } from '@/lib/services/cli-stream-log';
 
 interface DbFeedbackItem {
   id: string;
@@ -186,9 +193,7 @@ async function runClaudeResumeAsync(
   const wss = getWsServer();
   const db = getDatabase();
 
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
-  };
+  const broadcast = createCycleBroadcaster({ sessionId, cycleId });
 
   const projectCwd = resolvedProjectCwd ?? resolveProjectCwd(db, sessionId);
 
@@ -200,26 +205,11 @@ async function runClaudeResumeAsync(
   } catch { /* not a git repo, or nothing to stash — non-fatal */ }
 
   const responseChunks: string[] = [];
-  let streamIdCounter = 0;
-  const streamLog: Array<Record<string, unknown>> = [];
+  const log = createStreamLogger('s');
 
   // Write a temporary settings file with a PreToolUse hook that POSTs
   // directly to AgentWatch's endpoint for browser-based approval.
-  const port = String(process.env.PORT || 3000);
-  const hookSettings = {
-    hooks: {
-      PreToolUse: [{
-        matcher: 'Edit|Write',
-        hooks: [{
-          type: 'http',
-          url: `http://localhost:${port}/api/v2/hooks/permission`,
-          timeout: 600,
-        }],
-      }],
-    },
-  };
-  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-${cycleId}.json`);
-  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
+  const { settingsPath, cleanup: cleanupSettings } = writePermissionHookSettings('agentwatch-hook', cycleId);
 
   // Register this cycle so the hook endpoint knows which session is active
   registerActiveCycle(sessionId, cycleId);
@@ -227,34 +217,15 @@ async function runClaudeResumeAsync(
   try {
     broadcast('improvement_started', {});
 
-    const cliArgs = [
-      '--resume', sessionId, '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--permission-mode', 'default',
-      '--settings', `"${settingsPath}"`,
-      '--include-hook-events',
-    ];
-
-    // Grant Read access to external skill/agent directories.
-    // Paths must be quoted — shell: true splits on spaces otherwise.
-    for (const dir of externalSkillDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    const child = spawn('claude', cliArgs, {
-      shell: true,
+    const child = spawnClaudeCli({
+      resumeSessionId: sessionId,
       cwd: projectCwd,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      permission: { mode: 'hook', settingsPath },
+      // Grant Read access to external skill/agent directories.
+      externalDirs: externalSkillDirs,
     });
 
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
+    writeUserTurn(child, prompt);
 
     // Route browser approval responses to the shared permission state
     const unsubscribe = wss?.onClientMessage((msg) => {
@@ -262,8 +233,6 @@ async function runClaudeResumeAsync(
         resolveApproval(msg.requestId, msg.approved);
       }
     });
-
-    let stdoutBuffer = '';
 
     // Edit/Write calls that Claude Code natively refuses (e.g. "sensitive
     // file" paths under .claude/) never reach the PreToolUse hook — Claude
@@ -320,62 +289,36 @@ async function runClaudeResumeAsync(
       }
     }
 
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('improvement_stream_event', { event });
 
       const eventType = event.type as string;
 
       if (eventType === 'system') {
-        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: 'Session initialized' });
+        log.push({ kind: 'system', text: 'Session initialized' });
       }
 
-      if (eventType === 'assistant') {
-        const msg = event.message as { content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }> } | undefined;
-        if (!msg?.content) return;
+      for (const entry of translateStreamEvent(event)) {
+        log.push(entry);
 
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'text', timestamp: Date.now(), text: block.text });
-          }
-          if (block.type === 'thinking') {
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'thinking', timestamp: Date.now(), text: block.thinking ?? '' });
-          }
-          if (block.type === 'tool_use') {
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
-            if (block.id && (block.name === 'Edit' || block.name === 'Write')) {
-              pendingToolCalls.set(block.id, { name: block.name, input: block.input ?? {} });
-            }
-          }
+        if (entry.kind === 'text' && entry.text) {
+          responseChunks.push(entry.text);
         }
-      }
 
-      if (eventType === 'user') {
-        const um = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
-        if (um?.content) {
-          for (const block of um.content) {
-            if (block.type === 'tool_result') {
-              const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
-              streamLog.push({
-                id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
-                toolUseId: block.tool_use_id, content,
-                isError: block.is_error ?? false,
+        if (entry.kind === 'tool_use' && entry.toolUseId && (entry.toolName === 'Edit' || entry.toolName === 'Write')) {
+          pendingToolCalls.set(entry.toolUseId, { name: entry.toolName, input: entry.toolInput ?? {} });
+        }
+
+        if (entry.kind === 'tool_result' && entry.toolUseId) {
+          const call = pendingToolCalls.get(entry.toolUseId);
+          if (call) {
+            pendingToolCalls.delete(entry.toolUseId);
+            if (entry.isError && isNativePermissionBlock(entry.content ?? '')) {
+              directApplyInFlight++;
+              handleBlockedEdit(call.name, call.input).finally(() => {
+                directApplyInFlight--;
+                maybeFinishTurn();
               });
-
-              const call = block.tool_use_id ? pendingToolCalls.get(block.tool_use_id) : undefined;
-              if (call && block.tool_use_id) {
-                pendingToolCalls.delete(block.tool_use_id);
-                if (block.is_error && isNativePermissionBlock(content ?? '')) {
-                  directApplyInFlight++;
-                  handleBlockedEdit(call.name, call.input).finally(() => {
-                    directApplyInFlight--;
-                    maybeFinishTurn();
-                  });
-                }
-              }
             }
           }
         }
@@ -387,29 +330,12 @@ async function runClaudeResumeAsync(
       }
     }
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
-    });
+    const { flushRemaining, getStderr } = attachStreamJsonParser(child, handleStreamEvent);
 
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+    const { exitCode, spawnError } = await waitForClaudeExit(child);
 
-    let spawnError: Error | null = null;
-    const exitCode = await new Promise<number>((resolve) => {
-      child.on('close', (code) => resolve(code ?? 0));
-      child.on('error', (err) => { spawnError = err; resolve(1); });
-    });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
+    flushRemaining();
+    const stderr = getStderr();
 
     if (unsubscribe) unsubscribe();
 
@@ -436,7 +362,7 @@ async function runClaudeResumeAsync(
       UPDATE improvement_cycles
       SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?, stream_entries = ?
       WHERE id = ?
-    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, streamLog.length ? JSON.stringify(streamLog) : null, cycleId);
+    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, log.entries.length ? JSON.stringify(log.entries) : null, cycleId);
 
     broadcast('improvement_complete', { status, response, fileChanges });
   } catch (err) {
@@ -447,7 +373,7 @@ async function runClaudeResumeAsync(
     broadcast('improvement_failed', { error: errMsg });
   } finally {
     unregisterActiveCycle(sessionId);
-    try { fs.unlinkSync(settingsPath); } catch { /* non-fatal */ }
+    cleanupSettings();
   }
 }
 

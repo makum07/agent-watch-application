@@ -1,11 +1,8 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
-import type { StreamEntry } from '@/types/feedback';
 import type { SkillSummary, SkillDetailData, AnalysisRecommendation } from '@/types/skills';
 import {
   getClaudeProjectsDir,
@@ -21,6 +18,8 @@ import {
 } from './skill-registry';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
 import { findExternalSkillDirsForSessions } from '@/lib/services/external-dirs';
+import { runClaudeCliOneShot, writePermissionHookSettings } from '@/lib/services/claude-cli';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence } from '@/lib/services/cli-stream-log';
 
 function formatCategory(cat: string): string {
   const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
@@ -320,15 +319,10 @@ export async function runSkillAnalysis(
   skillId: string,
   customPrompt?: string
 ): Promise<void> {
-  const wss = getWsServer();
   const db = getDatabase();
 
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
-  };
-
-  const streamLog: StreamEntry[] = [];
-  let streamIdCounter = 0;
+  const broadcast = createCycleBroadcaster({ skillId, cycleId });
+  const log = createStreamLogger('sa');
 
   try {
     broadcast('skill_analysis_started', {});
@@ -344,150 +338,34 @@ export async function runSkillAnalysis(
 
     const skillCwd = resolveSkillProjectCwd(detail.skill.project);
 
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
+    log.push({
       kind: 'system',
-      timestamp: Date.now(),
       text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})${skillCwd ? ` in ${skillCwd}` : ''}...`,
     });
 
     const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
 
-    const cliArgs = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', 'claude-sonnet-4-6',
-      '--dangerously-skip-permissions',
-    ];
-
-    // Paths must be quoted — shell: true splits on spaces otherwise.
-    for (const dir of externalDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: skillCwd || undefined,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
-    child.stdin.end();
-
-    const responseChunks: string[] = [];
-    let stdoutBuffer = '';
-
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('skill_analysis_stream_event', { event });
-
-      const eventType = event.type as string;
-
-      if (eventType === 'assistant') {
-        const msg = event.message as {
-          content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }>;
-        } | undefined;
-        if (!msg?.content) return;
-
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'text',
-              timestamp: Date.now(),
-              text: block.text,
-            });
-          }
-          if (block.type === 'thinking' && block.thinking) {
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'thinking',
-              timestamp: Date.now(),
-              text: block.thinking,
-            });
-          }
-          if (block.type === 'tool_use') {
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'tool_use',
-              timestamp: Date.now(),
-              toolName: block.name,
-              toolInput: block.input,
-              toolUseId: block.id,
-            });
-          }
-        }
-      }
-
-      if (eventType === 'user') {
-        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> };
-        if (userMsg?.content) {
-          for (const block of userMsg.content) {
-            if (block.type === 'tool_result') {
-              streamLog.push({
-                id: `sa-${++streamIdCounter}`,
-                kind: 'tool_result',
-                timestamp: Date.now(),
-                toolUseId: block.tool_use_id,
-                content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                isError: block.is_error ?? false,
-              });
-            }
-          }
-        }
-      }
+      for (const entry of translateStreamEvent(event)) log.push(entry);
     }
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
-    });
-
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
 
     const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000;
-    const exitCode = await new Promise<number>((resolve) => {
-      const timer = setTimeout(() => {
-        try { child.kill(); } catch { /* already dead */ }
-        resolve(124);
-      }, ANALYSIS_TIMEOUT_MS);
-
-      child.on('close', (code) => { clearTimeout(timer); resolve(code ?? 0); });
-      child.on('error', () => { clearTimeout(timer); resolve(1); });
+    const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
+      prompt,
+      cwd: skillCwd || undefined,
+      model: 'claude-sonnet-4-6',
+      permission: { mode: 'skipPermissions' },
+      externalDirs,
+      timeoutMs: ANALYSIS_TIMEOUT_MS,
+      onEvent: handleStreamEvent,
     });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
-
-    if (exitCode === 124) {
-      streamLog.push({
-        id: `sa-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: 'Analysis timed out after 5 minutes.',
-      });
+    if (timedOut) {
+      log.push({ kind: 'system', text: 'Analysis timed out after 5 minutes.' });
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       });
       broadcast('skill_analysis_failed', { error: 'Analysis timed out after 5 minutes' });
       return;
@@ -495,37 +373,27 @@ export async function runSkillAnalysis(
 
     if (exitCode !== 0) {
       const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
-      streamLog.push({
-        id: `sa-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}`,
-      });
+      log.push({ kind: 'system', text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}` });
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       });
       broadcast('skill_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
 
-    const fullResponse = responseChunks.join('');
+    const fullResponse = responseText;
 
     let recommendations: AnalysisRecommendation[] | null = null;
     let fixPrompt: string | null = null;
-    const jsonMatch = fullResponse.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[1]);
-        if (Array.isArray(parsed.recommendations)) {
-          recommendations = parsed.recommendations;
-        }
-        if (typeof parsed.fixPrompt === 'string') {
-          fixPrompt = parsed.fixPrompt;
-        }
-      } catch {
-        // Failed to parse JSON — non-fatal
+    const parsed = extractJsonFence(fullResponse);
+    if (parsed) {
+      if (Array.isArray(parsed.recommendations)) {
+        recommendations = parsed.recommendations as AnalysisRecommendation[];
+      }
+      if (typeof parsed.fixPrompt === 'string') {
+        fixPrompt = parsed.fixPrompt;
       }
     }
 
@@ -539,19 +407,14 @@ export async function runSkillAnalysis(
       finalStatus = 'awaiting_review';
     }
 
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis ${finalStatus}. ${recommendations?.length ?? 0} recommendations generated.`,
-    });
+    log.push({ kind: 'system', text: `Analysis ${finalStatus}. ${recommendations?.length ?? 0} recommendations generated.` });
 
     updateAnalysisCycle(cycleId, {
       analysisResponse: fullResponse,
       fixPrompt,
       recommendations,
       status: finalStatus,
-      streamEntries: streamLog.length > 0 ? streamLog : null,
+      streamEntries: log.entries.length > 0 ? log.entries : null,
     });
 
     broadcast('skill_analysis_complete', { status: finalStatus });
@@ -560,17 +423,12 @@ export async function runSkillAnalysis(
       await applySkillFix(cycleId, skillId, fixPrompt);
     }
   } catch (err) {
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis failed: ${String(err)}`,
-    });
+    log.push({ kind: 'system', text: `Analysis failed: ${String(err)}` });
 
     try {
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       });
     } catch (updateErr) {
       try {
@@ -589,29 +447,12 @@ export async function applySkillFix(
   fixPrompt: string
 ): Promise<void> {
   const wss = getWsServer();
-
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
-  };
+  const broadcast = createCycleBroadcaster({ skillId, cycleId });
 
   const detail = getSkillDetail(skillId);
   const skillCwd = detail ? resolveSkillProjectCwd(detail.skill.project) : null;
 
-  const port = String(process.env.PORT || 3000);
-  const hookSettings = {
-    hooks: {
-      PreToolUse: [{
-        matcher: 'Edit|Write',
-        hooks: [{
-          type: 'http',
-          url: `http://localhost:${port}/api/v2/hooks/permission`,
-          timeout: 600,
-        }],
-      }],
-    },
-  };
-  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-skill-${cycleId}.json`);
-  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
+  const { settingsPath, cleanup: cleanupSettings } = writePermissionHookSettings('agentwatch-hook-skill', cycleId);
 
   let registeredSessionId: string | null = null;
   let unsubscribe: (() => void) | undefined;
@@ -621,89 +462,32 @@ export async function applySkillFix(
 
     const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
 
-    const cliArgs = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', 'claude-sonnet-4-6',
-      '--permission-mode', 'default',
-      '--settings', `"${settingsPath}"`,
-      '--include-hook-events',
-    ];
-
-    // Grant Edit/Write access to the skill's real definition directory when it
-    // lives outside skillCwd — otherwise the workspace-boundary check blocks
-    // the edit even after the user approves it via the browser hook.
-    for (const dir of externalDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: skillCwd || undefined,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: fixPrompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
-    child.stdin.end();
-
     unsubscribe = wss?.onClientMessage((msg: Record<string, unknown>) => {
       if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
         resolveApproval(msg.requestId as string, msg.approved as boolean);
       }
     });
 
-    const responseChunks: string[] = [];
-    let stdoutBuffer = '';
-
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       if (event.type === 'system' && typeof event.session_id === 'string' && !registeredSessionId) {
         registeredSessionId = event.session_id as string;
         registerActiveCycle(registeredSessionId, cycleId);
       }
 
       broadcast('skill_analysis_stream_event', { event });
-
-      const eventType = event.type as string;
-      if (eventType === 'assistant') {
-        const msg = event.message as {
-          content?: Array<{ type: string; text?: string }>;
-        } | undefined;
-        if (!msg?.content) return;
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-          }
-        }
-      }
     }
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
+    // Grant Edit/Write access to the skill's real definition directory when it
+    // lives outside skillCwd — otherwise the workspace-boundary check blocks
+    // the edit even after the user approves it via the browser hook.
+    await runClaudeCliOneShot({
+      prompt: fixPrompt,
+      cwd: skillCwd || undefined,
+      model: 'claude-sonnet-4-6',
+      permission: { mode: 'hook', settingsPath },
+      externalDirs,
+      onEvent: handleStreamEvent,
     });
-
-    await new Promise<number>((resolve) => {
-      child.on('close', (code) => resolve(code ?? 0));
-      child.on('error', () => resolve(1));
-    });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
 
     const db = getDatabase();
     db.prepare('UPDATE skills SET version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), skillId);
@@ -716,7 +500,7 @@ export async function applySkillFix(
   } finally {
     unsubscribe?.();
     if (registeredSessionId) unregisterActiveCycle(registeredSessionId);
-    try { fs.unlinkSync(settingsPath); } catch { /* already cleaned */ }
+    cleanupSettings();
   }
 }
 
