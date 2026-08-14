@@ -262,7 +262,7 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
         {activeSubTab === 'artifacts'    && <ArtifactsTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
         {activeSubTab === 'context'      && <ContextTab agent={agent} paneId={paneId} />}
         {activeSubTab === 'tools'        && <ToolsTab sessionId={sessionId} agentId={agentId} />}
-        {activeSubTab === 'summary'      && <SummaryTab agent={agent} />}
+        {activeSubTab === 'summary'      && <SummaryTab agent={agent} paneId={paneId} />}
         {activeSubTab === 'feedback'     && <FeedbackTab sessionId={sessionId} agentId={agentId} />}
       </div>
 
