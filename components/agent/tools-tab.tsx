@@ -20,13 +20,45 @@ export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
   const { messages, loadMore, hasMore, isLoading } = useAgentMessages(sessionId, agentId, refreshToken);
   const [filter, setFilter] = useState('');
 
-  // Collect tool calls in execution order (message order → content order within message)
-  const toolUses = useMemo(() => messages.flatMap(msg => {
-    if (msg.role !== 'assistant') return [];
-    return msg.content
-      .filter(b => b.type === 'tool_use')
-      .map(b => b as { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> });
-  }), [messages]);
+  // Collect tool calls in execution order (message order → content order within message),
+  // paired with their tool_result block (looked up by tool_use_id) so output isn't lost.
+  const toolUses = useMemo(() => {
+    const resultMap = new Map<string, { content: unknown; isError: boolean; ts: number }>();
+    for (const msg of messages) {
+      if (msg.role !== 'user' && msg.role !== 'tool') continue;
+      for (const block of msg.content) {
+        if (block.type === 'tool_result') {
+          resultMap.set(block.tool_use_id, {
+            content: block.content,
+            isError: block.is_error ?? false,
+            ts: new Date(msg.timestamp).getTime(),
+          });
+        }
+      }
+    }
+
+    const calls: Array<{
+      id: string; name: string; input: Record<string, unknown>;
+      result: unknown; isError: boolean; durationMs: number | null;
+    }> = [];
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue;
+      for (const block of msg.content) {
+        if (block.type !== 'tool_use') continue;
+        const res = resultMap.get(block.id);
+        const durationMs = res ? res.ts - new Date(msg.timestamp).getTime() : null;
+        calls.push({
+          id: block.id,
+          name: block.name,
+          input: block.input,
+          result: res?.content,
+          isError: res?.isError ?? false,
+          durationMs,
+        });
+      }
+    }
+    return calls;
+  }, [messages]);
 
   const filtered = useMemo(() => {
     if (!filter) return toolUses;
@@ -79,9 +111,9 @@ export function ToolsTab({ sessionId, agentId }: ToolsTabProps) {
                 id: tu.id,
                 name: tu.name,
                 input: tu.input,
-                result: undefined,
-                isError: false,
-                durationMs: null,
+                result: tu.result,
+                isError: tu.isError,
+                durationMs: tu.durationMs,
                 isAgentSpawn: SPAWN_TOOLS.has(tu.name),
                 childAgentId: null,
               }}
