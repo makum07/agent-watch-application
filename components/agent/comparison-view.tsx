@@ -1,16 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { useSessionStore } from '@/store/session-store';
-import { useWorkspaceStore } from '@/store/workspace-store';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
-import { formatTokens, formatDuration, formatCost, cn } from '@/lib/utils';
+import { formatTokens, formatDuration, formatCost, estimateAgentCost, cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ConversationTab } from './conversation-tab';
 import type { Agent } from '@/types/session';
 
-type CompareTab = 'metrics' | 'prompts' | 'tools';
+type CompareTab = 'conversation' | 'metrics' | 'prompts' | 'tools';
+type Better = 'lower' | 'higher' | 'neutral';
 
 interface ComparisonViewProps {
   sessionId: string;
@@ -20,116 +21,200 @@ interface ComparisonViewProps {
 }
 
 const TABS: { id: CompareTab; label: string }[] = [
+  { id: 'conversation', label: 'Conversation' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'prompts', label: 'Prompts' },
   { id: 'tools', label: 'Tools' },
 ];
 
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch { return iso; }
-}
+// Fixed two-slot categorical pair (dataviz palette, dark surface) — identity for
+// "A" vs "B" never varies with the agents' own type colors, so a comparison never
+// accidentally reads as green-vs-red ("good vs bad") or collides when both agents
+// happen to share a type color.
+const SLOT_A = '#3987e5'; // categorical slot 1 — blue
+const SLOT_B = '#d95926'; // categorical slot 2 — orange
+const WARN = '#fab219';   // status: warning (used only for the "lagging side" delta chip)
 
-function diffClass(a: number, b: number): string {
-  if (a === 0 && b === 0) return '';
-  const pct = b === 0 ? Infinity : Math.abs(a - b) / b;
-  if (pct < 0.2) return '';
-  return a > b ? 'text-red-400' : 'text-green-400';
-}
+// ─── Building blocks ────────────────────────────────────────────────────────
 
-function DiffRow({ label, a, b, format }: { label: string; a: string; b: string; format?: 'number' }) {
-  const aNum = format === 'number' ? parseFloat(a.replace(/,/g, '')) : NaN;
-  const bNum = format === 'number' ? parseFloat(b.replace(/,/g, '')) : NaN;
-  const aClass = !isNaN(aNum) && !isNaN(bNum) ? diffClass(aNum, bNum) : '';
-  const bClass = !isNaN(aNum) && !isNaN(bNum) ? diffClass(bNum, aNum) : '';
-
-  return (
-    <div className="flex items-center text-sm">
-      <span className="text-[var(--aw-text-3)] text-xs w-28 shrink-0">{label}</span>
-      <span className={cn('font-mono text-xs flex-1 text-right pr-4', aClass || 'text-[var(--aw-text-1)]')}>{a}</span>
-      <span className={cn('font-mono text-xs flex-1 text-right', bClass || 'text-[var(--aw-text-1)]')}>{b}</span>
-    </div>
-  );
-}
+// Label rail stays narrow; the two value columns share whatever width is left
+// (so text values get real room instead of truncating); delta stays fixed-width.
+// Every row below shares this template so the table lines up.
+const ROW_GRID = 'grid-cols-[112px_minmax(0,1fr)_minmax(0,1fr)_52px]';
 
 function SectionHeader({ label }: { label: string }) {
   return <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mt-4 mb-1.5 first:mt-0">{label}</div>;
 }
 
-function MetricsTab({ a, b }: { a: Agent; b: Agent }) {
+/** Column headings for a metrics/tools table — the only place agent identity is named per-column. */
+function TableHead({ a, b }: { a: Agent; b: Agent }) {
+  const dispA = getAgentDisplay(a);
+  const dispB = getAgentDisplay(b);
   return (
-    <div className="p-4 space-y-0.5">
+    <div className={cn('grid items-center gap-2 pb-1.5 mb-1 border-b border-[var(--aw-bg-2)]', ROW_GRID)}>
+      <span />
+      <span className="flex items-center justify-end gap-1 min-w-0 text-[10px] font-medium" style={{ color: SLOT_A }}>
+        <span className="truncate">{dispA.shortName}</span>
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: SLOT_A }} />
+      </span>
+      <span className="flex items-center justify-end gap-1 min-w-0 text-[10px] font-medium" style={{ color: SLOT_B }}>
+        <span className="truncate">{dispB.shortName}</span>
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: SLOT_B }} />
+      </span>
+      <span />
+    </div>
+  );
+}
+
+/**
+ * A numeric metric as two plain right-aligned values plus one delta arrow.
+ * `better` controls whether the arrow appears at all — 'neutral' metrics (e.g.
+ * message count) show the two numbers only, never a value judgment.
+ */
+function MetricRow({
+  label, aValue, bValue, format, better = 'neutral',
+}: {
+  label: string; aValue: number; bValue: number; format: (n: number) => string; better?: Better;
+}) {
+  let delta: { pct: number; aHigher: boolean } | null = null;
+  if (better !== 'neutral' && aValue !== bValue) {
+    const base = Math.min(aValue, bValue) || Math.max(aValue, bValue) || 1;
+    const pct = Math.round((Math.abs(aValue - bValue) / base) * 100);
+    if (pct >= 5) delta = { pct, aHigher: aValue > bValue };
+  }
+  const Arrow = delta?.aHigher ? ArrowUp : ArrowDown;
+
+  return (
+    <div className={cn('grid items-center gap-2 py-1.5 border-b border-[var(--aw-bg-2)]/40 last:border-0', ROW_GRID)}>
+      <span className="text-[11px] text-[var(--aw-text-3)] truncate" title={label}>{label}</span>
+      <span className="font-mono text-xs text-[var(--aw-text-1)] text-right tabular-nums">{format(aValue)}</span>
+      <span className="font-mono text-xs text-[var(--aw-text-1)] text-right tabular-nums">{format(bValue)}</span>
+      <span className="flex items-center justify-end gap-0.5">
+        {delta && (
+          <>
+            <Arrow className="h-2.5 w-2.5 shrink-0" style={{ color: WARN }} />
+            <span className="text-[10px] font-medium tabular-nums" style={{ color: WARN }}>{delta.pct}%</span>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** A non-numeric metric — plain text on each side, no marks. */
+function TextRow({ label, a, b }: { label: string; a: string; b: string }) {
+  return (
+    <div className={cn('grid items-center gap-2 py-1 border-b border-[var(--aw-bg-2)]/40 last:border-0', ROW_GRID)}>
+      <span className="text-[11px] text-[var(--aw-text-3)] truncate" title={label}>{label}</span>
+      <span className="col-span-2 grid grid-cols-2 gap-2 text-xs font-mono text-[var(--aw-text-1)] min-w-0">
+        <span className="truncate" title={a}>{a}</span>
+        <span className="truncate" title={b}>{b}</span>
+      </span>
+      <span />
+    </div>
+  );
+}
+
+function AgentTag({ agent, color }: { agent: Agent; color: string }) {
+  const { shortName, initials } = getAgentDisplay(agent);
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0 min-w-0">
+      <span
+        className="w-4 h-4 rounded flex items-center justify-center text-[7px] font-bold shrink-0"
+        style={{ backgroundColor: `${color}25`, color }}
+      >
+        {initials.slice(0, 2)}
+      </span>
+      <span className="text-[11px] font-medium truncate" style={{ color }}>{shortName}</span>
+    </span>
+  );
+}
+
+// ─── Tabs ───────────────────────────────────────────────────────────────────
+
+function ConversationCompareTab({ sessionId, a, b, paneId }: { sessionId: string; a: Agent; b: Agent; paneId: string }) {
+  const columns = [{ agent: a, color: SLOT_A }, { agent: b, color: SLOT_B }];
+  return (
+    <div className="grid grid-cols-2 h-full">
+      {columns.map(({ agent, color }, i) => (
+        <div key={agent.id} className={cn('flex flex-col h-full overflow-hidden min-w-0', i === 0 && 'border-r border-[var(--aw-bg-2)]')}>
+          <div className="shrink-0 px-3 py-2 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)]">
+            <AgentTag agent={agent} color={color} />
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ConversationTab sessionId={sessionId} agentId={agent.id} paneId={paneId} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetricsTab({ a, b }: { a: Agent; b: Agent }) {
+  const costA = estimateAgentCost(a.tokenUsage, a.model ?? 'sonnet');
+  const costB = estimateAgentCost(b.tokenUsage, b.model ?? 'sonnet');
+
+  return (
+    <div className="p-4">
+      <TableHead a={a} b={b} />
       <SectionHeader label="Identity" />
-      <DiffRow label="Type" a={a.subagentType || a.type} b={b.subagentType || b.type} />
-      <DiffRow label="Model" a={a.model || '—'} b={b.model || '—'} />
-      <DiffRow label="Status" a={getStatusDisplay(a).title} b={getStatusDisplay(b).title} />
-      <DiffRow label="Depth" a={String(a.depth)} b={String(b.depth)} />
+      <TextRow label="Type" a={a.subagentType || a.type} b={b.subagentType || b.type} />
+      <TextRow label="Model" a={a.model || '—'} b={b.model || '—'} />
+      <TextRow label="Status" a={getStatusDisplay(a).title} b={getStatusDisplay(b).title} />
+      <TextRow label="Depth" a={String(a.depth)} b={String(b.depth)} />
 
-      <SectionHeader label="Timing" />
-      <DiffRow label="Duration" a={formatDuration(a.durationMs)} b={formatDuration(b.durationMs)} format="number" />
-      <DiffRow label="Messages" a={String(a.messageCount)} b={String(b.messageCount)} format="number" />
-      <DiffRow label="Children" a={String(a.children.length)} b={String(b.children.length)} format="number" />
+      <SectionHeader label="Timing & Scope" />
+      <MetricRow label="Duration" aValue={a.durationMs} bValue={b.durationMs} format={formatDuration} better="lower" />
+      <MetricRow label="Messages" aValue={a.messageCount} bValue={b.messageCount} format={String} />
+      <MetricRow label="Children" aValue={a.children.length} bValue={b.children.length} format={String} />
 
-      <SectionHeader label="Tokens" />
-      <DiffRow label="Input" a={formatTokens(a.tokenUsage.input)} b={formatTokens(b.tokenUsage.input)} format="number" />
-      <DiffRow label="Output" a={formatTokens(a.tokenUsage.output)} b={formatTokens(b.tokenUsage.output)} format="number" />
-      <DiffRow label="Cache Created" a={formatTokens(a.tokenUsage.cacheCreation)} b={formatTokens(b.tokenUsage.cacheCreation)} format="number" />
-      <DiffRow label="Cache Read" a={formatTokens(a.tokenUsage.cacheRead)} b={formatTokens(b.tokenUsage.cacheRead)} format="number" />
-      <DiffRow label="Total" a={formatTokens(a.tokenUsage.total)} b={formatTokens(b.tokenUsage.total)} format="number" />
+      <SectionHeader label="Tokens & Cost" />
+      <MetricRow label="Input" aValue={a.tokenUsage.input} bValue={b.tokenUsage.input} format={formatTokens} better="lower" />
+      <MetricRow label="Output" aValue={a.tokenUsage.output} bValue={b.tokenUsage.output} format={formatTokens} better="lower" />
+      <MetricRow label="Cache Created" aValue={a.tokenUsage.cacheCreation} bValue={b.tokenUsage.cacheCreation} format={formatTokens} />
+      <MetricRow label="Cache Read" aValue={a.tokenUsage.cacheRead} bValue={b.tokenUsage.cacheRead} format={formatTokens} />
+      <MetricRow label="Total tokens" aValue={a.tokenUsage.total} bValue={b.tokenUsage.total} format={formatTokens} better="lower" />
+      <MetricRow label="Est. cost" aValue={costA} bValue={costB} format={formatCost} better="lower" />
+
+      <SectionHeader label="Reliability" />
+      <MetricRow label="Failed calls" aValue={a.errorToolCount} bValue={b.errorToolCount} format={String} better="lower" />
+      <MetricRow label="Denied calls" aValue={a.deniedToolCount} bValue={b.deniedToolCount} format={String} better="lower" />
     </div>
   );
 }
 
 function PromptsTab({ a, b }: { a: Agent; b: Agent }) {
+  const columns = [{ agent: a, color: SLOT_A }, { agent: b, color: SLOT_B }];
   return (
     <div className="grid grid-cols-2 gap-0 h-full">
-      <div className="border-r border-[var(--aw-bg-2)] overflow-y-auto">
-        <div className="p-3 space-y-4">
-          {a.prompt && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Prompt</div>
-              <div className="rounded-md bg-[var(--aw-blue-bg-deep)] border border-[var(--aw-blue-bg)]/30 p-3">
-                <MarkdownRenderer content={a.prompt} />
-              </div>
+      {columns.map(({ agent, color }, i) => (
+        <div key={agent.id} className={cn('overflow-y-auto', i === 0 && 'border-r border-[var(--aw-bg-2)]')}>
+          <div className="p-3 space-y-4">
+            <div className="pb-2 border-b border-[var(--aw-bg-2)]">
+              <AgentTag agent={agent} color={color} />
             </div>
-          )}
-          {a.response && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Response</div>
-              <div className="rounded-md bg-[var(--aw-green-bg-deep)] border border-[var(--aw-green-bg-2)]/30 p-3">
-                <MarkdownRenderer content={a.response} />
+            {agent.prompt && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Prompt</div>
+                <div className="rounded-md bg-[var(--aw-blue-bg-deep)] border border-[var(--aw-blue-bg)]/30 p-3">
+                  <MarkdownRenderer content={agent.prompt} />
+                </div>
               </div>
-            </div>
-          )}
-          {!a.prompt && !a.response && (
-            <div className="text-xs text-[var(--aw-text-4)] italic pt-2">No prompt / response recorded</div>
-          )}
+            )}
+            {agent.response && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Response</div>
+                <div className="rounded-md bg-[var(--aw-green-bg-deep)] border border-[var(--aw-green-bg-2)]/30 p-3">
+                  <MarkdownRenderer content={agent.response} />
+                </div>
+              </div>
+            )}
+            {!agent.prompt && !agent.response && (
+              <div className="text-xs text-[var(--aw-text-4)] italic pt-2">No prompt / response recorded</div>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="overflow-y-auto">
-        <div className="p-3 space-y-4">
-          {b.prompt && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Prompt</div>
-              <div className="rounded-md bg-[var(--aw-blue-bg-deep)] border border-[var(--aw-blue-bg)]/30 p-3">
-                <MarkdownRenderer content={b.prompt} />
-              </div>
-            </div>
-          )}
-          {b.response && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--aw-text-3)] mb-1.5">Response</div>
-              <div className="rounded-md bg-[var(--aw-green-bg-deep)] border border-[var(--aw-green-bg-2)]/30 p-3">
-                <MarkdownRenderer content={b.response} />
-              </div>
-            </div>
-          )}
-          {!b.prompt && !b.response && (
-            <div className="text-xs text-[var(--aw-text-4)] italic pt-2">No prompt / response recorded</div>
-          )}
-        </div>
-      </div>
+      ))}
     </div>
   );
 }
@@ -145,28 +230,18 @@ function ToolsTab({ a, b }: { a: Agent; b: Agent }) {
   }
 
   return (
-    <div className="p-4 space-y-0.5">
-      <div className="flex items-center text-[10px] text-[var(--aw-text-4)] mb-2">
-        <span className="w-28 shrink-0">Tool</span>
-        <span className="flex-1 text-right pr-4">A</span>
-        <span className="flex-1 text-right">B</span>
-      </div>
+    <div className="p-4">
+      <TableHead a={a} b={b} />
       {sortedTools.map(tool => (
-        <DiffRow
-          key={tool}
-          label={tool}
-          a={aMap.has(tool) ? String(aMap.get(tool)) : '—'}
-          b={bMap.has(tool) ? String(bMap.get(tool)) : '—'}
-          format="number"
-        />
+        <MetricRow key={tool} label={tool} aValue={aMap.get(tool) ?? 0} bValue={bMap.get(tool) ?? 0} format={String} />
       ))}
     </div>
   );
 }
 
-export function ComparisonView({ sessionId, agentAId, agentBId, paneId }: ComparisonViewProps) {
+export function ComparisonView({ sessionId, agentAId, agentBId, paneId = '' }: ComparisonViewProps) {
   const { agentMap } = useSessionStore();
-  const [activeTab, setActiveTab] = useState<CompareTab>('metrics');
+  const [activeTab, setActiveTab] = useState<CompareTab>('conversation');
   const [flipped, setFlipped] = useState(false);
 
   const rawA = agentMap.get(agentAId);
@@ -187,24 +262,24 @@ export function ComparisonView({ sessionId, agentAId, agentBId, paneId }: Compar
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-[var(--aw-bg-0)]">
-      {/* Header: two agent columns */}
+      {/* Header: two agent columns — this is the legend for every bar/dot below */}
       <div className="shrink-0 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)]">
         <div className="grid grid-cols-2">
           <div className="flex items-center gap-2 px-3 py-2.5 border-r border-[var(--aw-bg-2)]">
-            <span className="w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: dispA.color.bg, color: dispA.color.text }}>
+            <span className="w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: `${SLOT_A}25`, color: SLOT_A }}>
               {dispA.initials.slice(0, 2)}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold truncate" style={{ color: dispA.color.text }}>{dispA.shortName}</div>
+              <div className="text-xs font-semibold truncate" style={{ color: SLOT_A }}>{dispA.shortName}</div>
               <div className="text-[10px] text-[var(--aw-text-3)]">{dispA.typeLabel}</div>
             </div>
           </div>
           <div className="flex items-center gap-2 px-3 py-2.5">
-            <span className="w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: dispB.color.bg, color: dispB.color.text }}>
+            <span className="w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: `${SLOT_B}25`, color: SLOT_B }}>
               {dispB.initials.slice(0, 2)}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold truncate" style={{ color: dispB.color.text }}>{dispB.shortName}</div>
+              <div className="text-xs font-semibold truncate" style={{ color: SLOT_B }}>{dispB.shortName}</div>
               <div className="text-[10px] text-[var(--aw-text-3)]">{dispB.typeLabel}</div>
             </div>
             <button onClick={() => setFlipped(f => !f)} title="Swap agents" className="p-1 rounded text-[var(--aw-text-4)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors shrink-0">
@@ -234,6 +309,7 @@ export function ComparisonView({ sessionId, agentAId, agentBId, paneId }: Compar
 
       {/* Tab content */}
       <div className="flex-1 overflow-hidden min-h-0">
+        {activeTab === 'conversation' && <ConversationCompareTab sessionId={sessionId} a={a} b={b} paneId={paneId} />}
         {activeTab === 'metrics' && (
           <ScrollArea className="h-full">
             <MetricsTab a={a} b={b} />

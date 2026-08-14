@@ -3,16 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAgentMessages } from '@/hooks/use-agent-messages';
 
-import { Loader2, Users, User, Bot, Sparkles, ChevronDown, ChevronUp, ChevronsDown } from 'lucide-react';
+import { Loader2, User, Bot, Sparkles, ChevronDown, ChevronUp, ChevronsDown } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
 import { formatTime as fmtTime } from '@/lib/utils';
 import type { ParsedMessage } from '@/lib/parser/jsonl-parser';
 import type { ContentBlock } from '@/types/session';
 import { ToolCallWithResult } from './tool-call-with-result';
-import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { getAgentDisplay } from '@/lib/agent-display';
 
 interface ConversationTabProps {
   sessionId: string;
@@ -52,15 +50,13 @@ function isSystemOnly(text: string): boolean {
 }
 
 interface ConversationTurn {
-  /** null for plain exchanges, 1-indexed for turns that spawn agents */
-  orchestrationRound: number | null;
   userMessage: ParsedMessage | null;
   messages: ParsedMessage[];
 }
 
 function buildTurns(messages: ParsedMessage[]): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
-  let current: ConversationTurn = { orchestrationRound: null, userMessage: null, messages: [] };
+  let current: ConversationTurn = { userMessage: null, messages: [] };
 
   for (const msg of messages) {
     const textContent = msg.content.filter(b => b.type === 'text').map(b => (b as { type:'text';text:string }).text).join('');
@@ -72,7 +68,7 @@ function buildTurns(messages: ParsedMessage[]): ConversationTurn[] {
     // A real USER message starts a new turn
     if (msg.role === 'user' && current.messages.length > 0) {
       turns.push(current);
-      current = { orchestrationRound: null, userMessage: msg, messages: [msg] };
+      current = { userMessage: msg, messages: [msg] };
       continue;
     }
     if (msg.role === 'user' && !current.userMessage) current.userMessage = msg;
@@ -80,26 +76,12 @@ function buildTurns(messages: ParsedMessage[]): ConversationTurn[] {
   }
   if (current.messages.length > 0) turns.push(current);
 
-  // Assign orchestration round numbers ONLY to turns that spawn agents
-  let roundNum = 0;
-  for (const turn of turns) {
-    const spawnsAgents = turn.messages.some(m =>
-      m.role === 'assistant' &&
-      m.content.some(b => b.type === 'tool_use' && (b.name === 'Workflow' || b.name === 'Agent' || b.name === 'Task'))
-    );
-    if (spawnsAgents) {
-      roundNum++;
-      turn.orchestrationRound = roundNum;
-    }
-  }
-
   return turns;
 }
 
 export function ConversationTab({ sessionId, agentId, paneId = '' }: ConversationTabProps) {
   const refreshToken = useWorkspaceStore(s => s.refreshToken);
   const { messages, loadMore, hasMore, isLoading, total } = useAgentMessages(sessionId, agentId, refreshToken);
-  const { agentMap } = useSessionStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -239,8 +221,6 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   }
 
   const turns = buildTurns(messages);
-  const subagents = [...agentMap.values()].filter(a => a.type !== 'orchestrator');
-  const totalOrchRounds = turns.filter(t => t.orchestrationRound !== null).length;
   const activePaneId = paneId;
 
   return (
@@ -301,9 +281,6 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
             key={ti}
             turn={turn}
             toolResultMap={toolResultMap}
-            subagents={subagents}
-            agentMap={agentMap}
-            isMultiRound={totalOrchRounds > 1}
             paneId={activePaneId}
           />
         ))}
@@ -322,125 +299,19 @@ export function ConversationTab({ sessionId, agentId, paneId = '' }: Conversatio
   );
 }
 
-const ROUND_COLORS = [
-  { bg: 'var(--aw-blue-bg-deep2)', border: 'var(--aw-blue-bg)', text: 'var(--aw-blue)', rail: 'var(--aw-blue-rail)' },
-  { bg: 'var(--aw-green-bg-deep2)', border: 'var(--aw-green-bg-2)', text: 'var(--aw-green-bright)', rail: 'var(--aw-green-rail)' },
-  { bg: 'var(--aw-orange-bg-deep)', border: 'var(--aw-orange-bg)', text: 'var(--aw-orange)', rail: 'var(--aw-orange-rail)' },
-  { bg: 'var(--aw-purple-bg-deep)', border: 'var(--aw-purple-border)', text: 'var(--aw-purple)', rail: 'var(--aw-purple-bg-deep2)' },
-  { bg: 'var(--aw-red-bg-deep)', border: 'var(--aw-red-border)', text: 'var(--aw-red-text-bright)', rail: 'var(--aw-red-rail)' },
-];
-
 const COLLAPSE_LINE_THRESHOLD = 25;
 
 interface TurnSectionProps {
   turn: ConversationTurn;
   toolResultMap: Map<string, { content: ContentBlock[]; isError: boolean }>;
-  subagents: import('@/types/session').Agent[];
-  agentMap: Map<string, import('@/types/session').Agent>;
-  isMultiRound: boolean;
   paneId: string;
 }
 
-function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, paneId }: TurnSectionProps) {
+function TurnSection({ turn, toolResultMap, paneId }: TurnSectionProps) {
   if (turn.messages.length === 0) return null;
 
-  const isOrchRound = turn.orchestrationRound !== null;
-  const rn = turn.orchestrationRound ?? 0;
-  const color = ROUND_COLORS[(rn - 1) % ROUND_COLORS.length];
-
-  // Find agents spawned in this turn by timing
-  const spawnedAgents = isOrchRound ? findSpawnedAgents(turn.messages, subagents) : [];
-
-  // Orchestration round — prominent colored header + left rail
-  if (isOrchRound && isMultiRound) {
-    const userText = turn.userMessage
-      ? cleanText(turn.userMessage.content.filter(b => b.type === 'text').map(b => (b as { type:'text';text:string }).text).join(''))
-      : '';
-
-    return (
-      <div className="relative mb-2 min-w-0 overflow-hidden">
-        {/* Bold round banner */}
-        <div
-          className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2.5 border-b min-w-0 overflow-hidden"
-          style={{ backgroundColor: color.bg, borderColor: color.border, borderLeftWidth: '3px', borderLeftColor: color.border }}
-        >
-          {/* Round label */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div
-              className="px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wider uppercase border"
-              style={{ backgroundColor: `${color.text}18`, color: color.text, borderColor: `${color.text}40` }}
-            >
-              ◈ Round {rn}
-            </div>
-          </div>
-
-          {/* User message excerpt */}
-          {userText && (
-            <span className="text-[11px] text-[var(--aw-text-1)] truncate flex-1 italic">
-              "{userText.slice(0, 70)}{userText.length > 70 ? '…' : ''}"
-            </span>
-          )}
-
-          {/* Spawned agent badges — click to open that agent in the current pane */}
-          {spawnedAgents.length > 0 && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Users className="h-3 w-3 text-[var(--aw-text-3)]" />
-              {spawnedAgents.slice(0, 5).map(agent => {
-                const { color: ac, initials, name } = getAgentDisplay(agent);
-                return (
-                  <button
-                    key={agent.id}
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ color: ac.text, backgroundColor: ac.bg, borderColor: ac.border }}
-                    title={`Open ${name}`}
-                    onClick={e => {
-                      e.stopPropagation();
-                      useWorkspaceStore.getState().addTabToPane(paneId, {
-                        type: 'agent',
-                        agentId: agent.id,
-                        label: name.slice(0, 20),
-                      });
-                    }}
-                  >
-                    {initials}
-                  </button>
-                );
-              })}
-              {spawnedAgents.length > 5 && (
-                <span className="text-[10px] text-[var(--aw-text-3)]">+{spawnedAgents.length - 5}</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Messages with left rail */}
-        <div className="border-l-2 ml-2 min-w-0 overflow-hidden" style={{ borderColor: color.rail }}>
-          {turn.messages.map((msg, i) => (
-            <MessageRow
-              key={`${msg.id}-${i}`}
-              message={msg}
-              isFirst={i === 0 && msg.role === 'user'}
-              isLast={i === turn.messages.length - 1 && msg.role === 'assistant'}
-              toolResultMap={toolResultMap}
-              roundColor={color.text}
-              paneId={paneId}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Plain exchange (no agents spawned) — lighter separator
   return (
     <div className="relative mb-1 min-w-0 overflow-hidden">
-      {isMultiRound && turn.userMessage && (
-        <div className="flex items-center gap-3 px-4 py-2 my-1">
-          <div className="flex-1 h-px bg-[var(--aw-bg-2)]" />
-          <span className="text-[10px] text-[var(--aw-text-4)] font-medium">{fmtTime(turn.userMessage.timestamp)}</span>
-          <div className="flex-1 h-px bg-[var(--aw-bg-2)]" />
-        </div>
-      )}
       <div className="min-w-0">
         {turn.messages.map((msg, i) => (
           <MessageRow
@@ -449,7 +320,6 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
             isFirst={i === 0 && msg.role === 'user'}
             isLast={i === turn.messages.length - 1 && msg.role === 'assistant'}
             toolResultMap={toolResultMap}
-            roundColor={undefined}
             paneId={paneId}
           />
         ))}
@@ -458,37 +328,15 @@ function TurnSection({ turn, toolResultMap, subagents, agentMap, isMultiRound, p
   );
 }
 
-function findSpawnedAgents(
-  msgs: ParsedMessage[],
-  subagents: import('@/types/session').Agent[]
-): import('@/types/session').Agent[] {
-  const hasSpawn = msgs.some(m =>
-    m.role === 'assistant' &&
-    m.content.some(b => b.type === 'tool_use' && (b.name === 'Workflow' || b.name === 'Agent' || b.name === 'Task'))
-  );
-  if (!hasSpawn || subagents.length === 0) return [];
-
-  const turnStart = Math.min(...msgs.map(m => new Date(m.timestamp).getTime()));
-  const turnEnd = Math.max(...msgs.map(m => new Date(m.timestamp).getTime()));
-  const WINDOW = 30 * 60 * 1000;
-
-  return subagents.filter(a => {
-    if (!a.startTime) return false;
-    const t = new Date(a.startTime).getTime();
-    return t >= turnStart - 5000 && t <= turnEnd + WINDOW;
-  });
-}
-
 interface MessageRowProps {
   message: ParsedMessage;
   isFirst: boolean;
   isLast: boolean;
   toolResultMap: Map<string, { content: ContentBlock[]; isError: boolean }>;
-  roundColor: string | undefined;
   paneId: string;
 }
 
-function MessageRow({ message, isFirst, isLast, toolResultMap, roundColor, paneId }: MessageRowProps) {
+function MessageRow({ message, isFirst, isLast, toolResultMap, paneId }: MessageRowProps) {
   const globalSearchQuery = useWorkspaceStore(s => s.globalSearchQuery);
   const highlightTerms = globalSearchQuery ? [globalSearchQuery] : undefined;
 
