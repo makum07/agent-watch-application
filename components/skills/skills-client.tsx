@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { Wand2, FolderOpen, RefreshCw, ArrowUpDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Wand2, FolderOpen, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { SkillCard } from './skill-card';
-import { NavBar } from '@/components/shared/navbar';
 import { SourceSwitcher } from '@/components/source-switcher';
-import { cn } from '@/lib/utils';
+import { NavBarBrand } from '@/components/shared/navbar-brand';
+import { NavBarTabs } from '@/components/shared/navbar-tabs';
+import { SidebarNavItem } from '@/components/shared/sidebar-nav-item';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 
 function readSourceCookie(): string | undefined {
@@ -104,18 +105,16 @@ export function SkillsClient() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      <NavBar activePage="skills" rightSlot={<SourceSwitcher initialSourceId={sourceId ?? ''} />} />
-
       <Group orientation="horizontal" className="flex-1 overflow-hidden">
         {/* Resizable sidebar */}
         <Panel
           id="skills-sidebar"
           panelRef={sidebarPanelRef}
-          defaultSize={220}
-          minSize={160}
-          maxSize={400}
+          defaultSize={260}
+          minSize={260}
+          maxSize={440}
           collapsible
-          collapsedSize={40}
+          collapsedSize={44}
           onResize={(size) => {
             const collapsed = size.inPixels <= 44;
             if (collapsed !== collapsedRef.current) {
@@ -123,63 +122,60 @@ export function SkillsClient() {
               setSidebarCollapsed(collapsed);
             }
           }}
-          className="flex flex-col border-r border-border bg-background overflow-hidden"
+          className="flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground overflow-hidden"
         >
-          <div className={cn('flex items-center px-2 py-3 shrink-0', sidebarCollapsed ? 'justify-center' : 'justify-end')}>
-            <button
-              onClick={toggleSidebar}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </button>
-          </div>
+          <NavBarBrand collapsed={sidebarCollapsed} sidebarToggle={{ onToggle: toggleSidebar }} />
 
-          <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
-            <button
+          <div className="flex-1 overflow-y-auto px-2 pt-3 space-y-0.5">
+            <SidebarNavItem
+              active={selected === 'all'}
+              collapsed={sidebarCollapsed}
               onClick={() => setSelected('all')}
-              className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
-                selected === 'all' ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
-              title={sidebarCollapsed ? 'All Skills' : undefined}
-            >
-              <Wand2 className="h-4 w-4 shrink-0 text-primary" />
-              {!sidebarCollapsed && (<><span className="truncate">All Skills</span><span className="ml-auto text-xs opacity-60">{skills.length}</span></>)}
-            </button>
+              icon={<Wand2 className="h-4 w-4 text-primary" />}
+              label="All Skills"
+              trailing={skills.length}
+            />
 
             {sidebarProjects.length > 0 && !sidebarCollapsed && (
-              <div className="pt-3">
-                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Projects</p>
+              <div className="mt-3 pt-3 border-t border-sidebar-border/50">
+                <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">Projects</p>
                 {sidebarProjects.map(({ raw, displayName, count }) => (
-                  <button key={raw} onClick={() => setSelected(raw)}
-                    className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
-                      selected === raw ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
-                  >
-                    <FolderOpen className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{displayName}</span>
-                    <span className="ml-auto text-xs opacity-60 shrink-0">{count}</span>
-                  </button>
+                  <SidebarNavItem
+                    key={raw}
+                    active={selected === raw}
+                    onClick={() => setSelected(raw)}
+                    icon={<FolderOpen className="h-4 w-4" />}
+                    label={displayName}
+                    trailing={count}
+                  />
                 ))}
               </div>
             )}
 
             {sidebarProjects.length > 0 && sidebarCollapsed && (
-              <div className="pt-2 space-y-0.5">
+              <div className="mt-2 pt-2 border-t border-sidebar-border/50 space-y-0.5">
                 {sidebarProjects.map(({ raw, displayName }) => (
-                  <button key={raw} onClick={() => setSelected(raw)} title={displayName}
-                    className={cn('w-full flex items-center justify-center py-1.5 rounded-md transition-colors',
-                      selected === raw ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                  </button>
+                  <SidebarNavItem
+                    key={raw}
+                    active={selected === raw}
+                    collapsed
+                    onClick={() => setSelected(raw)}
+                    title={displayName}
+                    icon={<FolderOpen className="h-4 w-4" />}
+                    label={displayName}
+                  />
                 ))}
               </div>
             )}
           </div>
         </Panel>
 
-        <Separator className="shrink-0 bg-border hover:bg-primary/40 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
+        <Separator className="shrink-0 bg-sidebar-border hover:bg-primary/40 cursor-col-resize transition-colors data-[orientation=horizontal]:w-1" />
 
         {/* Main content */}
-        <Panel id="skills-main" minSize={300} className="overflow-y-auto">
+        <Panel id="skills-main" minSize={300} className="flex flex-col overflow-hidden">
+          <NavBarTabs activePage="skills" rightSlot={<SourceSwitcher initialSourceId={sourceId ?? ''} />} />
+          <div className="flex-1 overflow-y-auto">
           <div className="max-w-5xl mx-auto px-6 py-8">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -227,6 +223,7 @@ export function SkillsClient() {
                 {sorted.map(skill => <SkillCard key={skill.id} skill={skill} />)}
               </div>
             )}
+          </div>
           </div>
         </Panel>
       </Group>

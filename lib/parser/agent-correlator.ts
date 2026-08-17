@@ -4,6 +4,7 @@ import {
   parseJsonlFile,
   type ParsedConversation,
 } from './jsonl-parser';
+import { parseSessionTitle, MIN_TITLE_LEN } from '@/lib/utils';
 
 export interface CorrelatedAgent {
   conversationId: string;
@@ -326,34 +327,95 @@ export function extractAiTitle(filePath: string): string | null {
   return null;
 }
 
+// IDE/tooling injects these as "user" turns (file-opened notices, async-agent
+// completion pings, etc.) — never something a human typed, so they're noise
+// when picked up as a session title. They can appear as their own message, or
+// bolted onto the front of the real prompt's text, so strip rather than just detect.
+const SYNTHETIC_BLOCK_RE = /^\s*<(ide_[\w-]+|task-notification|system-reminder|automated-reminder|user-prompt-submit-hook)>[\s\S]*?<\/\1>\s*/;
+function stripSyntheticNoise(text: string): string {
+  let out = text;
+  while (SYNTHETIC_BLOCK_RE.test(out)) out = out.replace(SYNTHETIC_BLOCK_RE, '');
+  return out.trim();
+}
+
+export interface FirstUserMessageInfo {
+  title: string | null;
+  /** Whether the session's actual first message was a slash command — independent of
+   * whatever text ends up displayed as the title (an AI-generated title, or a longer
+   * later message used because the first one was too short to be useful). */
+  isCommand: boolean;
+}
+
 /**
- * Extracts the first human-typed user message from a session JSONL file,
- * truncated to 80 characters. Used as a readable session title fallback.
+ * Extracts the first human-typed user message from a session JSONL file, for use as a
+ * readable session title fallback and as the source of truth for "was this session
+ * started via a slash command" — the actual first message, not whatever title ends up
+ * displayed (an AI-generated title can paraphrase a much later request).
+ *
+ * When the first real message is too short to be a useful title (a bare `/model` or
+ * `/clear` with no args), keeps looking and prefers a longer subsequent message for
+ * display — but `isCommand` always reflects the true first message.
  */
-export function extractFirstUserMessage(filePath: string, maxLength = 80): string | null {
-  if (!fs.existsSync(filePath)) return null;
+export function extractFirstUserMessageInfo(filePath: string, maxLength = 140): FirstUserMessageInfo {
+  if (!fs.existsSync(filePath)) return { title: null, isCommand: false };
   try {
     const content = fs.readFileSync(filePath, 'utf8');
+    const candidates: string[] = [];
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
         if (obj.type !== 'user' || !obj.message?.content) continue;
+        // isMeta lines are Claude Code's own injections (e.g. `/context` output, compact
+        // summaries) stamped onto the transcript as a "user" turn — never something the
+        // user actually typed, so they're useless (and confusing) as a session title.
+        if (obj.isMeta) continue;
         const msgContent = obj.message.content;
         let text: string | null = null;
         if (typeof msgContent === 'string') {
-          text = msgContent.trim();
+          text = stripSyntheticNoise(msgContent) || null;
         } else if (Array.isArray(msgContent)) {
           // Skip pure tool_result messages — find first block with actual text
           const hasToolResult = msgContent.some((b: { type: string }) => b.type === 'tool_result');
           if (hasToolResult) continue;
-          const textBlock = msgContent.find((b: { type: string; text?: string }) => b.type === 'text' && b.text?.trim());
-          text = textBlock?.text?.trim() ?? null;
+          // The IDE bolts auto-context (open file, notifications) on as an extra text
+          // block alongside — not instead of — the real prompt, so strip each block and
+          // take the first that still has real content left over.
+          for (const b of msgContent as { type: string; text?: string }[]) {
+            if (b.type !== 'text' || !b.text?.trim()) continue;
+            const stripped = stripSyntheticNoise(b.text);
+            if (stripped) { text = stripped; break; }
+          }
         }
         if (!text) continue;
-        return text.length > maxLength ? text.slice(0, maxLength) + '…' : text;
+        // Pure command *output* with no invocation attached (e.g. a lone
+        // <local-command-stdout> status line) isn't something the user said — skip it
+        // rather than let it win as the title over a real message.
+        if (/<local-command-stdout>/.test(text) && !/<command-name>/.test(text)) continue;
+        const cleaned = parseSessionTitle(text).text.replace(/\s+/g, ' ').trim();
+        if (!cleaned) continue;
+        candidates.push(cleaned);
+        if (candidates.length >= 5) break;
       } catch {}
     }
+    if (candidates.length === 0) return { title: null, isCommand: false };
+    const first = candidates[0];
+    const isCommand = /^\/[\w-]/.test(first);
+    const title = first.length >= MIN_TITLE_LEN
+      ? first
+      : candidates.find(c => c.length >= MIN_TITLE_LEN) ?? first;
+    return {
+      title: title.length > maxLength ? title.slice(0, maxLength) + '…' : title,
+      isCommand,
+    };
   } catch {}
-  return null;
+  return { title: null, isCommand: false };
+}
+
+/**
+ * Extracts the first human-typed user message from a session JSONL file,
+ * truncated to 80 characters. Used as a readable session title fallback.
+ */
+export function extractFirstUserMessage(filePath: string, maxLength = 140): string | null {
+  return extractFirstUserMessageInfo(filePath, maxLength).title;
 }

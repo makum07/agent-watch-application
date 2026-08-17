@@ -400,6 +400,10 @@ function CycleCard({
 
 // ── AI Recommendation Card ────────────────────────────────────────────────
 
+function humanizeLabel(raw: string): string {
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
   const severityColors: Record<string, string> = {
     critical: 'text-[var(--aw-red)] bg-[var(--aw-red)]/10',
@@ -414,25 +418,57 @@ function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
     low: 'text-[var(--aw-text-2)]',
   };
 
+  // The model's JSON is free-form text, not a validated schema — a
+  // recommendation can arrive with any field missing, or with the model
+  // having drifted to a different field name for the same concept
+  // (`target`/`finding` instead of `title`/`observation` have both been
+  // observed for otherwise-identical prompts). Fall back across both
+  // rather than rendering a mostly-blank card.
+  const severity = rec.severity || 'medium';
+  const heading = rec.title || rec.target || 'Recommendation';
+  const body = rec.observation || rec.finding;
+  // Only show target as its own tag when it isn't already standing in for
+  // the heading above.
+  const showTargetTag = Boolean(rec.target && rec.title);
+
   return (
     <div className="p-2 rounded border border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className={cn('text-[9px] px-1 py-0.5 rounded font-medium', severityColors[rec.severity] || severityColors.medium)}>
-          {rec.severity.toUpperCase()}
+      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+        <span className={cn('text-[9px] px-1 py-0.5 rounded font-medium', severityColors[severity] || severityColors.medium)}>
+          {severity.toUpperCase()}
         </span>
-        <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]">{rec.category}</span>
+        {rec.category && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]">
+            {humanizeLabel(rec.category)}
+          </span>
+        )}
+        {showTargetTag && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-3)] font-mono truncate max-w-[160px]"
+            title={rec.target}
+          >
+            {rec.target}
+          </span>
+        )}
         {rec.confidence && (
           <span className={cn('text-[9px] ml-auto', confidenceColors[rec.confidence] || confidenceColors.medium)}>
             {rec.confidence} confidence
           </span>
         )}
       </div>
-      <p className="text-[11px] text-[var(--aw-text-0)] font-medium">{rec.title}</p>
-      <p className="text-[10px] text-[var(--aw-text-2)] mt-1">{rec.observation}</p>
+      <p className="text-[11px] text-[var(--aw-text-0)] font-medium">{heading}</p>
+      {body && <p className="text-[10px] text-[var(--aw-text-2)] mt-1">{body}</p>}
+      {rec.rootCause && (
+        <p className="text-[10px] text-[var(--aw-text-3)] mt-1">
+          <span className="text-[var(--aw-text-4)]">Root cause: </span>{rec.rootCause}
+        </p>
+      )}
       {rec.evidence && (
         <p className="text-[10px] text-[var(--aw-text-3)] mt-1 italic">{rec.evidence}</p>
       )}
-      <p className="text-[10px] text-[var(--aw-blue)] mt-1">{rec.recommendation}</p>
+      {rec.recommendation && (
+        <p className="text-[10px] text-[var(--aw-blue)] mt-1">{rec.recommendation}</p>
+      )}
     </div>
   );
 }

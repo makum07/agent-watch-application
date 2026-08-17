@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import type { Session, Agent } from '@/types/session';
 import type {
   AgentOutcome,
@@ -19,9 +18,10 @@ import type {
 import { analyzeSession, findCriticalPath } from './debug-analyzer';
 import { estimateAgentCost } from '@/lib/utils';
 import { getDatabase } from '@/lib/db/database';
-import { getWsServer } from '@/lib/websocket/ws-server';
 import { getWslDistro } from '@/lib/sources';
 import type { StreamEntry } from '@/types/feedback';
+import { runClaudeCliOneShot } from './claude-cli';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence } from './cli-stream-log';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1059,6 +1059,7 @@ export interface AnalysisPromptData {
   externalSkillDirs?: string[];
   facts?: ExecutionFacts;
   agentJsonlPaths?: Map<string, string>;
+  agentJsonlStats?: Map<string, { lines: number; sizeBytes: number }>;
   agentToolTimelines?: Map<string, PromptToolCall[]>;
   artifacts?: Array<Record<string, unknown>>;
   feedbackItems?: Array<Record<string, unknown>>;
@@ -1067,7 +1068,7 @@ export interface AnalysisPromptData {
 }
 
 export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): string {
-  const { session, projectDir, facts, agentJsonlPaths, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths } = data;
+  const { session, projectDir, facts, agentJsonlPaths, agentJsonlStats, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths } = data;
   const lines: string[] = [];
 
   const agentMap = new Map(session.agents.map(a => [a.id, a]));
@@ -1231,9 +1232,21 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
       lines.push(`${indent}  agent definition: ${agent.subagentType} — read in .claude/agents/${agent.subagentType}.md`);
     }
 
-    // JSONL path — primary evidence for what the agent actually did
+    // JSONL path — primary evidence for what the agent actually did. Line
+    // count and size are surfaced upfront so the model can pick a sane
+    // offset/limit on the first Read instead of discovering the Read tool's
+    // 256KB/25k-token caps by trial-and-error shrinking.
     const jsonlPath = agentJsonlPaths?.get(agent.id);
-    if (jsonlPath) lines.push(`${indent}  conversation: \`${jsonlPath}\``);
+    if (jsonlPath) {
+      const stat = agentJsonlStats?.get(agent.id);
+      let statSuffix = '';
+      if (stat) {
+        const kb = Math.round(stat.sizeBytes / 1024);
+        const exceedsCap = stat.sizeBytes > 256 * 1024;
+        statSuffix = ` (${stat.lines.toLocaleString()} lines, ${kb}KB${exceedsCap ? ' — exceeds the 256KB whole-file Read limit; start with offset/limit rather than a full read' : ''})`;
+      }
+      lines.push(`${indent}  conversation: \`${jsonlPath}\`${statSuffix}`);
+    }
 
     // Tool summary — compact unless failures exist
     let timeline = agentToolTimelines?.get(agent.id);
@@ -1454,6 +1467,10 @@ export function deleteExecutionAnalysisCycle(cycleId: string): void {
 
 // ─── Run AI Analysis ────────────────────────────────────────────────────
 
+const MIN_ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_ANALYSIS_TIMEOUT_MS = 45 * 60 * 1000;
+const PER_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+
 export async function runExecutionAnalysis(
   cycleId: string,
   sessionId: string,
@@ -1461,252 +1478,120 @@ export async function runExecutionAnalysis(
   cwd?: string,
   externalSkillDirs: string[] = [],
   sourceId?: string,
+  agentCount = 1,
 ): Promise<void> {
-  const wss = getWsServer();
-
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
-  };
-
-  const streamLog: StreamEntry[] = [];
-  let streamIdCounter = 0;
+  const broadcast = createCycleBroadcaster({ sessionId, cycleId });
+  const log = createStreamLogger('ea');
 
   try {
     broadcast('execution_analysis_started', {});
     updateExecutionAnalysisCycle(cycleId, { status: 'analyzing' }, sourceId);
 
-    streamLog.push({
-      id: `ea-${++streamIdCounter}`,
+    log.push({
       kind: 'system',
-      timestamp: Date.now(),
       text: `Starting execution analysis for session ${sessionId.slice(0, 12)}...`,
     });
 
-    const cliArgs = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', 'claude-sonnet-4-6',
-      '--dangerously-skip-permissions',
-    ];
-
-    // Grant read access to external skill/agent directories (quoted for paths with spaces)
-    for (const dir of externalSkillDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    // WSL-sourced sessions: cwd is a native Linux path, and a Windows-side
-    // spawn can't cd into it (cmd.exe rejects UNC paths as a cwd outright).
-    // Route through `wsl -d <distro> -- bash -lc` instead — bash -lc sources
-    // .bashrc/.profile so PATH additions (nvm, ~/.local/bin) still resolve
-    // `claude`, matching the fix already proven for the improvements flow.
-    const wslDistro = getWslDistro(sourceId);
-    const child = wslDistro && cwd
-      ? spawn('wsl', ['-d', wslDistro, '--cd', cwd, '--', 'bash', '-lc', ['claude', ...cliArgs].join(' ')], {
-          shell: false,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-      : spawn('claude', cliArgs, {
-          shell: true,
-          cwd: cwd || undefined,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
-    child.stdin.end();
-
-    const responseChunks: string[] = [];
-    let stdoutBuffer = '';
-
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('execution_analysis_stream_event', { event });
-
-      const eventType = event.type as string;
-
-      if (eventType === 'assistant') {
-        const msg = event.message as {
-          content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }>;
-        } | undefined;
-        if (!msg?.content) return;
-
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-            streamLog.push({
-              id: `ea-${++streamIdCounter}`,
-              kind: 'text',
-              timestamp: Date.now(),
-              text: block.text,
-            });
-          }
-          if (block.type === 'thinking' && block.thinking) {
-            streamLog.push({
-              id: `ea-${++streamIdCounter}`,
-              kind: 'thinking',
-              timestamp: Date.now(),
-              text: block.thinking,
-            });
-          }
-          if (block.type === 'tool_use') {
-            streamLog.push({
-              id: `ea-${++streamIdCounter}`,
-              kind: 'tool_use',
-              timestamp: Date.now(),
-              toolName: block.name,
-              toolInput: block.input,
-              toolUseId: block.id,
-            });
-          }
-        }
-      }
-
-      if (eventType === 'user') {
-        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> };
-        if (userMsg?.content) {
-          for (const block of userMsg.content) {
-            if (block.type === 'tool_result') {
-              streamLog.push({
-                id: `ea-${++streamIdCounter}`,
-                kind: 'tool_result',
-                timestamp: Date.now(),
-                toolUseId: block.tool_use_id,
-                content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                isError: block.is_error ?? false,
-              });
-            }
-          }
-        }
-      }
+      for (const entry of translateStreamEvent(event)) log.push(entry);
     }
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
+    // Scaled by agent count — a fixed 10 minutes isn't enough for the model
+    // to read+judge every agent one at a time on a large multi-agent session.
+    const ANALYSIS_TIMEOUT_MS = Math.min(
+      MAX_ANALYSIS_TIMEOUT_MS,
+      Math.max(MIN_ANALYSIS_TIMEOUT_MS, agentCount * PER_AGENT_TIMEOUT_MS),
+    );
+    const timeoutMinutes = Math.round(ANALYSIS_TIMEOUT_MS / 60000);
+
+    const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
+      prompt,
+      cwd,
+      model: 'claude-sonnet-4-6',
+      permission: { mode: 'skipPermissions' },
+      externalDirs: externalSkillDirs,
+      wslDistro: getWslDistro(sourceId),
+      timeoutMs: ANALYSIS_TIMEOUT_MS,
+      onEvent: handleStreamEvent,
+    });
+
+    // Salvages a partial recommendations block if the model had already
+    // written one before being cut off — a timeout/non-zero exit means the
+    // run didn't finish cleanly, but any usable findings it did produce
+    // shouldn't be thrown away.
+    const salvaged = extractJsonFence(responseText);
+    const salvagedRecommendations = salvaged && Array.isArray(salvaged.recommendations)
+      ? salvaged.recommendations as ExecutionRecommendation[]
+      : null;
+
+    if (timedOut) {
+      log.push({ kind: 'system', text: `Analysis timed out after ${timeoutMinutes} minutes.` });
+      if (salvagedRecommendations) {
+        log.push({ kind: 'system', text: `Salvaged ${salvagedRecommendations.length} recommendation(s) from the partial response before the timeout.` });
       }
-    });
-
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
-    const exitCode = await new Promise<number>((resolve) => {
-      const timer = setTimeout(() => {
-        try { child.kill(); } catch { /* already dead */ }
-        resolve(124);
-      }, ANALYSIS_TIMEOUT_MS);
-
-      child.on('close', (code) => { clearTimeout(timer); resolve(code ?? 0); });
-      child.on('error', () => { clearTimeout(timer); resolve(1); });
-    });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
-
-    if (exitCode === 124) {
-      streamLog.push({
-        id: `ea-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: 'Analysis timed out after 10 minutes.',
-      });
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        recommendations: salvagedRecommendations,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
-      broadcast('execution_analysis_failed', { error: 'Analysis timed out after 10 minutes' });
+      broadcast('execution_analysis_failed', { error: `Analysis timed out after ${timeoutMinutes} minutes` });
       return;
     }
 
     if (exitCode !== 0) {
       const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
-      streamLog.push({
-        id: `ea-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}`,
-      });
+      log.push({ kind: 'system', text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}` });
+      if (salvagedRecommendations) {
+        log.push({ kind: 'system', text: `Salvaged ${salvagedRecommendations.length} recommendation(s) from the partial response before the failure.` });
+      }
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        recommendations: salvagedRecommendations,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
       broadcast('execution_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
 
-    const fullResponse = responseChunks.join('');
+    const fullResponse = responseText;
 
     if (!fullResponse.trim()) {
       const hint = stderr.trim() ? `stderr: ${stderr.trim().slice(0, 300)}` : 'No output received from Claude';
-      streamLog.push({
-        id: `ea-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: `Analysis produced no output. ${hint}`,
-      });
+      log.push({ kind: 'system', text: `Analysis produced no output. ${hint}` });
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
       broadcast('execution_analysis_failed', { error: 'Analysis produced no output' });
       return;
     }
 
     let recommendations: ExecutionRecommendation[] | null = null;
-    const jsonMatch = fullResponse.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[1]);
-        if (Array.isArray(parsed.recommendations)) {
-          recommendations = parsed.recommendations;
-        }
-      } catch { /* non-fatal */ }
+    const parsed = extractJsonFence(fullResponse);
+    if (parsed && Array.isArray(parsed.recommendations)) {
+      recommendations = parsed.recommendations as ExecutionRecommendation[];
     }
 
-    streamLog.push({
-      id: `ea-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis completed. ${recommendations?.length ?? 0} recommendations generated.`,
-    });
+    log.push({ kind: 'system', text: `Analysis completed. ${recommendations?.length ?? 0} recommendations generated.` });
 
     updateExecutionAnalysisCycle(cycleId, {
       status: 'completed',
       analysisResponse: fullResponse,
       recommendations,
-      streamEntries: streamLog.length > 0 ? streamLog : null,
+      streamEntries: log.entries.length > 0 ? log.entries : null,
     }, sourceId);
 
     broadcast('execution_analysis_complete', { status: 'completed' });
   } catch (err) {
-    streamLog.push({
-      id: `ea-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis failed: ${String(err)}`,
-    });
+    log.push({ kind: 'system', text: `Analysis failed: ${String(err)}` });
 
     try {
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
     } catch {
       try {

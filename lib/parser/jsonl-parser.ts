@@ -373,3 +373,40 @@ export function getProjectDisplayName(encodedDirName: string): string {
 
   return s || encodedDirName;
 }
+
+/**
+ * Reads the real working directory Claude Code recorded for a project, straight
+ * from the `cwd` field in its JSONL transcripts. This is the authoritative path —
+ * dash-encoded directory names (decodeProjectPath/getProjectDisplayName) are lossy
+ * whenever the real folder name itself contains a dash or space, so prefer this
+ * whenever a transcript is available.
+ */
+export function resolveProjectCwd(files: string[]): string | null {
+  for (const filePath of files.slice(0, 3)) {
+    try {
+      const fd = fs.openSync(filePath, 'r');
+      const buf = Buffer.alloc(8192);
+      const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
+      fs.closeSync(fd);
+      const chunk = buf.toString('utf8', 0, bytesRead);
+      const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
+      if (match) return match[1].replace(/\\\\/g, '\\');
+    } catch {
+      // try next file
+    }
+  }
+  return null;
+}
+
+/** Strips the OS/user-home prefix off an absolute path, e.g. `C:\Users\bob\Foo\Bar` → `Foo/Bar`. */
+export function relativeToHome(absPath: string): string {
+  const winMatch = absPath.match(/^[A-Za-z]:\\Users\\[^\\]+\\(.+)$/);
+  if (winMatch) return winMatch[1].replace(/\\/g, '/');
+  const macMatch = absPath.match(/^\/Users\/[^/]+\/(.+)$/);
+  if (macMatch) return macMatch[1];
+  const homeMatch = absPath.match(/^\/home\/[^/]+\/(.+)$/);
+  if (homeMatch) return homeMatch[1];
+  const mntMatch = absPath.match(/^\/mnt\/[^/]+\/Users\/[^/]+\/(.+)$/);
+  if (mntMatch) return mntMatch[1];
+  return absPath.replace(/\\/g, '/');
+}

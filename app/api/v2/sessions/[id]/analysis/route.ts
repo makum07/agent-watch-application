@@ -120,7 +120,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });
@@ -132,6 +132,17 @@ export async function POST(
     return NextResponse.json(mapCycle(cycle), { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+function statJsonl(filePath: string): { lines: number; sizeBytes: number } | null {
+  try {
+    const sizeBytes = fs.statSync(filePath).size;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.length === 0 ? 0 : content.split('\n').length;
+    return { lines, sizeBytes };
+  } catch {
+    return null;
   }
 }
 
@@ -180,10 +191,15 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
 
   // Load full tool call timeline for every agent + collect skill definition paths
   const agentToolTimelines = new Map<string, PromptToolCall[]>();
+  const agentJsonlStats = new Map<string, { lines: number; sizeBytes: number }>();
   const skillDefinitionPaths = new Map<string, string>();
   for (const agent of session.agents) {
     const jsonlPath = agentJsonlPaths.get(agent.id);
     if (!jsonlPath || !fs.existsSync(jsonlPath)) continue;
+
+    const stat = statJsonl(jsonlPath);
+    if (stat) agentJsonlStats.set(agent.id, stat);
+
     try {
       const parsed = parseJsonlFile(jsonlPath);
 
@@ -241,6 +257,7 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
     externalSkillDirs: [...externalSkillDirs],
     facts,
     agentJsonlPaths,
+    agentJsonlStats: agentJsonlStats.size > 0 ? agentJsonlStats : undefined,
     agentToolTimelines,
     artifacts,
     feedbackItems,

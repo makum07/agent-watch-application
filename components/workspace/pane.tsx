@@ -25,6 +25,16 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    const tabMove = e.dataTransfer.getData('application/x-aw-tab');
+    if (tabMove) {
+      try {
+        const { paneId: fromPaneId, index } = JSON.parse(tabMove);
+        if (fromPaneId && typeof index === 'number') {
+          useWorkspaceStore.getState().moveTab(fromPaneId, index, paneId);
+        }
+      } catch { /* malformed drag payload — ignore */ }
+      return;
+    }
     const agentId = e.dataTransfer.getData('agentId');
     const agentLabel = e.dataTransfer.getData('agentLabel');
     if (!agentId) return;
@@ -88,6 +98,11 @@ export function Pane({ paneId, tabs, activeTab, sessionId }: PaneProps) {
           {tabs.map((tab, i) => (
             <div
               key={`${tab.type}-${i}`}
+              draggable
+              onDragStart={e => {
+                e.dataTransfer.setData('application/x-aw-tab', JSON.stringify({ paneId, index: i }));
+                e.dataTransfer.effectAllowed = 'move';
+              }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-[var(--aw-bg-2)] shrink-0 max-w-[140px]',
                 i === activeTab

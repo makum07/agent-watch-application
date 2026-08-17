@@ -11,6 +11,8 @@ import {
   decodeProjectPath,
   getProjectDisplayName,
   getClaudeProjectsDir,
+  resolveProjectCwd,
+  relativeToHome,
 } from '@/lib/parser/jsonl-parser';
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
@@ -37,9 +39,10 @@ export function discoverSessions(sourceId?: string): DiscoveredSession[] {
 
   for (const dirName of projectDirs) {
     const projectDir = path.join(projectsDir, dirName);
-    const projectPath = decodeProjectPath(dirName);
-    const projectDisplayName = getProjectDisplayName(dirName);
     const files = listJsonlFiles(projectDir);
+    const realCwd = resolveProjectCwd(files);
+    const projectPath = realCwd || decodeProjectPath(dirName);
+    const projectDisplayName = realCwd ? relativeToHome(realCwd) : getProjectDisplayName(dirName);
 
     for (const filePath of files) {
       try {
@@ -63,6 +66,25 @@ export function discoverSessions(sourceId?: string): DiscoveredSession[] {
   return sessions.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
 }
 
+/**
+ * Indexes a bounded batch of sessions that have never been opened in AgentWatch (so
+ * they have no `conversations` row yet, and therefore no searchable message content).
+ * Called opportunistically before a content search so coverage improves over repeated
+ * searches without paying the cost of indexing an entire history in one request.
+ */
+export function backfillContentIndex(sourceId?: string, limit = 8): number {
+  const db = getDatabase(sourceId);
+  const discovered = discoverSessions(sourceId);
+  const indexedIds = new Set(
+    (db.prepare('SELECT id FROM conversations').all() as { id: string }[]).map(r => r.id)
+  );
+  const missing = discovered.filter(s => !indexedIds.has(s.id)).slice(0, limit);
+  for (const s of missing) {
+    try { ingestSession(s.id, sourceId); } catch { /* best-effort */ }
+  }
+  return missing.length;
+}
+
 export function ingestSession(sessionId: string, sourceId?: string): Session | null {
   const db = getDatabase(sourceId);
 
@@ -76,6 +98,16 @@ export function ingestSession(sessionId: string, sourceId?: string): Session | n
       return buildSessionFromDb(sessionId, db);
     }
     return null;
+  }
+
+  // Keep the stored project name in sync with cwd-based resolution even when nothing else
+  // needs a reindex — older rows were indexed before cwd resolution existed and are stuck
+  // with a lossy dash-decoded directory name (see decodeProjectPath/getProjectDisplayName).
+  if (cached) {
+    const freshProject = found.projectDisplayName || found.projectPath;
+    if (freshProject && freshProject !== cached.project) {
+      db.prepare('UPDATE conversations SET project = ? WHERE id = ?').run(freshProject, sessionId);
+    }
   }
 
   // Also re-index if any non-root agent is missing its prompt (old schema gap)
@@ -106,11 +138,19 @@ export function ingestSession(sessionId: string, sourceId?: string): Session | n
       ).get(sessionId) != null)
     : false;
 
+  // Re-index once if this session predates the full-text message index (v14 gap)
+  const missingMessageIndex = cached
+    ? (db.prepare(
+        "SELECT 1 FROM message_fts WHERE session_id = ? LIMIT 1"
+      ).get(sessionId) == null)
+    : false;
+
   const shouldReindex = !cached ||
     new Date(found.lastModified).getTime() > (cached.last_modified as number) ||
     missingPrompt ||
     missingSkills ||
-    missingErrorCounts;
+    missingErrorCounts ||
+    missingMessageIndex;
 
   if (shouldReindex) {
     try {
@@ -145,6 +185,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database, sour
   db.prepare('DELETE FROM agents WHERE session_id = ?').run(discovered.id);
   db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(discovered.id);
   db.prepare('DELETE FROM timeline_events WHERE session_id = ?').run(discovered.id);
+  db.prepare('DELETE FROM message_fts WHERE session_id = ?').run(discovered.id);
 
   const insertAgent = db.prepare(`
     INSERT OR REPLACE INTO agents (
@@ -167,6 +208,10 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database, sour
   const insertTimeline = db.prepare(`
     INSERT INTO timeline_events (session_id, agent_id, event_type, timestamp, details)
     VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const insertMessage = db.prepare(`
+    INSERT INTO message_fts (text, session_id, role, ts) VALUES (?, ?, ?, ?)
   `);
 
   const agentIdMap = new Map<string, string>();
@@ -192,6 +237,24 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database, sour
       const msgs = correlated.parsed.messages;
       const firstTimestamp = correlated.parsed.firstTimestamp;
       const lastTimestamp = correlated.parsed.lastTimestamp;
+
+      // Index actual prompt/response text (user + assistant only) so sessions can be
+      // found later by a remembered phrase, not just by title — see searchSessions().
+      for (const msg of msgs) {
+        if (msg.role === 'tool') continue;
+        const text = msg.content
+          .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+          .map(b => b.text)
+          // Some transcripts embed non-printable control chars (e.g. word-level
+          // diff/emphasis markers from workflow scripts) — strip so they never
+          // leak into a search snippet shown to the user.
+          .map(t => t.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''))
+          .join('\n')
+          .trim()
+          .slice(0, 8000);
+        if (!text) continue;
+        insertMessage.run(text, discovered.id, msg.role, new Date(msg.timestamp).getTime());
+      }
 
       let totalInput = 0, totalOutput = 0, totalCacheCreate = 0, totalCacheRead = 0;
       let errorToolCount = 0, deniedToolCount = 0;

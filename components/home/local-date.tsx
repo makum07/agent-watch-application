@@ -7,7 +7,7 @@ interface LocalDateProps {
 export function LocalDate({ iso }: LocalDateProps) {
   return (
     <>
-      {new Date(iso).toLocaleDateString([], {
+      {new Date(iso).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',

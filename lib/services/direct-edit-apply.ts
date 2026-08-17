@@ -19,9 +19,16 @@ export function isNativePermissionBlock(content: string): boolean {
 export function applyEditLocally(
   toolName: string,
   toolInput: Record<string, unknown>,
+  // This runs inside AgentWatch's own server process, whose cwd is this repo
+  // — not the target project. Claude Code's Edit/Write tools require an
+  // absolute file_path, so path.resolve is normally a no-op here, but it's
+  // the anchor that keeps a write from landing inside AgentWatch itself if
+  // file_path is ever relative.
+  projectCwd?: string,
 ): { ok: boolean; error?: string } {
-  const filePath = String(toolInput.file_path ?? '');
-  if (!filePath) return { ok: false, error: 'Missing file_path' };
+  const rawPath = String(toolInput.file_path ?? '');
+  if (!rawPath) return { ok: false, error: 'Missing file_path' };
+  const filePath = projectCwd ? path.resolve(projectCwd, rawPath) : rawPath;
 
   try {
     if (toolName === 'Write') {

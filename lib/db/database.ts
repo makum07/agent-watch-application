@@ -435,6 +435,31 @@ function runMigrations(db: Database.Database) {
     db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (15, ${Date.now()});`);
   }
 
+  // Appended after a merge with maturity-model, which independently used
+  // versions 14/15 for message_fts/permission_mode — kept at new slots
+  // rather than renumbered, since a real DB already has this branch's
+  // 14/15 recorded (renumbering those would make it skip this content).
+  if (currentVersion < 16) {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+        text,
+        session_id UNINDEXED,
+        role UNINDEXED,
+        ts UNINDEXED
+      );
+
+      INSERT INTO schema_version (version, applied_at) VALUES (16, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 17) {
+    const icCols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!icCols.find(c => c.name === 'permission_mode')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN permission_mode TEXT DEFAULT 'approve';`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (17, ${Date.now()});`);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

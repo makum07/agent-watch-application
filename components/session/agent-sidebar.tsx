@@ -13,11 +13,24 @@ import type { PaneTab, LayoutNode } from '@/types/workspace';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 
 type ViewMode = 'tree' | 'timeline';
+type QuickLinkType = 'timeline' | 'artifacts' | 'context-flow' | 'analytics';
 
 interface AgentSidebarProps {
   sessionId: string;
   panelRef?: React.RefObject<PanelImperativeHandle | null>;
 }
+
+const TAB_LABELS: Record<QuickLinkType, string> = {
+  timeline: 'Timeline', artifacts: 'Session Files',
+  'context-flow': 'Context Flow', analytics: 'Analytics',
+};
+
+const QUICK_LINKS: { type: QuickLinkType; label: string; icon: React.ReactNode }[] = [
+  { type: 'timeline', label: 'Timeline', icon: <Activity className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
+  { type: 'artifacts', label: 'Files', icon: <Files className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
+  { type: 'context-flow', label: 'Flow', icon: <GitFork className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
+  { type: 'analytics', label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[var(--aw-pink)]" /> },
+];
 
 /** Flat chronological list of subagents (no artificial bucketing — just start order). */
 function timelineAgents(agents: Agent[]): Agent[] {
@@ -104,19 +117,49 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
 
   const hasSearch = !!search.trim();
 
+  const openQuickTab = (type: QuickLinkType, label: string) => {
+    const store = useWorkspaceStore.getState();
+    const tab: PaneTab = { type, label } as PaneTab;
+    if (store.focusedPaneId && store.layout) store.addTabToPane(store.focusedPaneId, tab);
+    else if (store.layout) store.addTabToPane(getFirstPaneId(store.layout)!, tab);
+    else store.setLayout({ type: 'pane', id: 'main', tabs: [tab], activeTab: 0 });
+  };
+
   if (sidebarCollapsed) {
     return (
       <div className="flex flex-col items-center w-full h-full border-r border-sidebar-border bg-sidebar">
         <button
           onClick={() => { panelRef?.current?.expand(); setSidebarCollapsed(false); }}
-          className="mt-3 p-1.5 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded"
+          className="mt-3 p-1.5 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-md transition-colors"
           title="Expand sidebar"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <div className="mt-4 text-[10px] text-sidebar-foreground/40" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}>
-          {session?.totalAgents ?? 0} agents
+
+        <div
+          className="mt-4 flex flex-col items-center gap-1 text-sidebar-foreground/70"
+          title={`${session?.totalAgents ?? 0} agents`}
+        >
+          <Users className="h-4 w-4" />
+          <span className="text-[10px] font-semibold leading-none">{session?.totalAgents ?? 0}</span>
         </div>
+
+        <div className="mt-4 w-6 border-t border-sidebar-border shrink-0" />
+
+        <div className="mt-3 flex flex-col items-center gap-1">
+          {QUICK_LINKS.map(({ type, label, icon }) => (
+            <button
+              key={type}
+              onClick={() => openQuickTab(type, TAB_LABELS[type])}
+              title={`Open ${label}`}
+              className="p-1.5 rounded-md text-sidebar-foreground/70 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1" />
       </div>
     );
   }
@@ -245,38 +288,17 @@ export function AgentSidebar({ sessionId, panelRef }: AgentSidebarProps) {
 
       {/* Session-level views */}
       <div className="px-2 py-1.5 border-t border-sidebar-border flex flex-wrap gap-1">
-        {([
-          { type: 'timeline',     label: 'Timeline',  icon: <Activity  className="h-3.5 w-3.5 text-[var(--aw-blue)]" /> },
-          { type: 'artifacts',    label: 'Files',     icon: <Files     className="h-3.5 w-3.5 text-[var(--aw-orange)]" /> },
-          { type: 'context-flow', label: 'Flow',      icon: <GitFork   className="h-3.5 w-3.5 text-[var(--aw-green-bright)]" /> },
-          { type: 'analytics',    label: 'Analytics', icon: <BarChart3 className="h-3.5 w-3.5 text-[var(--aw-pink)]" /> },
-        ] as const).map(({ type, label, icon }) => {
-          const tabLabels: Record<string, string> = {
-            timeline: 'Timeline', artifacts: 'Session Files',
-            'context-flow': 'Context Flow', analytics: 'Analytics',
-          };
-          return (
-            <button
-              key={type}
-              onClick={() => {
-                const store = useWorkspaceStore.getState();
-                const tab: PaneTab = { type, label: tabLabels[type] ?? label } as PaneTab;
-                if (store.focusedPaneId && store.layout) {
-                  store.addTabToPane(store.focusedPaneId, tab);
-                } else if (store.layout) {
-                  store.addTabToPane(getFirstPaneId(store.layout)!, tab);
-                } else {
-                  store.setLayout({ type: 'pane', id: 'main', tabs: [tab], activeTab: 0 });
-                }
-              }}
-              className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 rounded text-[10px] text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors min-w-[44px]"
-              title={`Open ${label}`}
-            >
-              {icon}
-              <span>{label}</span>
-            </button>
-          );
-        })}
+        {QUICK_LINKS.map(({ type, label, icon }) => (
+          <button
+            key={type}
+            onClick={() => openQuickTab(type, TAB_LABELS[type])}
+            className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 rounded text-[10px] text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors min-w-[44px]"
+            title={`Open ${label}`}
+          >
+            {icon}
+            <span>{label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Drag hint */}

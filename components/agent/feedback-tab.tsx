@@ -21,6 +21,7 @@ export function FeedbackTab({ sessionId, agentId }: FeedbackTabProps) {
   const [category, setCategory] = useState<FeedbackCategory>('missing_context');
   const [isSaving, setIsSaving] = useState(false);
   const [showCategoryMenu, setShowCategoryMenu] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<FeedbackCategory>>(new Set());
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -29,6 +30,9 @@ export function FeedbackTab({ sessionId, agentId }: FeedbackTabProps) {
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const agentItems = items.filter(i => i.agentId === agentId);
+  const filteredItems = activeFilters.size === 0
+    ? agentItems
+    : agentItems.filter(i => activeFilters.has(i.category as FeedbackCategory));
   const { name } = agent ? getAgentDisplay(agent) : { name: agentId.slice(0, 8) };
 
   useEffect(() => {
@@ -66,6 +70,15 @@ export function FeedbackTab({ sessionId, agentId }: FeedbackTabProps) {
     if (!editText.trim()) return;
     await updateFeedback(sessionId, id, { text: editText.trim(), category: editCategory });
     setEditingId(null);
+  }
+
+  function toggleFilter(cat: FeedbackCategory) {
+    setActiveFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
   }
 
   return (
@@ -121,10 +134,34 @@ export function FeedbackTab({ sessionId, agentId }: FeedbackTabProps) {
         </button>
       </div>
 
-      {/* Feedback list */}
+      {/* Feedback list + context sections */}
       <div className="flex-1 overflow-y-auto">
+        {/* Category filter chips */}
+        {agentItems.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap px-3 pt-2.5">
+            {FEEDBACK_CATEGORIES.filter(cat => agentItems.some(i => i.category === cat.value)).map(cat => {
+              const active = activeFilters.has(cat.value);
+              const count = agentItems.filter(i => i.category === cat.value).length;
+              return (
+                <button
+                  key={cat.value}
+                  onClick={() => toggleFilter(cat.value)}
+                  className={cn(
+                    'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors border',
+                    active ? 'border-transparent' : 'border-transparent opacity-60 hover:opacity-100'
+                  )}
+                  style={active ? { backgroundColor: `${cat.color}28`, color: cat.color, borderColor: `${cat.color}60` } : { color: cat.color }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                  {cat.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {agentItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--aw-text-4)] py-12">
+          <div className="flex flex-col items-center justify-center gap-3 text-[var(--aw-text-4)] py-12">
             <MessageSquarePlus className="h-8 w-8 opacity-40" />
             <div className="text-center">
               <p className="text-xs font-medium text-[var(--aw-text-2)]">No feedback yet</p>
@@ -133,8 +170,11 @@ export function FeedbackTab({ sessionId, agentId }: FeedbackTabProps) {
           </div>
         ) : (
           <div className="p-3 space-y-2">
-            <div className="text-[11px] text-[var(--aw-text-2)] mb-1">{agentItems.length} item{agentItems.length !== 1 ? 's' : ''}</div>
-            {agentItems.map(item => {
+            <div className="text-[11px] text-[var(--aw-text-2)] mb-1">
+              {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+              {activeFilters.size > 0 && ` (filtered from ${agentItems.length})`}
+            </div>
+            {filteredItems.map(item => {
               const cat = FEEDBACK_CATEGORIES.find(c => c.value === item.category);
               const isEditing = editingId === item.id;
 

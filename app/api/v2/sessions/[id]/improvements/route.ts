@@ -2,16 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
-import { spawn, execSync } from 'child_process';
+import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval, waitForApproval } from '@/lib/hooks/permission-state';
 import { generateImprovementPrompt } from '@/lib/services/improvement-prompt';
 import { findExternalSkillDirsFromSession, findInvokedSkillsFromSession } from '@/lib/services/external-dirs';
 import { resolveSelectedSkills } from '@/lib/services/skill-catalog';
 import { applyEditLocally, isNativePermissionBlock } from '@/lib/services/direct-edit-apply';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
+import {
+  spawnClaudeCli,
+  writeUserTurn,
+  attachStreamJsonParser,
+  waitForClaudeExit,
+  writePermissionHookSettings,
+} from '@/lib/services/claude-cli';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster } from '@/lib/services/cli-stream-log';
 
 interface DbFeedbackItem {
   id: string;
@@ -38,6 +45,7 @@ interface DbCycle {
   jsonl_snapshot_size: number | null;
   file_changes: string | null;
   stream_entries: string | null;
+  permission_mode: string | null;
 }
 
 function mapCycle(row: DbCycle) {
@@ -54,6 +62,7 @@ function mapCycle(row: DbCycle) {
     snapshotSize: row.jsonl_snapshot_size ?? null,
     fileChanges: row.file_changes ? JSON.parse(row.file_changes) : null,
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
+    permissionMode: row.permission_mode ?? 'approve',
   };
 }
 
@@ -178,13 +187,12 @@ async function runClaudeResumeAsync(
   prompt: string,
   resolvedProjectCwd?: string,
   externalSkillDirs: string[] = [],
+  skipPermissions = false,
 ) {
   const wss = getWsServer();
   const db = getDatabase();
 
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, sessionId, cycleId, ...payload } as never);
-  };
+  const broadcast = createCycleBroadcaster({ sessionId, cycleId });
 
   // Detect WSL sessions by scanning all configured sources.
   // AGENTWATCH_SOURCES format: "Label:/path,Label2:/path2" — colon-split on first colon.
@@ -239,78 +247,38 @@ async function runClaudeResumeAsync(
   }
 
   const responseChunks: string[] = [];
-  let streamIdCounter = 0;
-  const streamLog: Array<Record<string, unknown>> = [];
+  const log = createStreamLogger('s');
 
-  // Write a temporary settings file with a PreToolUse hook that POSTs
-  // directly to AgentWatch's endpoint for browser-based approval.
-  const port = String(process.env.PORT || 3000);
-  const hookSettings = {
-    hooks: {
-      PreToolUse: [{
-        matcher: 'Edit|Write',
-        hooks: [{
-          type: 'http',
-          url: `http://localhost:${port}/api/v2/hooks/permission`,
-          timeout: 600,
-        }],
-      }],
-    },
-  };
-  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-${cycleId}.json`);
-  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
-
-  // Register this cycle so the hook endpoint knows which session is active
-  registerActiveCycle(sessionId, cycleId);
+  // In skip-permissions mode there's no PreToolUse hook to wire up — Claude
+  // runs with --dangerously-skip-permissions and never calls out for approval.
+  let cleanupSettings: () => void = () => {};
+  let settingsPath: string | undefined;
+  if (!skipPermissions) {
+    const hookSettings = writePermissionHookSettings('agentwatch-hook', cycleId);
+    settingsPath = hookSettings.settingsPath;
+    cleanupSettings = hookSettings.cleanup;
+    // Register this cycle so the hook endpoint knows which session is active
+    registerActiveCycle(sessionId, cycleId);
+  }
 
   try {
     broadcast('improvement_started', {});
 
-    const cliArgs = [
-      '--resume', sessionId, '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--permission-mode', 'default',
-      '--settings', `"${settingsPath}"`,
-    ];
-
-    // Grant Read access to external skill/agent directories.
-    // Paths must be quoted — shell: true splits on spaces otherwise.
-    for (const dir of externalSkillDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    let child: ReturnType<typeof spawn>;
-    if (wslCtx) {
-      // WSL session: spawn claude inside WSL so it can access its own session data.
-      // Routed through `bash -lc` (login shell) rather than exec'd directly —
-      // `wsl -- claude` only sees the bare system PATH and fails with
-      // "claude: command not found" even when claude works fine in a normal
-      // terminal, because PATH additions from .bashrc/.profile (nvm,
-      // ~/.local/bin, etc.) are only sourced by a login shell.
-      const wslSettings = settingsPath
-        .replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`)
-        .replace(/\\/g, '/');
-      const claudeCmd = [
-        'claude', '--resume', `"${sessionId}"`, '-p',
-        '--output-format', 'stream-json', '--input-format', 'stream-json',
-        '--verbose', '--permission-mode', 'default', '--settings', `"${wslSettings}"`,
-        ...externalSkillDirs.flatMap(d => ['--add-dir', `"${d}"`]),
-      ].join(' ');
-      const wslArgs = ['-d', wslCtx.distro, '--cd', wslCtx.wslCwd, '--', 'bash', '-lc', claudeCmd];
-      child = spawn('wsl', wslArgs, { shell: false, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] });
-    } else {
-      child = spawn('claude', cliArgs, {
-        shell: true, cwd: projectCwd, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    }
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+    // WSL session: route through wsl -d <distro> --cd <wslCwd> so claude can
+    // access its own session data — projectCwd may have fallen back to this
+    // server's own cwd here, since resolveProjectCwd's fs.existsSync guard
+    // can't stat a native WSL path from a Windows-side process. wslCtx.wslCwd
+    // was read directly from the WSL session's own JSONL instead.
+    const child = spawnClaudeCli({
+      resumeSessionId: sessionId,
+      cwd: wslCtx ? wslCtx.wslCwd : projectCwd,
+      wslDistro: wslCtx?.distro ?? null,
+      permission: skipPermissions ? { mode: 'skipPermissions' } : { mode: 'hook', settingsPath: settingsPath! },
+      // Grant Read access to external skill/agent directories.
+      externalDirs: externalSkillDirs,
     });
-    child.stdin.write(userMsg + '\n', 'utf8');
+
+    writeUserTurn(child, prompt);
 
     // Route browser approval responses to the shared permission state
     const unsubscribe = wss?.onClientMessage((msg) => {
@@ -318,8 +286,6 @@ async function runClaudeResumeAsync(
         resolveApproval(msg.requestId, msg.approved);
       }
     });
-
-    let stdoutBuffer = '';
 
     // Edit/Write calls that Claude Code natively refuses (e.g. "sensitive
     // file" paths under .claude/) never reach the PreToolUse hook — Claude
@@ -362,76 +328,60 @@ async function runClaudeResumeAsync(
     }
 
     async function handleBlockedEdit(name: string, input: Record<string, unknown>) {
-      const requestId = randomUUID();
-      broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
-      const approved = await waitForApproval(requestId);
-      broadcast('improvement_permission_resolved', { requestId, approved });
-
       const filePath = String(input.file_path ?? 'unknown file');
+      let approved: boolean;
+
+      if (skipPermissions) {
+        // Skip mode is meant to be fully autonomous — a native "sensitive
+        // file" block isn't the interactive permission system, so it still
+        // needs this path, but it shouldn't stop and ask either.
+        approved = true;
+      } else {
+        const requestId = randomUUID();
+        broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
+        const result = await waitForApproval(requestId);
+        approved = result.approved;
+        broadcast('improvement_permission_resolved', { requestId, approved: result.approved, expired: result.expired });
+      }
+
       if (!approved) {
         directApplyOutcomes.push({ file: filePath, applied: false, reason: 'denied by user' });
       } else {
-        const result = applyEditLocally(name, input);
+        const result = applyEditLocally(name, input, projectCwd);
         directApplyOutcomes.push({ file: filePath, applied: result.ok, reason: result.error });
       }
     }
 
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('improvement_stream_event', { event });
 
       const eventType = event.type as string;
 
       if (eventType === 'system') {
-        streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'system', timestamp: Date.now(), text: 'Session initialized' });
+        log.push({ kind: 'system', text: 'Session initialized' });
       }
 
-      if (eventType === 'assistant') {
-        const msg = event.message as { content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }> } | undefined;
-        if (!msg?.content) return;
+      for (const entry of translateStreamEvent(event)) {
+        log.push(entry);
 
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'text', timestamp: Date.now(), text: block.text });
-          }
-          if (block.type === 'thinking') {
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'thinking', timestamp: Date.now(), text: block.thinking ?? '' });
-          }
-          if (block.type === 'tool_use') {
-            streamLog.push({ id: `s-${++streamIdCounter}`, kind: 'tool_use', timestamp: Date.now(), toolName: block.name, toolInput: block.input, toolUseId: block.id });
-            if (block.id && (block.name === 'Edit' || block.name === 'Write')) {
-              pendingToolCalls.set(block.id, { name: block.name, input: block.input ?? {} });
-            }
-          }
+        if (entry.kind === 'text' && entry.text) {
+          responseChunks.push(entry.text);
         }
-      }
 
-      if (eventType === 'user') {
-        const um = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
-        if (um?.content) {
-          for (const block of um.content) {
-            if (block.type === 'tool_result') {
-              const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
-              streamLog.push({
-                id: `s-${++streamIdCounter}`, kind: 'tool_result', timestamp: Date.now(),
-                toolUseId: block.tool_use_id, content,
-                isError: block.is_error ?? false,
+        if (entry.kind === 'tool_use' && entry.toolUseId && (entry.toolName === 'Edit' || entry.toolName === 'Write')) {
+          pendingToolCalls.set(entry.toolUseId, { name: entry.toolName, input: entry.toolInput ?? {} });
+        }
+
+        if (entry.kind === 'tool_result' && entry.toolUseId) {
+          const call = pendingToolCalls.get(entry.toolUseId);
+          if (call) {
+            pendingToolCalls.delete(entry.toolUseId);
+            if (entry.isError && isNativePermissionBlock(entry.content ?? '')) {
+              directApplyInFlight++;
+              handleBlockedEdit(call.name, call.input).finally(() => {
+                directApplyInFlight--;
+                maybeFinishTurn();
               });
-
-              const call = block.tool_use_id ? pendingToolCalls.get(block.tool_use_id) : undefined;
-              if (call && block.tool_use_id) {
-                pendingToolCalls.delete(block.tool_use_id);
-                if (block.is_error && isNativePermissionBlock(content ?? '')) {
-                  directApplyInFlight++;
-                  handleBlockedEdit(call.name, call.input).finally(() => {
-                    directApplyInFlight--;
-                    maybeFinishTurn();
-                  });
-                }
-              }
             }
           }
         }
@@ -443,29 +393,12 @@ async function runClaudeResumeAsync(
       }
     }
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
-    });
+    const { flushRemaining, getStderr } = attachStreamJsonParser(child, handleStreamEvent);
 
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+    const { exitCode, spawnError } = await waitForClaudeExit(child);
 
-    let spawnError: Error | null = null;
-    const exitCode = await new Promise<number>((resolve) => {
-      child.on('close', (code) => resolve(code ?? 0));
-      child.on('error', (err) => { spawnError = err; resolve(1); });
-    });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
+    flushRemaining();
+    const stderr = getStderr();
 
     if (unsubscribe) unsubscribe();
 
@@ -492,7 +425,7 @@ async function runClaudeResumeAsync(
       UPDATE improvement_cycles
       SET claude_response = ?, status = ?, completed_at = ?, file_changes = ?, stream_entries = ?
       WHERE id = ?
-    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, streamLog.length ? JSON.stringify(streamLog) : null, cycleId);
+    `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, log.entries.length ? JSON.stringify(log.entries) : null, cycleId);
 
     broadcast('improvement_complete', { status, response, fileChanges });
   } catch (err) {
@@ -503,7 +436,7 @@ async function runClaudeResumeAsync(
     broadcast('improvement_failed', { error: errMsg });
   } finally {
     unregisterActiveCycle(sessionId);
-    try { fs.unlinkSync(settingsPath); } catch { /* non-fatal */ }
+    cleanupSettings();
   }
 }
 
@@ -548,6 +481,20 @@ export async function POST(
       return NextResponse.json(
         { error: 'WebSocket server is not running, so live streaming and edit approvals cannot be delivered. Start the app with "npm run dev:server" (not "npm run dev"), then try again.' },
         { status: 503 },
+      );
+    }
+
+    // Hard guard against a second cycle starting (or a rewind running) while
+    // one is still applying — the pre-run `git stash` snapshots the whole
+    // working tree, so an overlapping cycle would stash away (and appear to
+    // silently discard) the first cycle's not-yet-committed edits.
+    const activeCycle = db.prepare(
+      `SELECT id FROM improvement_cycles WHERE session_id = ? AND status = 'applying'`
+    ).get(sessionId) as { id: string } | undefined;
+    if (activeCycle) {
+      return NextResponse.json(
+        { error: 'An improvement cycle is already running for this session. Wait for it to finish before starting another.' },
+        { status: 409 },
       );
     }
 
@@ -612,9 +559,10 @@ export async function POST(
       return NextResponse.json({ ok: true, rewoundCycles: cyclesToRewind });
     }
 
-    // Allow an optional custom prompt and skill selection from the client
-    let body: { customPrompt?: string; skillIds?: string[] } = {};
+    // Allow an optional custom prompt, skill selection, and permission mode from the client
+    let body: { customPrompt?: string; skillIds?: string[]; skipPermissions?: boolean } = {};
     try { body = await req.json(); } catch { /* no body is fine */ }
+    const skipPermissions = body.skipPermissions === true;
 
     const row = db.prepare(
       `SELECT MAX(cycle_number) as n FROM improvement_cycles WHERE session_id = ?`
@@ -646,12 +594,12 @@ export async function POST(
 
     db.prepare(`
       INSERT INTO improvement_cycles
-        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, jsonl_snapshot_size, created_at)
-      VALUES (?, ?, ?, ?, ?, 'applying', ?, ?)
-    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, now);
+        (id, session_id, cycle_number, feedback_ids, generated_prompt, status, jsonl_snapshot_size, permission_mode, created_at)
+      VALUES (?, ?, ?, ?, ?, 'applying', ?, ?, ?)
+    `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, skipPermissions ? 'skip' : 'approve', now);
 
     // Fire-and-forget — client polls GET or listens via WebSocket
-    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs));
+    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs, skipPermissions));
 
     const cycle = db.prepare(`SELECT * FROM improvement_cycles WHERE id = ?`).get(cycleId) as DbCycle;
     return NextResponse.json(mapCycle(cycle), { status: 201 });

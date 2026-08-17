@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listSessionHistory, searchSessionHistory } from '@/lib/services/session-history';
+import { listSessionHistory, searchSessions } from '@/lib/services/session-history';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const sourceId = url.searchParams.get('source') ?? undefined;
 
     if (q) {
-      const results = searchSessionHistory(q, limit, sourceId);
+      const results = searchSessions(q, limit, sourceId);
       return NextResponse.json({ sessions: results, total: results.length });
     }
 

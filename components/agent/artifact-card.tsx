@@ -44,7 +44,7 @@ export function ArtifactCard({ toolId, operationType, filePath, content, paneId 
   const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered');
   const [copied, setCopied] = useState(false);
-  const { splitPane, addTabToPane, focusedPaneId, layout } = useWorkspaceStore();
+  const { addTabToPane, setFocusedPane } = useWorkspaceStore();
 
   const fileName = filePath.split(/[/\\]/).pop() || filePath;
   const lang = detectLanguage(filePath);
@@ -52,19 +52,14 @@ export function ArtifactCard({ toolId, operationType, filePath, content, paneId 
   const isMarkdown = lang === 'markdown';
   const isCreate = operationType === 'create';
 
-  const openInPane = (e: React.MouseEvent) => {
+  const openAsTab = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const tab = { type: 'artifact-content' as const, artifactId: toolId, label: fileName };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
     w.__artifactCache = w.__artifactCache || {};
     w.__artifactCache[toolId] = { filePath, content, lang };
-
-    if (focusedPaneId && layout && focusedPaneId !== paneId) {
-      addTabToPane(focusedPaneId, tab);
-    } else {
-      splitPane(paneId, 'horizontal', tab);
-    }
+    addTabToPane(paneId, { type: 'artifact-content' as const, artifactId: toolId, label: fileName });
+    setFocusedPane(paneId);
   };
 
   const copy = (e: React.MouseEvent) => {
@@ -116,9 +111,9 @@ export function ArtifactCard({ toolId, operationType, filePath, content, paneId 
             {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
           </button>
           <button
-            onClick={openInPane}
+            onClick={openAsTab}
             className="p-1 rounded text-[var(--aw-text-4)] hover:text-[var(--aw-text-0)] hover:bg-white/10 transition-colors"
-            title="Open in new pane"
+            title="Open as tab"
           >
             <ExternalLink className="h-3 w-3" />
           </button>
@@ -174,8 +169,8 @@ export function ArtifactCard({ toolId, operationType, filePath, content, paneId 
           {lines.length > 30 && (
             <div className="px-3 py-2 text-center text-[10px] text-[var(--aw-text-4)] border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-4)]">
               {lines.length} lines ·{' '}
-              <button onClick={openInPane} className="text-[var(--aw-blue)] hover:underline">
-                Open in full pane to see all
+              <button onClick={openAsTab} className="text-[var(--aw-blue)] hover:underline">
+                Open as tab to see all
               </button>
             </div>
           )}
@@ -187,7 +182,7 @@ export function ArtifactCard({ toolId, operationType, filePath, content, paneId 
 
 // ─── Inline Markdown renderer (compact, matches document viewer style) ─────────
 
-function InlineMarkdown({ content }: { content: string }) {
+export function InlineMarkdown({ content }: { content: string }) {
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
   let i = 0;

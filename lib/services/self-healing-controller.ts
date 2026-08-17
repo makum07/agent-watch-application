@@ -1,37 +1,9 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
-import type { StreamEntry } from '@/types/feedback';
 import type { SkillSummary, SkillDetailData, SkillContextFile, AnalysisRecommendation } from '@/types/skills';
-
-// Above this, a file's extracted text is dropped from the prompt in favor of
-// a pointer to its on-disk .extracted.md sidecar (see createContextFile) —
-// keeps the full content available without bloating every analysis prompt.
-const CONTEXT_FILE_INLINE_THRESHOLD = 20_000;
-
-function toWslPath(p: string): string {
-  return p.replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
-}
-
-function isContextFileDeferred(file: SkillContextFile): boolean {
-  return file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
-}
-
-// Directories to grant via --add-dir so the spawned analysis agent can Read
-// the sidecar text of any deferred (too-large-to-inline) context file.
-function getDeferredContextFileDirs(contextFiles: SkillContextFile[], wslDistro: string | null): string[] {
-  const dirs = new Set<string>();
-  for (const file of contextFiles) {
-    if (!isContextFileDeferred(file)) continue;
-    const dir = path.dirname(file.textPath!);
-    dirs.add(wslDistro ? toWslPath(dir) : dir);
-  }
-  return [...dirs];
-}
 import {
   getClaudeProjectsDir,
   listProjectDirs,
@@ -48,6 +20,30 @@ import {
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
 import { findExternalSkillDirsForSessions } from '@/lib/services/external-dirs';
 import { getWslDistro } from '@/lib/sources';
+import { runClaudeCliOneShot, writePermissionHookSettings } from '@/lib/services/claude-cli';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence } from '@/lib/services/cli-stream-log';
+
+// Above this, a file's extracted text is dropped from the prompt in favor of
+// a pointer to its on-disk .extracted.md sidecar (see createContextFile) —
+// keeps the full content available without bloating every analysis prompt.
+const CONTEXT_FILE_INLINE_THRESHOLD = 20_000;
+
+function isContextFileDeferred(file: SkillContextFile): boolean {
+  return file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
+}
+
+// Directories to grant via --add-dir so the spawned analysis agent can Read
+// the sidecar text of any deferred (too-large-to-inline) context file.
+// Left untranslated for WSL — spawnClaudeCli translates every --add-dir
+// target to /mnt/<drive> itself when routing through wsl.
+function getDeferredContextFileDirs(contextFiles: SkillContextFile[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of contextFiles) {
+    if (!isContextFileDeferred(file)) continue;
+    dirs.add(path.dirname(file.textPath!));
+  }
+  return [...dirs];
+}
 
 function formatCategory(cat: string): string {
   const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
@@ -358,15 +354,10 @@ export async function runSkillAnalysis(
   customPrompt?: string,
   sourceId?: string
 ): Promise<void> {
-  const wss = getWsServer();
   const db = getDatabase(sourceId);
 
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
-  };
-
-  const streamLog: StreamEntry[] = [];
-  let streamIdCounter = 0;
+  const broadcast = createCycleBroadcaster({ skillId, cycleId });
+  const log = createStreamLogger('sa');
 
   try {
     broadcast('skill_analysis_started', {});
@@ -382,10 +373,8 @@ export async function runSkillAnalysis(
 
     const skillCwd = resolveSkillProjectCwd(detail.skill.project, sourceId);
 
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
+    log.push({
       kind: 'system',
-      timestamp: Date.now(),
       text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})${skillCwd ? ` in ${skillCwd}` : ''}...`,
     });
 
@@ -398,151 +387,32 @@ export async function runSkillAnalysis(
     const wslDistro = getWslDistro(sourceId);
 
     // Deferred (too-large-to-inline) context files live on this (Windows)
-    // process's disk — translate to /mnt/<drive> when the agent itself runs
-    // inside WSL, same conversion already proven for the improvements flow.
-    const contextDirs = getDeferredContextFileDirs(detail.contextFiles, wslDistro);
+    // process's disk — spawnClaudeCli translates every --add-dir target to
+    // /mnt/<drive> itself when routing through wsl, so pass raw paths here.
+    const contextDirs = getDeferredContextFileDirs(detail.contextFiles);
 
-    const cliArgs = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', 'claude-sonnet-4-6',
-      '--dangerously-skip-permissions',
-    ];
-
-    // Paths must be quoted — shell: true splits on spaces otherwise.
-    for (const dir of [...externalDirs, ...contextDirs]) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    const child = wslDistro && skillCwd
-      ? spawn('wsl', ['-d', wslDistro, '--cd', skillCwd, '--', 'bash', '-lc', ['claude', ...cliArgs].join(' ')], {
-          shell: false,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-      : spawn('claude', cliArgs, {
-          shell: true,
-          cwd: skillCwd || undefined,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
-    child.stdin.end();
-
-    const responseChunks: string[] = [];
-    let stdoutBuffer = '';
-
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('skill_analysis_stream_event', { event });
-
-      const eventType = event.type as string;
-
-      if (eventType === 'assistant') {
-        const msg = event.message as {
-          content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }>;
-        } | undefined;
-        if (!msg?.content) return;
-
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'text',
-              timestamp: Date.now(),
-              text: block.text,
-            });
-          }
-          if (block.type === 'thinking' && block.thinking) {
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'thinking',
-              timestamp: Date.now(),
-              text: block.thinking,
-            });
-          }
-          if (block.type === 'tool_use') {
-            streamLog.push({
-              id: `sa-${++streamIdCounter}`,
-              kind: 'tool_use',
-              timestamp: Date.now(),
-              toolName: block.name,
-              toolInput: block.input,
-              toolUseId: block.id,
-            });
-          }
-        }
-      }
-
-      if (eventType === 'user') {
-        const userMsg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> };
-        if (userMsg?.content) {
-          for (const block of userMsg.content) {
-            if (block.type === 'tool_result') {
-              streamLog.push({
-                id: `sa-${++streamIdCounter}`,
-                kind: 'tool_result',
-                timestamp: Date.now(),
-                toolUseId: block.tool_use_id,
-                content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                isError: block.is_error ?? false,
-              });
-            }
-          }
-        }
-      }
+      for (const entry of translateStreamEvent(event)) log.push(entry);
     }
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
-    });
-
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
 
     const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000;
-    const exitCode = await new Promise<number>((resolve) => {
-      const timer = setTimeout(() => {
-        try { child.kill(); } catch { /* already dead */ }
-        resolve(124);
-      }, ANALYSIS_TIMEOUT_MS);
-
-      child.on('close', (code) => { clearTimeout(timer); resolve(code ?? 0); });
-      child.on('error', () => { clearTimeout(timer); resolve(1); });
+    const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
+      prompt,
+      cwd: skillCwd || undefined,
+      model: 'claude-sonnet-4-6',
+      permission: { mode: 'skipPermissions' },
+      externalDirs: [...externalDirs, ...contextDirs],
+      wslDistro,
+      timeoutMs: ANALYSIS_TIMEOUT_MS,
+      onEvent: handleStreamEvent,
     });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
-
-    if (exitCode === 124) {
-      streamLog.push({
-        id: `sa-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: 'Analysis timed out after 5 minutes.',
-      });
+    if (timedOut) {
+      log.push({ kind: 'system', text: 'Analysis timed out after 5 minutes.' });
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
       broadcast('skill_analysis_failed', { error: 'Analysis timed out after 5 minutes' });
       return;
@@ -550,37 +420,27 @@ export async function runSkillAnalysis(
 
     if (exitCode !== 0) {
       const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
-      streamLog.push({
-        id: `sa-${++streamIdCounter}`,
-        kind: 'system',
-        timestamp: Date.now(),
-        text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}`,
-      });
+      log.push({ kind: 'system', text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}` });
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        analysisResponse: responseChunks.join('') || null,
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
       broadcast('skill_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
 
-    const fullResponse = responseChunks.join('');
+    const fullResponse = responseText;
 
     let recommendations: AnalysisRecommendation[] | null = null;
     let fixPrompt: string | null = null;
-    const jsonMatch = fullResponse.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[1]);
-        if (Array.isArray(parsed.recommendations)) {
-          recommendations = parsed.recommendations;
-        }
-        if (typeof parsed.fixPrompt === 'string') {
-          fixPrompt = parsed.fixPrompt;
-        }
-      } catch {
-        // Failed to parse JSON — non-fatal
+    const parsed = extractJsonFence(fullResponse);
+    if (parsed) {
+      if (Array.isArray(parsed.recommendations)) {
+        recommendations = parsed.recommendations as AnalysisRecommendation[];
+      }
+      if (typeof parsed.fixPrompt === 'string') {
+        fixPrompt = parsed.fixPrompt;
       }
     }
 
@@ -594,19 +454,14 @@ export async function runSkillAnalysis(
       finalStatus = 'awaiting_review';
     }
 
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis ${finalStatus}. ${recommendations?.length ?? 0} recommendations generated.`,
-    });
+    log.push({ kind: 'system', text: `Analysis ${finalStatus}. ${recommendations?.length ?? 0} recommendations generated.` });
 
     updateAnalysisCycle(cycleId, {
       analysisResponse: fullResponse,
       fixPrompt,
       recommendations,
       status: finalStatus,
-      streamEntries: streamLog.length > 0 ? streamLog : null,
+      streamEntries: log.entries.length > 0 ? log.entries : null,
     }, sourceId);
 
     broadcast('skill_analysis_complete', { status: finalStatus });
@@ -615,17 +470,12 @@ export async function runSkillAnalysis(
       await applySkillFix(cycleId, skillId, fixPrompt, sourceId);
     }
   } catch (err) {
-    streamLog.push({
-      id: `sa-${++streamIdCounter}`,
-      kind: 'system',
-      timestamp: Date.now(),
-      text: `Analysis failed: ${String(err)}`,
-    });
+    log.push({ kind: 'system', text: `Analysis failed: ${String(err)}` });
 
     try {
       updateAnalysisCycle(cycleId, {
         status: 'failed',
-        streamEntries: streamLog.length > 0 ? streamLog : null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
     } catch (updateErr) {
       try {
@@ -645,29 +495,12 @@ export async function applySkillFix(
   sourceId?: string
 ): Promise<void> {
   const wss = getWsServer();
-
-  const broadcast = (type: string, payload: Record<string, unknown>) => {
-    wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
-  };
+  const broadcast = createCycleBroadcaster({ skillId, cycleId });
 
   const detail = getSkillDetail(skillId, sourceId);
   const skillCwd = detail ? resolveSkillProjectCwd(detail.skill.project, sourceId) : null;
 
-  const port = String(process.env.PORT || 3000);
-  const hookSettings = {
-    hooks: {
-      PreToolUse: [{
-        matcher: 'Edit|Write',
-        hooks: [{
-          type: 'http',
-          url: `http://localhost:${port}/api/v2/hooks/permission`,
-          timeout: 600,
-        }],
-      }],
-    },
-  };
-  const settingsPath = path.join(os.tmpdir(), `agentwatch-hook-skill-${cycleId}.json`);
-  fs.writeFileSync(settingsPath, JSON.stringify(hookSettings), 'utf8');
+  const { settingsPath, cleanup: cleanupSettings } = writePermissionHookSettings('agentwatch-hook-skill', cycleId);
 
   let registeredSessionId: string | null = null;
   let unsubscribe: (() => void) | undefined;
@@ -676,58 +509,7 @@ export async function applySkillFix(
     updateAnalysisCycle(cycleId, { status: 'applying' }, sourceId);
 
     const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd, sourceId) : [];
-
-    // Grant Edit/Write access to the skill's real definition directory when it
-    // lives outside skillCwd — otherwise the workspace-boundary check blocks
-    // the edit even after the user approves it via the browser hook.
-    const addDirArgs = externalDirs.flatMap(dir => ['--add-dir', `"${dir}"`]);
-
-    // The settings file was written by this (Windows) process at a Windows
-    // path — the WSL-side claude process needs it through the /mnt/<drive>
-    // mount instead, same conversion already proven for the improvements flow.
     const wslDistro = getWslDistro(sourceId);
-    const wslSettings = settingsPath
-      .replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`)
-      .replace(/\\/g, '/');
-    const claudeCmd = [
-      'claude', '-p',
-      '--output-format', 'stream-json', '--input-format', 'stream-json',
-      '--verbose', '--model', 'claude-sonnet-4-6',
-      '--permission-mode', 'default', '--settings', `"${wslSettings}"`,
-      '--include-hook-events',
-      ...addDirArgs,
-    ].join(' ');
-    const cliArgs = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', 'claude-sonnet-4-6',
-      '--permission-mode', 'default',
-      '--settings', `"${settingsPath}"`,
-      '--include-hook-events',
-      ...addDirArgs,
-    ];
-
-    const child = wslDistro && skillCwd
-      ? spawn('wsl', ['-d', wslDistro, '--cd', skillCwd, '--', 'bash', '-lc', claudeCmd], {
-          shell: false,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-      : spawn('claude', cliArgs, {
-          shell: true,
-          cwd: skillCwd || undefined,
-          env: { ...process.env },
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-
-    const userMsg = JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text: fixPrompt }] },
-    });
-    child.stdin.write(userMsg + '\n', 'utf8');
-    child.stdin.end();
 
     unsubscribe = wss?.onClientMessage((msg: Record<string, unknown>) => {
       if (msg.type === 'permission_response' && msg.cycleId === cycleId) {
@@ -735,51 +517,27 @@ export async function applySkillFix(
       }
     });
 
-    const responseChunks: string[] = [];
-    let stdoutBuffer = '';
-
-    function handleStreamEvent(line: string) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { return; }
-
+    function handleStreamEvent(event: Record<string, unknown>) {
       if (event.type === 'system' && typeof event.session_id === 'string' && !registeredSessionId) {
         registeredSessionId = event.session_id as string;
         registerActiveCycle(registeredSessionId, cycleId);
       }
 
       broadcast('skill_analysis_stream_event', { event });
-
-      const eventType = event.type as string;
-      if (eventType === 'assistant') {
-        const msg = event.message as {
-          content?: Array<{ type: string; text?: string }>;
-        } | undefined;
-        if (!msg?.content) return;
-        for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
-            responseChunks.push(block.text);
-          }
-        }
-      }
     }
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim()) handleStreamEvent(line.trim());
-      }
+    // Grant Edit/Write access to the skill's real definition directory when it
+    // lives outside skillCwd — otherwise the workspace-boundary check blocks
+    // the edit even after the user approves it via the browser hook.
+    await runClaudeCliOneShot({
+      prompt: fixPrompt,
+      cwd: skillCwd || undefined,
+      model: 'claude-sonnet-4-6',
+      permission: { mode: 'hook', settingsPath },
+      externalDirs,
+      wslDistro,
+      onEvent: handleStreamEvent,
     });
-
-    await new Promise<number>((resolve) => {
-      child.on('close', (code) => resolve(code ?? 0));
-      child.on('error', () => resolve(1));
-    });
-
-    if (stdoutBuffer.trim()) {
-      handleStreamEvent(stdoutBuffer.trim());
-    }
 
     const db = getDatabase(sourceId);
     db.prepare('UPDATE skills SET version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), skillId);
@@ -792,7 +550,7 @@ export async function applySkillFix(
   } finally {
     unsubscribe?.();
     if (registeredSessionId) unregisterActiveCycle(registeredSessionId);
-    try { fs.unlinkSync(settingsPath); } catch { /* already cleaned */ }
+    cleanupSettings();
   }
 }
 

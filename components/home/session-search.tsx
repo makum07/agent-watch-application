@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, ArrowRight } from 'lucide-react';
+import { Search, Loader2, ArrowRight, Quote } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { cn, formatRelativeTime } from '@/lib/utils';
-import type { SessionHistory } from '@/types/history';
+import { formatRelativeTime } from '@/lib/utils';
+import type { SessionSearchResult } from '@/types/history';
 
 const UUID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
@@ -22,7 +22,7 @@ function extractId(raw: string): string | null {
 export function SessionSearch() {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SessionHistory[]>([]);
+  const [results, setResults] = useState<SessionSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -56,10 +56,10 @@ export function SessionSearch() {
   return (
     <div className="relative w-full">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          className="pl-9 pr-9 bg-muted/50 border-border"
-          placeholder="Search sessions or paste ID / path…"
+          className="h-10 pl-10 pr-10 text-sm bg-muted/50 border-border"
+          placeholder="Search sessions, prompts, responses, or paste an ID…"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -90,18 +90,26 @@ export function SessionSearch() {
       )}
 
       {focused && !directId && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden max-h-[70vh] overflow-y-auto">
           {results.map(s => (
             <button
               key={s.sessionId}
-              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors"
+              className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors"
               onClick={() => { router.push(`/session/${s.sessionId}`); setFocused(false); }}
             >
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium truncate">{s.title}</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-medium truncate">{s.title}</div>
+                  <div className="text-xs text-muted-foreground shrink-0 ml-auto">{formatRelativeTime(s.lastOpened)}</div>
+                </div>
                 <div className="text-xs text-muted-foreground truncate">{s.project.split(/[/\\]/).pop()}</div>
+                {s.matchType === 'content' && s.snippet && (
+                  <div className="flex items-start gap-1.5 mt-1 text-xs text-foreground/70 italic">
+                    <Quote className="h-3 w-3 shrink-0 mt-0.5 text-primary/60" />
+                    <span className="line-clamp-2">{s.snippet}</span>
+                  </div>
+                )}
               </div>
-              <div className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(s.lastOpened)}</div>
             </button>
           ))}
         </div>

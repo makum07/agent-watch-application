@@ -78,6 +78,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const [promptViewMode, setPromptViewMode] = useState<'preview' | 'edit'>('preview');
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [showSkillMenu, setShowSkillMenu] = useState(false);
+  const [skipPermissions, setSkipPermissions] = useState(false);
 
   // Rewind confirmation
   const [rewindConfirm, setRewindConfirm] = useState<ImprovementCycle | null>(null);
@@ -143,7 +144,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
 
   async function handleApply() {
     setApplyStep('applying');
-    const cycle = await applyImprovements(sessionId, promptDraft, selectedSkillIds);
+    const cycle = await applyImprovements(sessionId, promptDraft, selectedSkillIds, skipPermissions);
     if (cycle) setExpandedCycleId(cycle.id);
     setApplyStep('idle');
     setRewindFromCycle(null);
@@ -210,6 +211,44 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Apply mode — sticks for whatever "Apply Improvements" runs next */}
+      <button
+        role="switch"
+        aria-checked={skipPermissions}
+        onClick={() => setSkipPermissions(v => !v)}
+        title={skipPermissions
+          ? 'Switch back to reviewing each Edit/Write before it’s applied'
+          : 'Switch to --dangerously-skip-permissions — no approval prompts, fully autonomous'}
+        className={cn(
+          'shrink-0 w-full flex items-center justify-between gap-3 px-3 py-2 border-b transition-colors',
+          skipPermissions
+            ? 'bg-[var(--aw-orange)]/10 border-[var(--aw-orange)]/30 hover:bg-[var(--aw-orange)]/15'
+            : 'bg-[var(--aw-bg-1)] border-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-2)]/60',
+        )}
+      >
+        <span className="flex items-center gap-1.5 min-w-0">
+          {skipPermissions
+            ? <Zap className="h-3.5 w-3.5 text-[var(--aw-orange)] shrink-0" />
+            : <Check className="h-3.5 w-3.5 text-[var(--aw-text-2)] shrink-0" />}
+          <span className={cn('text-xs font-semibold truncate', skipPermissions ? 'text-[var(--aw-orange)]' : 'text-[var(--aw-text-1)]')}>
+            {skipPermissions ? 'Skip permissions — fully autonomous' : 'Review edits before applying'}
+          </span>
+        </span>
+        <span
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+            skipPermissions ? 'bg-[var(--aw-orange)]' : 'bg-[var(--aw-bg-2)]',
+          )}
+        >
+          <span
+            className={cn(
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+              skipPermissions ? 'translate-x-[18px]' : 'translate-x-0.5',
+            )}
+          />
+        </span>
+      </button>
 
       {/* Tab rail */}
       <div className="shrink-0 flex border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
@@ -632,35 +671,42 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
       <div className="shrink-0 border-t border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
         {applyStep === 'editing-prompt' ? (
           /* Slim action bar — editor lives in the content area above */
-          <div className="flex items-center gap-2 px-3 py-2.5">
-            <button
-              onClick={handleApply}
-              disabled={!promptDraft.trim() || isApplying}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[var(--aw-blue-action)] hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
-            >
-              {isApplying
-                ? <><Loader2 className="h-3 w-3 animate-spin" /> Applying…</>
-                : <><Zap className="h-3 w-3" /> Apply Improvements</>}
-            </button>
-            <button
-              onClick={() => { setApplyStep('idle'); setRewindFromCycle(null); }}
-              className="px-3 py-2 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:border-[var(--aw-text-4)] text-xs transition-colors"
-            >
-              Cancel
-            </button>
+          <div className="px-3 py-2.5 space-y-1.5">
+            <p className="text-[10px] text-[var(--aw-text-3)]">
+              Applying with <span className={skipPermissions ? 'text-[var(--aw-orange)]' : 'text-[var(--aw-blue)]'}>
+                {skipPermissions ? 'permissions skipped' : 'edit review'}
+              </span> — change this in &ldquo;Apply mode&rdquo; above.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleApply}
+                disabled={!promptDraft.trim() || isApplying || hasApplying}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[var(--aw-blue-action)] hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+              >
+                {isApplying
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Applying…</>
+                  : <><Zap className="h-3 w-3" /> Apply Improvements</>}
+              </button>
+              <button
+                onClick={() => { setApplyStep('idle'); setRewindFromCycle(null); }}
+                className="px-3 py-2 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:border-[var(--aw-text-4)] text-xs transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <div className="p-3">
             <button
               onClick={handlePreview}
-              disabled={items.length === 0 || applyStep !== 'idle'}
+              disabled={items.length === 0 || applyStep !== 'idle' || hasApplying}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded bg-[var(--aw-blue-action)] hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
-              {applyStep === 'loading-preview' || applyStep === 'applying'
+              {applyStep === 'loading-preview' || applyStep === 'applying' || hasApplying
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <Zap className="h-4 w-4" />}
               {applyStep === 'loading-preview' ? 'Generating prompt…'
-                : applyStep === 'applying' ? 'Applying…'
+                : applyStep === 'applying' || hasApplying ? 'A cycle is already running…'
                 : <>Apply Improvements{items.length > 0 && <span className="text-xs opacity-75 ml-1">({items.length})</span>}</>}
             </button>
           </div>

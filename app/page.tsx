@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { listSessionHistory } from '@/lib/services/session-history';
 import { discoverSessions } from '@/lib/services/session-ingester';
-import { extractFirstUserMessage } from '@/lib/parser/agent-correlator';
+import { extractFirstUserMessageInfo } from '@/lib/parser/agent-correlator';
 import { getDefaultSource } from '@/lib/sources';
 import { HomeClient } from '@/components/home/home-client';
 
@@ -43,7 +43,8 @@ export default async function HomePage() {
       recent={recent}
       byProject={Array.from(byProjectMap.entries())}
       historyMap={Array.from(historyMap.entries())}
-      firstUserMessages={allDiscovered.map(s => [s.id, extractFirstUserMessage(s.filePath)])}
+      firstUserMessages={allDiscovered.map(s => [s.id, extractFirstUserMessageInfo(s.filePath)])}
+      projectNames={allDiscovered.map(s => [s.id, s.projectDisplayName])}
       totalSessions={allDiscovered.length}
       sourceId={sourceId}
     />

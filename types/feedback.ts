@@ -8,6 +8,11 @@ export type FeedbackCategory =
   | 'missing_code_exploration'
   | 'missing_test_coverage'
   | 'workflow_improvement'
+  | 'agent_definition_gap'
+  | 'skill_definition_gap'
+  | 'tool_misuse'
+  | 'inefficient_execution'
+  | 'prompt_ambiguity'
   | 'other';
 
 export interface FeedbackCategoryMeta {
@@ -26,6 +31,11 @@ export const FEEDBACK_CATEGORIES: FeedbackCategoryMeta[] = [
   { value: 'missing_code_exploration',label: 'Missing Code Exploration',color: '#56d364' },
   { value: 'missing_test_coverage',   label: 'Missing Test Coverage',   color: '#3fb950' },
   { value: 'workflow_improvement',    label: 'Workflow Improvement',    color: '#58a6ff' },
+  { value: 'agent_definition_gap',    label: 'Agent Definition Gap',    color: '#e3b341' },
+  { value: 'skill_definition_gap',    label: 'Skill Definition Gap',    color: '#db6d28' },
+  { value: 'tool_misuse',             label: 'Tool Misuse',             color: '#f47067' },
+  { value: 'inefficient_execution',   label: 'Inefficient Execution',   color: '#39c5cf' },
+  { value: 'prompt_ambiguity',        label: 'Prompt Ambiguity',        color: '#bc8cff' },
   { value: 'other',                   label: 'Other',                   color: '#8b949e' },
 ];
 
@@ -69,6 +79,7 @@ export interface ImprovementCycle {
   snapshotSize: number | null;
   fileChanges: FileChange[] | null;
   streamEntries: StreamEntry[] | null;
+  permissionMode: 'approve' | 'skip';
 }
 
 // Live streaming state for an active improvement cycle
