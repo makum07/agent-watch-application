@@ -5,22 +5,30 @@ import type {
   SkillSummary,
   SkillDetailData,
   SkillAnalysisCycle,
+  SkillContextFileSummary,
   SelfHealingMode,
 } from '@/types/skills';
 import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
 import type { StreamEntry } from '@/types/feedback';
 
+// The skill-detail endpoint strips extractedText from contextFiles before
+// sending to the browser (it can be large and the UI never needs it).
+type ClientSkillDetailData = Omit<SkillDetailData, 'contextFiles'> & { contextFiles: SkillContextFileSummary[] };
+
 interface SkillStore {
   skills: SkillSummary[];
-  selectedSkill: SkillDetailData | null;
+  selectedSkill: ClientSkillDetailData | null;
   analysisCycles: SkillAnalysisCycle[];
   isLoading: boolean;
   isSyncing: boolean;
   isAnalyzing: boolean;
+  isUploadingContext: boolean;
   lastError: string | null;
+  sourceId: string | undefined;
 
   streamEntries: StreamEntry[];
 
+  setSourceId: (sourceId: string | undefined) => void;
   loadSkills: (project?: string) => Promise<void>;
   syncSkills: () => Promise<number>;
   loadSkillDetail: (skillId: string) => Promise<void>;
@@ -35,6 +43,9 @@ interface SkillStore {
   triggerAnalysis: (skillId: string, customPrompt?: string) => Promise<SkillAnalysisCycle | null>;
   approveFixPrompt: (skillId: string, cycleId: string, fixPrompt?: string) => Promise<void>;
   deleteAnalysisCycle: (skillId: string, cycleId: string) => Promise<void>;
+  uploadContextFile: (skillId: string, file: File) => Promise<boolean>;
+  deleteContextFile: (skillId: string, fileId: string) => Promise<void>;
+  viewContextFile: (skillId: string, fileId: string) => Promise<{ filename: string; extractedText: string } | null>;
   handleStreamEvent: (event: SessionEvent) => void;
   clearError: () => void;
   clearStream: () => void;
@@ -43,6 +54,13 @@ interface SkillStore {
 
 let streamIdCounter = 0;
 
+// Appends the active source (if any) as a query param, correctly whether
+// the URL already has a `?` from another param (e.g. ?project=...) or not.
+function withSource(url: string, sourceId: string | undefined): string {
+  if (!sourceId) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'source=' + encodeURIComponent(sourceId);
+}
+
 export const useSkillStore = create<SkillStore>((set, get) => ({
   skills: [],
   selectedSkill: null,
@@ -50,13 +68,18 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   isLoading: false,
   isSyncing: false,
   isAnalyzing: false,
+  isUploadingContext: false,
   lastError: null,
+  sourceId: undefined,
   streamEntries: [],
+
+  setSourceId: (sourceId) => set({ sourceId }),
 
   loadSkills: async (project?) => {
     set({ isLoading: true, lastError: null });
     try {
-      const url = project ? `/api/v2/skills?project=${encodeURIComponent(project)}` : '/api/v2/skills';
+      const base = project ? `/api/v2/skills?project=${encodeURIComponent(project)}` : '/api/v2/skills';
+      const url = withSource(base, get().sourceId);
       const res = await fetch(url);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -69,7 +92,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   syncSkills: async () => {
     set({ isSyncing: true, lastError: null });
     try {
-      const res = await fetch('/api/v2/skills', { method: 'POST' });
+      const res = await fetch(withSource('/api/v2/skills', get().sourceId), { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       await get().loadSkills();
@@ -84,7 +107,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   loadSkillDetail: async (skillId) => {
     set({ isLoading: true, lastError: null });
     try {
-      const res = await fetch(`/api/v2/skills/${skillId}`);
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}`, get().sourceId));
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       set({ selectedSkill: data, isLoading: false });
@@ -96,7 +119,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   updateSkillConfig: async (skillId, updates) => {
     set({ lastError: null });
     try {
-      const res = await fetch(`/api/v2/skills/${skillId}`, {
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}`, get().sourceId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -110,7 +133,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
   loadAnalysisCycles: async (skillId) => {
     try {
-      const res = await fetch(`/api/v2/skills/${skillId}/analysis`);
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/analysis`, get().sourceId));
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       set({ analysisCycles: data.cycles });
@@ -121,7 +144,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
   previewPrompt: async (skillId) => {
     try {
-      const res = await fetch(`/api/v2/skills/${skillId}/analysis?preview=1`);
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/analysis?preview=1`, get().sourceId));
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       return data.prompt as string;
@@ -137,7 +160,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       const body: Record<string, unknown> = {};
       if (customPrompt) body.customPrompt = customPrompt;
 
-      const res = await fetch(`/api/v2/skills/${skillId}/analysis`, {
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/analysis`, get().sourceId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -157,7 +180,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       const body: Record<string, unknown> = {};
       if (fixPrompt) body.fixPrompt = fixPrompt;
 
-      const res = await fetch(`/api/v2/skills/${skillId}/analysis/${cycleId}`, {
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/analysis/${cycleId}`, get().sourceId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -171,12 +194,58 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
   deleteAnalysisCycle: async (skillId, cycleId) => {
     try {
-      await fetch(`/api/v2/skills/${skillId}/analysis/${cycleId}`, { method: 'DELETE' });
+      await fetch(withSource(`/api/v2/skills/${skillId}/analysis/${cycleId}`, get().sourceId), { method: 'DELETE' });
       set(state => ({
         analysisCycles: state.analysisCycles.filter(c => c.id !== cycleId),
       }));
     } catch (err) {
       set({ lastError: String(err) });
+    }
+  },
+
+  uploadContextFile: async (skillId, file) => {
+    set({ isUploadingContext: true, lastError: null });
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/attachments`, get().sourceId), {
+        method: 'POST',
+        body,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || await res.text());
+      }
+      await get().loadSkillDetail(skillId);
+      set({ isUploadingContext: false });
+      return true;
+    } catch (err) {
+      set({ lastError: String(err instanceof Error ? err.message : err), isUploadingContext: false });
+      return false;
+    }
+  },
+
+  deleteContextFile: async (skillId, fileId) => {
+    try {
+      await fetch(withSource(`/api/v2/skills/${skillId}/attachments/${fileId}`, get().sourceId), { method: 'DELETE' });
+      set(state => ({
+        selectedSkill: state.selectedSkill
+          ? { ...state.selectedSkill, contextFiles: state.selectedSkill.contextFiles.filter(f => f.id !== fileId) }
+          : state.selectedSkill,
+      }));
+    } catch (err) {
+      set({ lastError: String(err) });
+    }
+  },
+
+  viewContextFile: async (skillId, fileId) => {
+    try {
+      const res = await fetch(withSource(`/api/v2/skills/${skillId}/attachments/${fileId}`, get().sourceId));
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    } catch (err) {
+      set({ lastError: String(err) });
+      return null;
     }
   },
 
@@ -273,6 +342,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     isLoading: false,
     isSyncing: false,
     isAnalyzing: false,
+    isUploadingContext: false,
     lastError: null,
     streamEntries: [],
   }),

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import { randomUUID } from 'crypto';
 
 interface DbFeedbackItem {
@@ -29,12 +30,13 @@ function mapItem(row: DbFeedbackItem) {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const items = db.prepare(
       `SELECT * FROM feedback_items WHERE session_id = ? ORDER BY created_at ASC`
     ).all(sessionId) as DbFeedbackItem[];
@@ -56,7 +58,8 @@ export async function POST(
       return NextResponse.json({ error: 'agentId, category and text are required' }, { status: 400 });
     }
 
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const id = randomUUID();
     const now = Date.now();
 
@@ -91,7 +94,8 @@ export async function PATCH(
     if (!body.text?.trim() && !body.category) {
       return NextResponse.json({ error: 'text or category required' }, { status: 400 });
     }
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const fields: string[] = [];
     const values: unknown[] = [];
     if (body.text?.trim()) { fields.push('text = ?'); values.push(body.text.trim()); }
@@ -116,7 +120,8 @@ export async function DELETE(
     if (!itemId) {
       return NextResponse.json({ error: 'itemId query param required' }, { status: 400 });
     }
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     db.prepare(`DELETE FROM feedback_items WHERE id = ? AND session_id = ?`).run(itemId, sessionId);
     return NextResponse.json({ ok: true });
   } catch (err) {

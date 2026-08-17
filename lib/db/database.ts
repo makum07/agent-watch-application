@@ -406,6 +406,35 @@ function runMigrations(db: Database.Database) {
     `);
   }
 
+  if (currentVersion < 14) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS skill_context_files (
+        id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        raw_path TEXT NOT NULL,
+        text_path TEXT,
+        extracted_text TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (skill_id) REFERENCES skills(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_context_files_skill ON skill_context_files(skill_id, created_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (14, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 15) {
+    const cols = db.prepare("PRAGMA table_info(skill_context_files)").all() as { name: string }[];
+    if (cols.length > 0 && !cols.find(c => c.name === 'text_path')) {
+      db.exec(`ALTER TABLE skill_context_files ADD COLUMN text_path TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (15, ${Date.now()});`);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];

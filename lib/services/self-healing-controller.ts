@@ -6,7 +6,32 @@ import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
 import type { StreamEntry } from '@/types/feedback';
-import type { SkillSummary, SkillDetailData, AnalysisRecommendation } from '@/types/skills';
+import type { SkillSummary, SkillDetailData, SkillContextFile, AnalysisRecommendation } from '@/types/skills';
+
+// Above this, a file's extracted text is dropped from the prompt in favor of
+// a pointer to its on-disk .extracted.md sidecar (see createContextFile) —
+// keeps the full content available without bloating every analysis prompt.
+const CONTEXT_FILE_INLINE_THRESHOLD = 20_000;
+
+function toWslPath(p: string): string {
+  return p.replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
+}
+
+function isContextFileDeferred(file: SkillContextFile): boolean {
+  return file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
+}
+
+// Directories to grant via --add-dir so the spawned analysis agent can Read
+// the sidecar text of any deferred (too-large-to-inline) context file.
+function getDeferredContextFileDirs(contextFiles: SkillContextFile[], wslDistro: string | null): string[] {
+  const dirs = new Set<string>();
+  for (const file of contextFiles) {
+    if (!isContextFileDeferred(file)) continue;
+    const dir = path.dirname(file.textPath!);
+    dirs.add(wslDistro ? toWslPath(dir) : dir);
+  }
+  return [...dirs];
+}
 import {
   getClaudeProjectsDir,
   listProjectDirs,
@@ -22,6 +47,7 @@ import {
 } from './skill-registry';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/lib/hooks/permission-state';
 import { findExternalSkillDirsForSessions } from '@/lib/services/external-dirs';
+import { getWslDistro } from '@/lib/sources';
 
 function formatCategory(cat: string): string {
   const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
@@ -37,10 +63,10 @@ function formatDateShort(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
-function resolveSkillProjectCwd(projectDisplayName: string): string | null {
+function resolveSkillProjectCwd(projectDisplayName: string, sourceId?: string): string | null {
   try {
-    const projectsDir = getClaudeProjectsDir();
-    const projectDirs = listProjectDirs();
+    const projectsDir = getClaudeProjectsDir(sourceId);
+    const projectDirs = listProjectDirs(sourceId);
 
     for (const dirName of projectDirs) {
       if (getProjectDisplayName(dirName) !== projectDisplayName) continue;
@@ -66,9 +92,9 @@ function resolveSkillProjectCwd(projectDisplayName: string): string | null {
 // from the JSONL of every session that has executed this skill and pass them
 // back via `--add-dir` — otherwise Edit/Write on the real definition file is
 // blocked by Claude Code's workspace boundary regardless of hook approval.
-function resolveExternalSkillDirs(skillId: string, cwd: string): string[] {
+function resolveExternalSkillDirs(skillId: string, cwd: string, sourceId?: string): string[] {
   try {
-    const db = getDatabase();
+    const db = getDatabase(sourceId);
     const sessionIds = db.prepare(
       'SELECT DISTINCT session_id FROM skill_executions WHERE skill_id = ?'
     ).all(skillId) as Array<{ session_id: string }>;
@@ -111,6 +137,23 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
   lines.push(`| Last Execution | ${skill.lastExecutionAt ? formatDate(skill.lastExecutionAt) : 'Never'} |`);
   lines.push(`| Last Analysis | ${skill.lastAnalysisAt ? formatDate(skill.lastAnalysisAt) : 'Never'} |`);
   lines.push('');
+
+  // ─── Attached context documents ─────────────────────────────────────
+
+  if (detail.contextFiles.length > 0) {
+    lines.push(`## Attached Context Documents (${detail.contextFiles.length})\n`);
+    lines.push(`The user attached the following document(s) as background context for this skill — use them to inform your understanding of its purpose, domain, or intended audience. They are supplementary material, not a spec to validate behavior against line-by-line.\n`);
+    for (const file of detail.contextFiles) {
+      if (isContextFileDeferred(file)) {
+        lines.push(`### ${file.filename} (${file.extractedText.length.toLocaleString()} chars — too large to inline)\n`);
+        lines.push(`Full content is available at \`${file.textPath}\`. Read this file before evaluating the skill so its content informs your analysis.\n`);
+      } else {
+        lines.push(`### ${file.filename}\n`);
+        lines.push(file.extractedText.trim());
+        lines.push('');
+      }
+    }
+  }
 
   // ─── Compute open/closed classification ────────────────────────────
 
@@ -303,8 +346,8 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
   return lines.join('\n');
 }
 
-export function generatePromptPreview(skillId: string): string | null {
-  const detail = getSkillDetail(skillId);
+export function generatePromptPreview(skillId: string, sourceId?: string): string | null {
+  const detail = getSkillDetail(skillId, sourceId);
   if (!detail) return null;
   return generateAnalysisPrompt(detail.skill, detail);
 }
@@ -312,10 +355,11 @@ export function generatePromptPreview(skillId: string): string | null {
 export async function runSkillAnalysis(
   cycleId: string,
   skillId: string,
-  customPrompt?: string
+  customPrompt?: string,
+  sourceId?: string
 ): Promise<void> {
   const wss = getWsServer();
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
 
   const broadcast = (type: string, payload: Record<string, unknown>) => {
     wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
@@ -327,16 +371,16 @@ export async function runSkillAnalysis(
   try {
     broadcast('skill_analysis_started', {});
 
-    const detail = getSkillDetail(skillId);
+    const detail = getSkillDetail(skillId, sourceId);
     if (!detail) {
-      updateAnalysisCycle(cycleId, { status: 'failed' });
+      updateAnalysisCycle(cycleId, { status: 'failed' }, sourceId);
       broadcast('skill_analysis_failed', { error: 'Skill not found' });
       return;
     }
 
     const prompt = customPrompt || generateAnalysisPrompt(detail.skill, detail);
 
-    const skillCwd = resolveSkillProjectCwd(detail.skill.project);
+    const skillCwd = resolveSkillProjectCwd(detail.skill.project, sourceId);
 
     streamLog.push({
       id: `sa-${++streamIdCounter}`,
@@ -345,7 +389,18 @@ export async function runSkillAnalysis(
       text: `Starting skill analysis for "${detail.skill.name}" (${detail.skill.project})${skillCwd ? ` in ${skillCwd}` : ''}...`,
     });
 
-    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
+    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd, sourceId) : [];
+
+    // WSL-sourced skill: cwd is a native Linux path — a Windows-side spawn
+    // can't cd into it (cmd.exe rejects UNC paths as a cwd). Route through
+    // `wsl -d <distro> -- bash -lc` so PATH additions (nvm, ~/.local/bin)
+    // still resolve `claude`, same fix already proven for other flows.
+    const wslDistro = getWslDistro(sourceId);
+
+    // Deferred (too-large-to-inline) context files live on this (Windows)
+    // process's disk — translate to /mnt/<drive> when the agent itself runs
+    // inside WSL, same conversion already proven for the improvements flow.
+    const contextDirs = getDeferredContextFileDirs(detail.contextFiles, wslDistro);
 
     const cliArgs = [
       '-p',
@@ -357,16 +412,22 @@ export async function runSkillAnalysis(
     ];
 
     // Paths must be quoted — shell: true splits on spaces otherwise.
-    for (const dir of externalDirs) {
+    for (const dir of [...externalDirs, ...contextDirs]) {
       cliArgs.push('--add-dir', `"${dir}"`);
     }
 
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: skillCwd || undefined,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = wslDistro && skillCwd
+      ? spawn('wsl', ['-d', wslDistro, '--cd', skillCwd, '--', 'bash', '-lc', ['claude', ...cliArgs].join(' ')], {
+          shell: false,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      : spawn('claude', cliArgs, {
+          shell: true,
+          cwd: skillCwd || undefined,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
     const userMsg = JSON.stringify({
       type: 'user',
@@ -482,7 +543,7 @@ export async function runSkillAnalysis(
         status: 'failed',
         analysisResponse: responseChunks.join('') || null,
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
       broadcast('skill_analysis_failed', { error: 'Analysis timed out after 5 minutes' });
       return;
     }
@@ -499,7 +560,7 @@ export async function runSkillAnalysis(
         status: 'failed',
         analysisResponse: responseChunks.join('') || null,
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
       broadcast('skill_analysis_failed', { error: errorDetail.slice(0, 300) });
       return;
     }
@@ -546,12 +607,12 @@ export async function runSkillAnalysis(
       recommendations,
       status: finalStatus,
       streamEntries: streamLog.length > 0 ? streamLog : null,
-    });
+    }, sourceId);
 
     broadcast('skill_analysis_complete', { status: finalStatus });
 
     if (mode === 'fully_automatic' && fixPrompt) {
-      await applySkillFix(cycleId, skillId, fixPrompt);
+      await applySkillFix(cycleId, skillId, fixPrompt, sourceId);
     }
   } catch (err) {
     streamLog.push({
@@ -565,10 +626,10 @@ export async function runSkillAnalysis(
       updateAnalysisCycle(cycleId, {
         status: 'failed',
         streamEntries: streamLog.length > 0 ? streamLog : null,
-      });
+      }, sourceId);
     } catch (updateErr) {
       try {
-        getDatabase().prepare('UPDATE skill_analysis_cycles SET status = ?, completed_at = ? WHERE id = ?')
+        getDatabase(sourceId).prepare('UPDATE skill_analysis_cycles SET status = ?, completed_at = ? WHERE id = ?')
           .run('failed', Date.now(), cycleId);
       } catch { /* best effort */ }
       console.error('Failed to update analysis cycle:', updateErr);
@@ -580,7 +641,8 @@ export async function runSkillAnalysis(
 export async function applySkillFix(
   cycleId: string,
   skillId: string,
-  fixPrompt: string
+  fixPrompt: string,
+  sourceId?: string
 ): Promise<void> {
   const wss = getWsServer();
 
@@ -588,8 +650,8 @@ export async function applySkillFix(
     wss?.broadcast({ type, skillId, cycleId, ...payload } as never);
   };
 
-  const detail = getSkillDetail(skillId);
-  const skillCwd = detail ? resolveSkillProjectCwd(detail.skill.project) : null;
+  const detail = getSkillDetail(skillId, sourceId);
+  const skillCwd = detail ? resolveSkillProjectCwd(detail.skill.project, sourceId) : null;
 
   const port = String(process.env.PORT || 3000);
   const hookSettings = {
@@ -611,10 +673,30 @@ export async function applySkillFix(
   let unsubscribe: (() => void) | undefined;
 
   try {
-    updateAnalysisCycle(cycleId, { status: 'applying' });
+    updateAnalysisCycle(cycleId, { status: 'applying' }, sourceId);
 
-    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd) : [];
+    const externalDirs = skillCwd ? resolveExternalSkillDirs(skillId, skillCwd, sourceId) : [];
 
+    // Grant Edit/Write access to the skill's real definition directory when it
+    // lives outside skillCwd — otherwise the workspace-boundary check blocks
+    // the edit even after the user approves it via the browser hook.
+    const addDirArgs = externalDirs.flatMap(dir => ['--add-dir', `"${dir}"`]);
+
+    // The settings file was written by this (Windows) process at a Windows
+    // path — the WSL-side claude process needs it through the /mnt/<drive>
+    // mount instead, same conversion already proven for the improvements flow.
+    const wslDistro = getWslDistro(sourceId);
+    const wslSettings = settingsPath
+      .replace(/^([A-Za-z]):[/\\]/, (_, d) => `/mnt/${d.toLowerCase()}/`)
+      .replace(/\\/g, '/');
+    const claudeCmd = [
+      'claude', '-p',
+      '--output-format', 'stream-json', '--input-format', 'stream-json',
+      '--verbose', '--model', 'claude-sonnet-4-6',
+      '--permission-mode', 'default', '--settings', `"${wslSettings}"`,
+      '--include-hook-events',
+      ...addDirArgs,
+    ].join(' ');
     const cliArgs = [
       '-p',
       '--output-format', 'stream-json',
@@ -624,21 +706,21 @@ export async function applySkillFix(
       '--permission-mode', 'default',
       '--settings', `"${settingsPath}"`,
       '--include-hook-events',
+      ...addDirArgs,
     ];
 
-    // Grant Edit/Write access to the skill's real definition directory when it
-    // lives outside skillCwd — otherwise the workspace-boundary check blocks
-    // the edit even after the user approves it via the browser hook.
-    for (const dir of externalDirs) {
-      cliArgs.push('--add-dir', `"${dir}"`);
-    }
-
-    const child = spawn('claude', cliArgs, {
-      shell: true,
-      cwd: skillCwd || undefined,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = wslDistro && skillCwd
+      ? spawn('wsl', ['-d', wslDistro, '--cd', skillCwd, '--', 'bash', '-lc', claudeCmd], {
+          shell: false,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      : spawn('claude', cliArgs, {
+          shell: true,
+          cwd: skillCwd || undefined,
+          env: { ...process.env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
     const userMsg = JSON.stringify({
       type: 'user',
@@ -699,13 +781,13 @@ export async function applySkillFix(
       handleStreamEvent(stdoutBuffer.trim());
     }
 
-    const db = getDatabase();
+    const db = getDatabase(sourceId);
     db.prepare('UPDATE skills SET version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), skillId);
 
-    updateAnalysisCycle(cycleId, { status: 'completed' });
+    updateAnalysisCycle(cycleId, { status: 'completed' }, sourceId);
     broadcast('skill_analysis_complete', { status: 'completed' });
   } catch (err) {
-    updateAnalysisCycle(cycleId, { status: 'failed' });
+    updateAnalysisCycle(cycleId, { status: 'failed' }, sourceId);
     broadcast('skill_analysis_failed', { error: String(err) });
   } finally {
     unsubscribe?.();
@@ -714,19 +796,19 @@ export async function applySkillFix(
   }
 }
 
-export async function triggerAutoAnalysis(skillId: string): Promise<void> {
-  if (!checkSelfHealingThreshold(skillId)) return;
+export async function triggerAutoAnalysis(skillId: string, sourceId?: string): Promise<void> {
+  if (!checkSelfHealingThreshold(skillId, sourceId)) return;
 
-  const detail = getSkillDetail(skillId);
+  const detail = getSkillDetail(skillId, sourceId);
   if (!detail) return;
 
-  const cycleNumber = getNextCycleNumber(skillId);
+  const cycleNumber = getNextCycleNumber(skillId, sourceId);
   const prompt = generateAnalysisPrompt(detail.skill, detail);
 
   const sessionIds = [...new Set(detail.recentExecutions.map(e => e.sessionId))];
   const feedbackIds: string[] = [];
 
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const fbRows = db.prepare(`
     SELECT fi.id FROM feedback_items fi
     INNER JOIN skill_executions se ON fi.session_id = se.session_id AND fi.agent_id = se.agent_id
@@ -734,10 +816,10 @@ export async function triggerAutoAnalysis(skillId: string): Promise<void> {
   `).all(skillId) as Array<{ id: string }>;
   feedbackIds.push(...fbRows.map(r => r.id));
 
-  const cycle = createAnalysisCycle(skillId, cycleNumber, 'auto_threshold', prompt, sessionIds, feedbackIds);
+  const cycle = createAnalysisCycle(skillId, cycleNumber, 'auto_threshold', prompt, sessionIds, feedbackIds, sourceId);
 
   setImmediate(() => {
-    runSkillAnalysis(cycle.id, skillId).catch(err => {
+    runSkillAnalysis(cycle.id, skillId, undefined, sourceId).catch(err => {
       console.error('Auto skill analysis failed:', err);
     });
   });

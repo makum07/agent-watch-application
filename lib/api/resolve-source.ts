@@ -4,6 +4,19 @@ import { getSources } from '@/lib/sources';
 import { getDatabase } from '@/lib/db/database';
 
 /**
+ * Resolve the active source for a request with no session to scan by
+ * (session-less catalogs like skills). Priority: ?source= param → aw-source
+ * cookie. Unlike resolveSessionSource, there's nothing to fall back to
+ * scanning — callers get whichever source is active, same as the home page.
+ */
+export async function resolveSourceFromRequest(req: NextRequest): Promise<string | undefined> {
+  const paramSource = req.nextUrl.searchParams.get('source') ?? undefined;
+  if (paramSource) return paramSource;
+  const cookieStore = await cookies();
+  return cookieStore.get('aw-source')?.value ?? undefined;
+}
+
+/**
  * Resolve which source a session belongs to.
  * Priority: ?source= param → aw-source cookie → scan all source DBs.
  */

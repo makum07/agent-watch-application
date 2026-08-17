@@ -114,7 +114,7 @@ export function ingestSession(sessionId: string, sourceId?: string): Session | n
 
   if (shouldReindex) {
     try {
-      indexSession(found, db);
+      indexSession(found, db, sourceId);
     } catch (err) {
       console.error(`Failed to index session ${sessionId}:`, err);
     }
@@ -123,7 +123,7 @@ export function ingestSession(sessionId: string, sourceId?: string): Session | n
   return buildSessionFromDb(sessionId, db);
 }
 
-function indexSession(discovered: DiscoveredSession, db: Database.Database) {
+function indexSession(discovered: DiscoveredSession, db: Database.Database, sourceId?: string) {
   const agents = correlateAgents(discovered.filePath, discovered.projectDir);
 
   db.prepare(`
@@ -371,7 +371,7 @@ function indexSession(discovered: DiscoveredSession, db: Database.Database) {
   if (agentSkillMap.length > 0) {
     try {
       const project = discovered.projectDisplayName || discovered.projectPath;
-      registerSkillExecutions(discovered.id, project, agentSkillMap);
+      registerSkillExecutions(discovered.id, project, agentSkillMap, sourceId);
     } catch (err) {
       console.error('Failed to register skill executions:', err);
     }
@@ -484,7 +484,7 @@ export function forceReindex(sessionId: string, sourceId?: string): Session | nu
   db.prepare('DELETE FROM timeline_events WHERE session_id = ?').run(sessionId);
   db.prepare('DELETE FROM conversations WHERE id = ?').run(sessionId);
 
-  indexSession(found, db);
+  indexSession(found, db, sourceId);
   return buildSessionFromDb(sessionId, db);
 }
 

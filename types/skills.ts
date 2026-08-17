@@ -97,6 +97,19 @@ export interface ImprovementCycle {
   fileChanges: string | null;
 }
 
+export interface SkillContextFile {
+  id: string;
+  skillId: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+  textPath: string | null;
+  extractedText: string;
+  createdAt: string;
+}
+
+export type SkillContextFileSummary = Omit<SkillContextFile, 'extractedText'>;
+
 export interface SkillDetailData {
   skill: SkillSummary;
   recentExecutions: SkillExecution[];
@@ -105,6 +118,7 @@ export interface SkillDetailData {
   feedbackByAgent: Array<{ agentName: string; count: number }>;
   analysisCycles: SkillAnalysisCycle[];
   improvementCycles: ImprovementCycle[];
+  contextFiles: SkillContextFile[];
   executionsBySession: Array<{
     sessionId: string;
     timestamp: string;

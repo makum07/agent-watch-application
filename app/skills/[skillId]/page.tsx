@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useSkillStore } from '@/store/skill-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { SelfHealingConfig } from '@/components/skills/self-healing-config';
+import { ContextDocuments } from '@/components/skills/context-documents';
 import { ExecutionHistory } from '@/components/skills/execution-history';
 import { FeedbackAnalytics } from '@/components/skills/feedback-analytics';
 import { AnalysisHistory } from '@/components/skills/analysis-history';
@@ -25,12 +26,28 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
     loadSkillDetail,
     loadAnalysisCycles,
     handleStreamEvent,
+    setSourceId,
+    sourceId,
   } = useSkillStore();
+
+  // Skills are per-source — pick up the active source from the same cookie
+  // the Skills list page's SourceSwitcher writes, so navigating in from
+  // there (or switching source there and coming back) stays consistent.
+  useEffect(() => {
+    const readSourceCookie = () => {
+      const match = document.cookie.match(/(?:^|; )aw-source=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
+    };
+    setSourceId(readSourceCookie());
+    const onSourceChanged = (e: Event) => setSourceId((e as CustomEvent<string>).detail);
+    window.addEventListener('aw-source-changed', onSourceChanged);
+    return () => window.removeEventListener('aw-source-changed', onSourceChanged);
+  }, [setSourceId]);
 
   useEffect(() => {
     loadSkillDetail(skillId);
     loadAnalysisCycles(skillId);
-  }, [skillId, loadSkillDetail, loadAnalysisCycles]);
+  }, [skillId, loadSkillDetail, loadAnalysisCycles, sourceId]);
 
   useWebSocket((event: SessionEvent) => {
     if (
@@ -126,12 +143,15 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
 
           <TabsContent value="overview">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-              <SelfHealingConfig
-                skillId={skillId}
-                enabled={skill.selfHealingEnabled}
-                mode={skill.selfHealingMode}
-                threshold={skill.selfHealingThreshold}
-              />
+              <div className="space-y-4">
+                <SelfHealingConfig
+                  skillId={skillId}
+                  enabled={skill.selfHealingEnabled}
+                  mode={skill.selfHealingMode}
+                  threshold={skill.selfHealingThreshold}
+                />
+                <ContextDocuments skillId={skillId} />
+              </div>
               <div className="space-y-4">
                 <div className="rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] p-4">
                   <h3 className="text-xs font-medium text-[var(--aw-text-2)] mb-3 uppercase tracking-wide">

@@ -5,8 +5,14 @@ import { Wand2, FolderOpen, RefreshCw, ArrowUpDown, PanelLeftClose, PanelLeftOpe
 import { useSkillStore } from '@/store/skill-store';
 import { SkillCard } from './skill-card';
 import { NavBar } from '@/components/shared/navbar';
+import { SourceSwitcher } from '@/components/source-switcher';
 import { cn } from '@/lib/utils';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
+
+function readSourceCookie(): string | undefined {
+  const match = document.cookie.match(/(?:^|; )aw-source=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
 
 type SortKey = 'name' | 'executions' | 'feedback' | 'lastAnalysis';
 
@@ -21,11 +27,21 @@ function decodeProjectName(encoded: string): string {
 }
 
 export function SkillsClient() {
-  const { skills, isLoading, isSyncing, loadSkills, syncSkills } = useSkillStore();
+  const { skills, isLoading, isSyncing, loadSkills, syncSkills, setSourceId, sourceId } = useSkillStore();
   const [selected, setSelected] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('executions');
 
-  useEffect(() => { loadSkills(); }, [loadSkills]);
+  // Skills are per-source (same as every other page) — pick up the active
+  // source from the shared cookie on mount, and again whenever the
+  // SourceSwitcher below changes it.
+  useEffect(() => {
+    setSourceId(readSourceCookie());
+    const onSourceChanged = (e: Event) => setSourceId((e as CustomEvent<string>).detail);
+    window.addEventListener('aw-source-changed', onSourceChanged);
+    return () => window.removeEventListener('aw-source-changed', onSourceChanged);
+  }, [setSourceId]);
+
+  useEffect(() => { loadSkills(); }, [loadSkills, sourceId]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarPanelRef = usePanelRef();
@@ -88,7 +104,7 @@ export function SkillsClient() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      <NavBar activePage="skills" />
+      <NavBar activePage="skills" rightSlot={<SourceSwitcher initialSourceId={sourceId ?? ''} />} />
 
       <Group orientation="horizontal" className="flex-1 overflow-hidden">
         {/* Resizable sidebar */}

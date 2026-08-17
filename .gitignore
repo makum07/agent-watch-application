@@ -55,6 +55,9 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 
+# uploaded skill context files (runtime data)
+data/skill-attachments/
+
 # Claude Code internals
 .claude/worktrees/
 .claude/settings.local.json

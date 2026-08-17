@@ -15,6 +15,7 @@ import type {
   SkillSummary,
   SkillExecution,
   SkillAnalysisCycle,
+  SkillContextFile,
   SkillDetailData,
   SkillFeedbackAggregate,
   SelfHealingMode,
@@ -52,6 +53,19 @@ function mapSkillRow(row: Record<string, unknown>): Skill {
   };
 }
 
+function mapContextFileRow(row: Record<string, unknown>): SkillContextFile {
+  return {
+    id: row.id as string,
+    skillId: row.skill_id as string,
+    filename: row.filename as string,
+    mimeType: row.mime_type as string,
+    fileSize: row.file_size as number,
+    textPath: (row.text_path as string) ?? null,
+    extractedText: row.extracted_text as string,
+    createdAt: new Date(row.created_at as number).toISOString(),
+  };
+}
+
 function mapAnalysisCycleRow(row: Record<string, unknown>): SkillAnalysisCycle {
   return {
     id: row.id as string,
@@ -74,9 +88,10 @@ function mapAnalysisCycleRow(row: Record<string, unknown>): SkillAnalysisCycle {
 export function registerSkillExecutions(
   sessionId: string,
   project: string,
-  agents: Array<{ id: string; skillInvocations: SkillInvocation[] }>
+  agents: Array<{ id: string; skillInvocations: SkillInvocation[] }>,
+  sourceId?: string
 ): void {
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const now = Date.now();
 
   const upsertSkill = db.prepare(`
@@ -142,10 +157,10 @@ function parseSkillFrontmatter(content: string): { name?: string; description?: 
   return { name, description };
 }
 
-function enrichSkillDescriptions(): void {
-  const db = getDatabase();
-  const projectsDir = getClaudeProjectsDir();
-  const projectDirs = listProjectDirs();
+function enrichSkillDescriptions(sourceId?: string): void {
+  const db = getDatabase(sourceId);
+  const projectsDir = getClaudeProjectsDir(sourceId);
+  const projectDirs = listProjectDirs(sourceId);
 
   const updateDesc = db.prepare(
     'UPDATE skills SET description = ? WHERE id = ? AND description IS NULL'
@@ -181,12 +196,12 @@ function enrichSkillDescriptions(): void {
   }
 }
 
-export function syncSkillRegistry(): number {
-  const db = getDatabase();
+export function syncSkillRegistry(sourceId?: string): number {
+  const db = getDatabase(sourceId);
 
   // Step 1: Force re-index sessions that may have skills but were indexed before v5.
   const { discoverSessions, ingestSession } = require('@/lib/services/session-ingester');
-  const allDiscovered = discoverSessions() as Array<{ id: string; filePath: string; projectDisplayName: string; projectPath: string }>;
+  const allDiscovered = discoverSessions(sourceId) as Array<{ id: string; filePath: string; projectDisplayName: string; projectPath: string }>;
 
   const sessionsToIndex: string[] = [];
   for (const discovered of allDiscovered) {
@@ -220,7 +235,7 @@ export function syncSkillRegistry(): number {
     db.prepare('DELETE FROM timeline_events WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM conversations WHERE id = ?').run(sessionId);
     try {
-      ingestSession(sessionId);
+      ingestSession(sessionId, sourceId);
     } catch (err) {
       console.error(`Failed to re-index session ${sessionId}:`, err);
     }
@@ -263,7 +278,7 @@ export function syncSkillRegistry(): number {
     const invocations: SkillInvocation[] = JSON.parse(row.skill_invocations);
     if (invocations.length === 0) continue;
 
-    registerSkillExecutions(row.session_id, project, [{ id: row.id, skillInvocations: invocations }]);
+    registerSkillExecutions(row.session_id, project, [{ id: row.id, skillInvocations: invocations }], sourceId);
     execCount += invocations.length;
   }
 
@@ -294,7 +309,7 @@ export function syncSkillRegistry(): number {
   }
 
   // Step 5: Enrich descriptions from SKILL.md files on disk
-  enrichSkillDescriptions();
+  enrichSkillDescriptions(sourceId);
 
   // Step 6: Remove skills with no executions AND no analysis cycles
   db.prepare(`
@@ -306,8 +321,8 @@ export function syncSkillRegistry(): number {
   return execCount;
 }
 
-function autoRegisterFromSessions(): void {
-  const db = getDatabase();
+function autoRegisterFromSessions(sourceId?: string): void {
+  const db = getDatabase(sourceId);
 
   const agentRows = db.prepare(`
     SELECT a.id, a.session_id, a.skill_invocations, c.project
@@ -320,17 +335,17 @@ function autoRegisterFromSessions(): void {
   for (const row of agentRows) {
     const invocations: SkillInvocation[] = JSON.parse(row.skill_invocations);
     if (invocations.length === 0) continue;
-    registerSkillExecutions(row.session_id, row.project, [{ id: row.id, skillInvocations: invocations }]);
+    registerSkillExecutions(row.session_id, row.project, [{ id: row.id, skillInvocations: invocations }], sourceId);
   }
 
   if (agentRows.length > 0) {
-    enrichSkillDescriptions();
+    enrichSkillDescriptions(sourceId);
   }
 }
 
-export function listSkills(opts?: { project?: string }): SkillSummary[] {
-  autoRegisterFromSessions();
-  const db = getDatabase();
+export function listSkills(opts?: { project?: string }, sourceId?: string): SkillSummary[] {
+  autoRegisterFromSessions(sourceId);
+  const db = getDatabase(sourceId);
 
   let query = `
     SELECT
@@ -416,13 +431,13 @@ export function listSkills(opts?: { project?: string }): SkillSummary[] {
   }));
 }
 
-export function getSkillDetail(skillId: string): SkillDetailData | null {
-  const db = getDatabase();
+export function getSkillDetail(skillId: string, sourceId?: string): SkillDetailData | null {
+  const db = getDatabase(sourceId);
 
   const skillRow = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as Record<string, unknown> | undefined;
   if (!skillRow) return null;
 
-  const skills = listSkills({ project: skillRow.project as string });
+  const skills = listSkills({ project: skillRow.project as string }, sourceId);
   const skillSummary = skills.find(s => s.id === skillId);
   if (!skillSummary) return null;
 
@@ -604,6 +619,7 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
     })),
     analysisCycles: cycleRows.map(mapAnalysisCycleRow),
     improvementCycles,
+    contextFiles: listContextFiles(skillId, sourceId),
     executionsBySession: sessionExecRows.map(row => ({
       sessionId: row.session_id as string,
       timestamp: new Date(row.timestamp as number).toISOString(),
@@ -617,9 +633,10 @@ export function getSkillDetail(skillId: string): SkillDetailData | null {
 
 export function updateSkillConfig(
   skillId: string,
-  updates: Partial<Pick<Skill, 'selfHealingEnabled' | 'selfHealingMode' | 'selfHealingThreshold' | 'description'>>
+  updates: Partial<Pick<Skill, 'selfHealingEnabled' | 'selfHealingMode' | 'selfHealingThreshold' | 'description'>>,
+  sourceId?: string
 ): Skill | null {
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const now = Date.now();
 
   const existing = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as Record<string, unknown> | undefined;
@@ -652,8 +669,8 @@ export function updateSkillConfig(
   return mapSkillRow(updated);
 }
 
-export function checkSelfHealingThreshold(skillId: string): boolean {
-  const db = getDatabase();
+export function checkSelfHealingThreshold(skillId: string, sourceId?: string): boolean {
+  const db = getDatabase(sourceId);
   const skill = db.prepare(
     'SELECT self_healing_enabled, self_healing_threshold FROM skills WHERE id = ?'
   ).get(skillId) as { self_healing_enabled: number; self_healing_threshold: number } | undefined;
@@ -677,8 +694,8 @@ export function checkSelfHealingThreshold(skillId: string): boolean {
   return countSince >= skill.self_healing_threshold;
 }
 
-export function getNextCycleNumber(skillId: string): number {
-  const db = getDatabase();
+export function getNextCycleNumber(skillId: string, sourceId?: string): number {
+  const db = getDatabase(sourceId);
   const row = db.prepare(
     'SELECT MAX(cycle_number) as max_num FROM skill_analysis_cycles WHERE skill_id = ?'
   ).get(skillId) as { max_num: number | null };
@@ -691,9 +708,10 @@ export function createAnalysisCycle(
   triggerType: 'manual' | 'auto_threshold',
   prompt: string,
   sessionsAnalyzed: string[],
-  feedbackAnalyzed: string[]
+  feedbackAnalyzed: string[],
+  sourceId?: string
 ): SkillAnalysisCycle {
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const id = crypto.randomUUID();
   const now = Date.now();
 
@@ -728,9 +746,10 @@ export function createAnalysisCycle(
 
 export function updateAnalysisCycle(
   cycleId: string,
-  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'status' | 'streamEntries'>>
+  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'status' | 'streamEntries'>>,
+  sourceId?: string
 ): void {
-  const db = getDatabase();
+  const db = getDatabase(sourceId);
   const fields: string[] = [];
   const values: unknown[] = [];
 
@@ -765,19 +784,19 @@ export function updateAnalysisCycle(
   db.prepare(`UPDATE skill_analysis_cycles SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
-export function deleteAnalysisCycle(cycleId: string): void {
-  const db = getDatabase();
+export function deleteAnalysisCycle(cycleId: string, sourceId?: string): void {
+  const db = getDatabase(sourceId);
   db.prepare('DELETE FROM skill_analysis_cycles WHERE id = ?').run(cycleId);
 }
 
-export function getAnalysisCycle(cycleId: string): SkillAnalysisCycle | null {
-  const db = getDatabase();
+export function getAnalysisCycle(cycleId: string, sourceId?: string): SkillAnalysisCycle | null {
+  const db = getDatabase(sourceId);
   const row = db.prepare('SELECT * FROM skill_analysis_cycles WHERE id = ?').get(cycleId) as Record<string, unknown> | undefined;
   return row ? mapAnalysisCycleRow(row) : null;
 }
 
-export function listAnalysisCycles(skillId: string): SkillAnalysisCycle[] {
-  const db = getDatabase();
+export function listAnalysisCycles(skillId: string, sourceId?: string): SkillAnalysisCycle[] {
+  const db = getDatabase(sourceId);
 
   const STALE_THRESHOLD_MS = 10 * 60 * 1000;
   const cutoff = Date.now() - STALE_THRESHOLD_MS;
@@ -791,4 +810,63 @@ export function listAnalysisCycles(skillId: string): SkillAnalysisCycle[] {
     'SELECT * FROM skill_analysis_cycles WHERE skill_id = ? ORDER BY created_at DESC'
   ).all(skillId) as Array<Record<string, unknown>>;
   return rows.map(mapAnalysisCycleRow);
+}
+
+export function listContextFiles(skillId: string, sourceId?: string): SkillContextFile[] {
+  const db = getDatabase(sourceId);
+  const rows = db.prepare(
+    'SELECT * FROM skill_context_files WHERE skill_id = ? ORDER BY created_at DESC'
+  ).all(skillId) as Array<Record<string, unknown>>;
+  return rows.map(mapContextFileRow);
+}
+
+export function getContextFile(fileId: string, sourceId?: string): SkillContextFile | null {
+  const db = getDatabase(sourceId);
+  const row = db.prepare('SELECT * FROM skill_context_files WHERE id = ?').get(fileId) as Record<string, unknown> | undefined;
+  return row ? mapContextFileRow(row) : null;
+}
+
+export function createContextFile(
+  skillId: string,
+  filename: string,
+  mimeType: string,
+  fileSize: number,
+  rawPath: string,
+  textPath: string,
+  extractedText: string,
+  sourceId?: string
+): SkillContextFile {
+  const db = getDatabase(sourceId);
+  const id = crypto.randomUUID();
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT INTO skill_context_files (id, skill_id, filename, mime_type, file_size, raw_path, text_path, extracted_text, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, skillId, filename, mimeType, fileSize, rawPath, textPath, extractedText, now);
+
+  return {
+    id,
+    skillId,
+    filename,
+    mimeType,
+    fileSize,
+    textPath,
+    extractedText,
+    createdAt: new Date(now).toISOString(),
+  };
+}
+
+export function deleteContextFile(fileId: string, sourceId?: string): void {
+  const db = getDatabase(sourceId);
+  const row = db.prepare('SELECT raw_path, text_path FROM skill_context_files WHERE id = ?').get(fileId) as { raw_path: string; text_path: string | null } | undefined;
+  db.prepare('DELETE FROM skill_context_files WHERE id = ?').run(fileId);
+  if (row) {
+    for (const p of [row.raw_path, row.text_path]) {
+      if (!p) continue;
+      try {
+        fs.unlinkSync(p);
+      } catch { /* file already gone — not fatal */ }
+    }
+  }
 }

@@ -5,16 +5,18 @@ import {
   deleteAnalysisCycle,
 } from '@/lib/services/skill-registry';
 import { applySkillFix } from '@/lib/services/self-healing-controller';
+import { resolveSourceFromRequest } from '@/lib/api/resolve-source';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ skillId: string; cycleId: string }> }
 ) {
   try {
     const { cycleId } = await params;
-    const cycle = getAnalysisCycle(cycleId);
+    const sourceId = await resolveSourceFromRequest(req);
+    const cycle = getAnalysisCycle(cycleId, sourceId);
     if (!cycle) {
       return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
     }
@@ -30,7 +32,8 @@ export async function POST(
 ) {
   try {
     const { skillId, cycleId } = await params;
-    const cycle = getAnalysisCycle(cycleId);
+    const sourceId = await resolveSourceFromRequest(req);
+    const cycle = getAnalysisCycle(cycleId, sourceId);
 
     if (!cycle) {
       return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
@@ -52,10 +55,10 @@ export async function POST(
       return NextResponse.json({ error: 'No fix prompt available' }, { status: 400 });
     }
 
-    updateAnalysisCycle(cycleId, { fixPrompt, status: 'applying' });
+    updateAnalysisCycle(cycleId, { fixPrompt, status: 'applying' }, sourceId);
 
     setImmediate(() => {
-      applySkillFix(cycleId, skillId, fixPrompt!).catch(err => {
+      applySkillFix(cycleId, skillId, fixPrompt!, sourceId).catch(err => {
         console.error('Fix application failed:', err);
       });
     });
@@ -67,12 +70,13 @@ export async function POST(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ skillId: string; cycleId: string }> }
 ) {
   try {
     const { cycleId } = await params;
-    deleteAnalysisCycle(cycleId);
+    const sourceId = await resolveSourceFromRequest(req);
+    deleteAnalysisCycle(cycleId, sourceId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
