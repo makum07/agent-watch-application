@@ -466,6 +466,26 @@ function runMigrations(db: Database.Database) {
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'stream_entries')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN stream_entries TEXT;`);
   }
+
+  // Fixup: ensure skill_context_files exists. On DBs where the maturity-model
+  // merge's version renumbering (see v16 comment above) landed after v14 had
+  // already been recorded under different content, the currentVersion < 14
+  // gate above never re-runs and this table is silently missing.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_context_files (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      raw_path TEXT NOT NULL,
+      text_path TEXT,
+      extracted_text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (skill_id) REFERENCES skills(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_context_files_skill ON skill_context_files(skill_id, created_at DESC);
+  `);
 }
 
 export function closeDatabase(sourceId?: string) {
