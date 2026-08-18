@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { Wand2, FolderOpen, RefreshCw, ArrowUpDown } from 'lucide-react';
+import { Wand2, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { SkillCard } from './skill-card';
 import { SourceSwitcher } from '@/components/source-switcher';
 import { NavBarBrand } from '@/components/shared/navbar-brand';
 import { NavBarTabs } from '@/components/shared/navbar-tabs';
 import { SidebarNavItem } from '@/components/shared/sidebar-nav-item';
+import { shortenProjectPath, projectColorVar } from '@/lib/utils';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 
 function readSourceCookie(): string | undefined {
@@ -16,16 +17,6 @@ function readSourceCookie(): string | undefined {
 }
 
 type SortKey = 'name' | 'executions' | 'feedback' | 'lastAnalysis';
-
-function decodeProjectName(encoded: string): string {
-  const s = encoded.startsWith('-') ? encoded.slice(1) : encoded;
-  const homeMatch = s.match(/^home-[^-]+-(.+)/);
-  if (homeMatch) return homeMatch[1];
-  const mntMatch = s.match(/^mnt-[^-]+-Users-[^-]+-(.+)/);
-  if (mntMatch) return mntMatch[1];
-  if (/^[A-Za-z]--/.test(encoded)) return s.replace(/^[A-Za-z]--[^-]+-[^-]+-/, '');
-  return s;
-}
 
 export function SkillsClient() {
   const { skills, isLoading, isSyncing, loadSkills, syncSkills, setSourceId, sourceId } = useSkillStore();
@@ -54,36 +45,22 @@ export function SkillsClient() {
     if (collapsedRef.current) { panel.expand(); } else { panel.collapse(); }
   }
 
-  // Build sidebar project list with display names + skill counts
+  // Build sidebar project list — same display-name shortening + color coding as
+  // Home, so the same project reads as the same name/color everywhere. Different
+  // raw project strings (older sessions indexed under stale slugs) that shorten to
+  // the same display name are merged into a single entry instead of listed twice.
   const sidebarProjects = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of skills) {
-      map.set(s.project, (map.get(s.project) ?? 0) + 1);
+      const displayName = shortenProjectPath(s.project);
+      map.set(displayName, (map.get(displayName) ?? 0) + 1);
     }
-    const items = Array.from(map.entries()).map(([raw, count]) => ({
-      raw, count, displayName: decodeProjectName(raw),
-    }));
-
-    // Strip common prefix across display names
-    if (items.length > 1) {
-      const names = items.map(i => i.displayName);
-      let prefix = '';
-      const first = names[0];
-      for (let i = 0; i < first.length; i++) {
-        const ch = first.slice(0, i + 1);
-        if (names.every(n => n.startsWith(ch))) prefix = ch;
-        else break;
-      }
-      const dashIdx = prefix.lastIndexOf('-');
-      const strip = dashIdx > 0 ? prefix.slice(0, dashIdx + 1) : '';
-      if (strip && items.every(i => i.displayName !== strip.slice(0, -1))) {
-        return items.map(i => ({ ...i, displayName: i.displayName.slice(strip.length) || i.displayName }));
-      }
-    }
-    return items;
+    return Array.from(map.entries())
+      .map(([displayName, count]) => ({ displayName, count }))
+      .sort((a, b) => b.count - a.count);
   }, [skills]);
 
-  const filtered = selected === 'all' ? skills : skills.filter(s => s.project === selected);
+  const filtered = selected === 'all' ? skills : skills.filter(s => shortenProjectPath(s.project) === selected);
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sortKey) {
@@ -101,7 +78,7 @@ export function SkillsClient() {
 
   const panelTitle = selected === 'all'
     ? `All Skills (${skills.length})`
-    : `${sidebarProjects.find(p => p.raw === selected)?.displayName ?? selected} (${sorted.length})`;
+    : `${selected} (${sorted.length})`;
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -139,12 +116,18 @@ export function SkillsClient() {
             {sidebarProjects.length > 0 && !sidebarCollapsed && (
               <div className="mt-3 pt-3 border-t border-sidebar-border/50">
                 <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">Projects</p>
-                {sidebarProjects.map(({ raw, displayName, count }) => (
+                {sidebarProjects.map(({ displayName, count }) => (
                   <SidebarNavItem
-                    key={raw}
-                    active={selected === raw}
-                    onClick={() => setSelected(raw)}
-                    icon={<FolderOpen className="h-4 w-4" />}
+                    key={displayName}
+                    active={selected === displayName}
+                    onClick={() => setSelected(displayName)}
+                    accentVar={projectColorVar(displayName)}
+                    icon={
+                      <span
+                        className="h-1.5 w-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: `var(${projectColorVar(displayName)})` }}
+                      />
+                    }
                     label={displayName}
                     trailing={count}
                   />
@@ -154,14 +137,19 @@ export function SkillsClient() {
 
             {sidebarProjects.length > 0 && sidebarCollapsed && (
               <div className="mt-2 pt-2 border-t border-sidebar-border/50 space-y-0.5">
-                {sidebarProjects.map(({ raw, displayName }) => (
+                {sidebarProjects.map(({ displayName }) => (
                   <SidebarNavItem
-                    key={raw}
-                    active={selected === raw}
+                    key={displayName}
+                    active={selected === displayName}
                     collapsed
-                    onClick={() => setSelected(raw)}
+                    onClick={() => setSelected(displayName)}
                     title={displayName}
-                    icon={<FolderOpen className="h-4 w-4" />}
+                    icon={
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: `var(${projectColorVar(displayName)})` }}
+                      />
+                    }
                     label={displayName}
                   />
                 ))}
@@ -176,19 +164,19 @@ export function SkillsClient() {
         <Panel id="skills-main" minSize={300} className="flex flex-col overflow-hidden">
           <NavBarTabs activePage="skills" rightSlot={<SourceSwitcher initialSourceId={sourceId ?? ''} />} />
           <div className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-6 py-8">
-            <div className="flex items-center justify-between mb-6">
+          <div className="max-w-[1800px] mx-auto px-6 py-8">
+            <div className="flex items-center justify-between mb-5">
               <div>
-                <h1 className="text-lg font-semibold">{panelTitle}</h1>
-                <p className="text-xs text-muted-foreground mt-0.5">Skill analytics, feedback &amp; self-healing intelligence</p>
+                <h2 className="text-sm font-semibold truncate">{panelTitle}</h2>
+                <p className="text-xs text-[var(--aw-text-2)] mt-0.5">Skill analytics, feedback &amp; self-healing intelligence</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1">
-                  <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  <ArrowUpDown className="h-3.5 w-3.5 text-[var(--aw-text-2)]" />
                   <select
                     value={sortKey}
                     onChange={e => setSortKey(e.target.value as SortKey)}
-                    className="text-xs px-2 py-1.5 rounded bg-muted border border-border text-foreground"
+                    className="text-xs px-2 py-1.5 rounded bg-[var(--aw-bg-2)] border border-[var(--aw-bg-3)] text-[var(--aw-text-0)]"
                   >
                     <option value="executions">Most Used</option>
                     <option value="feedback">Most Feedback</option>
@@ -199,7 +187,7 @@ export function SkillsClient() {
                 <button
                   onClick={() => syncSkills()}
                   disabled={isSyncing}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-muted hover:bg-accent text-foreground transition-colors font-medium disabled:opacity-50"
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[var(--aw-bg-2)] hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-0)] transition-colors font-medium disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   {isSyncing ? 'Syncing...' : 'Sync'}
@@ -208,7 +196,7 @@ export function SkillsClient() {
             </div>
 
             {isLoading ? (
-              <div className="text-center py-16 text-muted-foreground">
+              <div className="text-center py-16 text-[var(--aw-text-2)]">
                 <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-sm">Loading skills...</p>
               </div>
@@ -219,7 +207,7 @@ export function SkillsClient() {
                 <p className="text-xs mt-1">Open sessions that use skills, or click Sync</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                 {sorted.map(skill => <SkillCard key={skill.id} skill={skill} />)}
               </div>
             )}

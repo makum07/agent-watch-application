@@ -228,95 +228,135 @@ export function syncSkillRegistry(sourceId?: string): number {
     } catch { /* file not readable — skip */ }
   }
 
-  for (const sessionId of sessionsToIndex) {
+  // Re-index each stale session atomically (its own savepoint) so a failure on one
+  // session — e.g. an FK constraint from a table this cleanup doesn't know about —
+  // rolls back just that session's partial deletes instead of corrupting it, and
+  // doesn't abort re-indexing the rest.
+  const reindexSession = db.transaction((sessionId: string) => {
     db.prepare('DELETE FROM skill_executions WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM execution_analysis_cycles WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM agents WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM timeline_events WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM conversations WHERE id = ?').run(sessionId);
+    ingestSession(sessionId, sourceId);
+  });
+
+  for (const sessionId of sessionsToIndex) {
     try {
-      ingestSession(sessionId, sourceId);
+      reindexSession(sessionId);
     } catch (err) {
       console.error(`Failed to re-index session ${sessionId}:`, err);
     }
   }
 
-  // Step 1.5: Normalize conversations.project for ALL discovered sessions.
-  // Historical sessions may have been indexed with different display-name logic
-  // (e.g. decoded path "ZER/app" vs current display name "Zeroni-Product-ZER-app").
-  // This ensures all sessions from the same project directory get a consistent
-  // project name so skill IDs (sha256 of project:name) are deterministic.
-  const updateConvProject = db.prepare('UPDATE conversations SET project = ? WHERE id = ?');
-  const normalizeProjects = db.transaction(() => {
+  // Steps 1.5–6 rebuild the skill registry from scratch (normalize project names,
+  // wipe + re-derive skill_executions, migrate analysis cycles, prune orphans).
+  // Wrapped in one transaction — skill_executions is deleted wholesale in Step 2,
+  // so any failure before Step 6 completes must roll back the whole rebuild rather
+  // than leaving it wiped/half-rebuilt.
+  const rebuildRegistry = db.transaction(() => {
+    // Step 1.5: Normalize conversations.project for a whole .claude/projects directory
+    // at once, including sessions whose source .jsonl has since been pruned from disk
+    // (discoverSessions() can't see those — Claude Code retires old transcripts — but
+    // their `file_path` was captured at ingestion time, so the directory they came from
+    // is still known). Historical sessions may have been indexed with different
+    // display-name logic (e.g. decoded path "ZER/app" vs current cwd-resolved
+    // "Zeroni Product/ZER-app"); without this, pruned sessions stay stuck under
+    // whichever lossy decode was live when they were first ingested, forever splitting
+    // one real project into several skill/project buckets.
+    const updateConvProject = db.prepare('UPDATE conversations SET project = ? WHERE id = ?');
+    const dirSlugOf = (filePath: string) => path.basename(path.dirname(filePath));
+
+    const canonicalByDirSlug = new Map<string, string>();
     for (const d of allDiscovered) {
-      const project = d.projectDisplayName || d.projectPath;
-      updateConvProject.run(project, d.id);
+      const slug = dirSlugOf(d.filePath);
+      if (!canonicalByDirSlug.has(slug)) {
+        canonicalByDirSlug.set(slug, d.projectDisplayName || d.projectPath);
+      }
     }
+
+    const allConvRows = db.prepare('SELECT id, project, file_path FROM conversations').all() as
+      Array<{ id: string; project: string; file_path: string }>;
+    for (const row of allConvRows) {
+      const slug = dirSlugOf(row.file_path);
+      // No currently-discoverable session shares this directory (it was fully pruned) —
+      // best-effort decode of the directory slug itself, same as before this fix existed.
+      const canonical = canonicalByDirSlug.get(slug) ?? getProjectDisplayName(slug);
+      if (canonical && canonical !== row.project) {
+        updateConvProject.run(canonical, row.id);
+      }
+    }
+
+    // Step 2: Clear ALL skill_executions for a clean rebuild.
+    db.exec('DELETE FROM skill_executions');
+
+    // Step 3: Register execution data from ALL agents (fresh, consistent project names)
+    const agentRows = db.prepare(`
+      SELECT id, session_id, skill_invocations FROM agents
+      WHERE skill_invocations IS NOT NULL AND skill_invocations != '[]'
+    `).all() as Array<{ id: string; session_id: string; skill_invocations: string }>;
+
+    const sessionProjects = new Map<string, string>();
+    const convRows = db.prepare('SELECT id, project FROM conversations').all() as Array<{ id: string; project: string }>;
+    for (const c of convRows) {
+      sessionProjects.set(c.id, c.project);
+    }
+
+    let execCount = 0;
+    for (const row of agentRows) {
+      const project = sessionProjects.get(row.session_id);
+      if (!project) continue;
+
+      const invocations: SkillInvocation[] = JSON.parse(row.skill_invocations);
+      if (invocations.length === 0) continue;
+
+      registerSkillExecutions(row.session_id, project, [{ id: row.id, skillInvocations: invocations }], sourceId);
+      execCount += invocations.length;
+    }
+
+    // Step 4: Migrate analysis cycles from orphaned skill entries to their active replacements.
+    // Orphaned entries exist when the skill was re-registered under a corrected project name
+    // (new ID), leaving the old entry with cycles but no executions.
+    const orphanedWithCycles = db.prepare(`
+      SELECT DISTINCT sac.skill_id AS old_id, s.name
+      FROM skill_analysis_cycles sac
+      INNER JOIN skills s ON s.id = sac.skill_id
+      WHERE s.id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
+    `).all() as Array<{ old_id: string; name: string }>;
+
+    for (const orphan of orphanedWithCycles) {
+      const replacement = db.prepare(`
+        SELECT s.id FROM skills s
+        INNER JOIN skill_executions se ON se.skill_id = s.id
+        WHERE s.name = ?
+        GROUP BY s.id
+        ORDER BY COUNT(se.id) DESC
+        LIMIT 1
+      `).get(orphan.name) as { id: string } | undefined;
+
+      if (replacement) {
+        db.prepare('UPDATE skill_analysis_cycles SET skill_id = ? WHERE skill_id = ?')
+          .run(replacement.id, orphan.old_id);
+      }
+    }
+
+    // Step 6: Remove skills with no executions AND no analysis cycles
+    db.prepare(`
+      DELETE FROM skills
+      WHERE id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
+        AND id NOT IN (SELECT DISTINCT skill_id FROM skill_analysis_cycles)
+    `).run();
+
+    return execCount;
   });
-  normalizeProjects();
 
-  // Step 2: Clear ALL skill_executions for a clean rebuild.
-  db.exec('DELETE FROM skill_executions');
+  const execCount = rebuildRegistry();
 
-  // Step 3: Register execution data from ALL agents (fresh, consistent project names)
-  const agentRows = db.prepare(`
-    SELECT id, session_id, skill_invocations FROM agents
-    WHERE skill_invocations IS NOT NULL AND skill_invocations != '[]'
-  `).all() as Array<{ id: string; session_id: string; skill_invocations: string }>;
-
-  const sessionProjects = new Map<string, string>();
-  const convRows = db.prepare('SELECT id, project FROM conversations').all() as Array<{ id: string; project: string }>;
-  for (const c of convRows) {
-    sessionProjects.set(c.id, c.project);
-  }
-
-  let execCount = 0;
-  for (const row of agentRows) {
-    const project = sessionProjects.get(row.session_id);
-    if (!project) continue;
-
-    const invocations: SkillInvocation[] = JSON.parse(row.skill_invocations);
-    if (invocations.length === 0) continue;
-
-    registerSkillExecutions(row.session_id, project, [{ id: row.id, skillInvocations: invocations }], sourceId);
-    execCount += invocations.length;
-  }
-
-  // Step 4: Migrate analysis cycles from orphaned skill entries to their active replacements.
-  // Orphaned entries exist when the skill was re-registered under a corrected project name
-  // (new ID), leaving the old entry with cycles but no executions.
-  const orphanedWithCycles = db.prepare(`
-    SELECT DISTINCT sac.skill_id AS old_id, s.name
-    FROM skill_analysis_cycles sac
-    INNER JOIN skills s ON s.id = sac.skill_id
-    WHERE s.id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
-  `).all() as Array<{ old_id: string; name: string }>;
-
-  for (const orphan of orphanedWithCycles) {
-    const replacement = db.prepare(`
-      SELECT s.id FROM skills s
-      INNER JOIN skill_executions se ON se.skill_id = s.id
-      WHERE s.name = ?
-      GROUP BY s.id
-      ORDER BY COUNT(se.id) DESC
-      LIMIT 1
-    `).get(orphan.name) as { id: string } | undefined;
-
-    if (replacement) {
-      db.prepare('UPDATE skill_analysis_cycles SET skill_id = ? WHERE skill_id = ?')
-        .run(replacement.id, orphan.old_id);
-    }
-  }
-
-  // Step 5: Enrich descriptions from SKILL.md files on disk
+  // Step 5: Enrich descriptions from SKILL.md files on disk — pure enrichment
+  // (UPDATE ... WHERE description IS NULL), safe to run outside the rebuild
+  // transaction and after skill ids have settled.
   enrichSkillDescriptions(sourceId);
-
-  // Step 6: Remove skills with no executions AND no analysis cycles
-  db.prepare(`
-    DELETE FROM skills
-    WHERE id NOT IN (SELECT DISTINCT skill_id FROM skill_executions)
-      AND id NOT IN (SELECT DISTINCT skill_id FROM skill_analysis_cycles)
-  `).run();
 
   return execCount;
 }
