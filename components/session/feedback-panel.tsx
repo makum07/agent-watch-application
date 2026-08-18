@@ -441,23 +441,15 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
               </div>
 
               {topCats.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wide">By Category</div>
+                <div className="bg-[var(--aw-bg-1)] border border-[var(--aw-bg-2)] rounded divide-y divide-[var(--aw-bg-2)]">
+                  <div className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wide px-2.5 pt-2 pb-1.5">By Category</div>
                   {topCats.map(([cat, count]) => {
                     const meta = FEEDBACK_CATEGORIES.find(c => c.value === cat);
-                    const pct = Math.round((count / items.length) * 100);
                     return (
-                      <div key={cat} className="flex items-center gap-2">
-                        <div className="flex-1 relative h-5 bg-[var(--aw-bg-1)] rounded overflow-hidden">
-                          <div
-                            className="absolute inset-y-0 left-0 rounded"
-                            style={{ width: `${pct}%`, backgroundColor: `${meta?.color ?? 'var(--aw-text-2)'}25` }}
-                          />
-                          <span className="absolute inset-0 flex items-center px-2 text-[10px]" style={{ color: meta?.color ?? 'var(--aw-text-2)' }}>
-                            {meta?.label ?? cat}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-[var(--aw-text-2)] w-5 text-right shrink-0">{count}</span>
+                      <div key={cat} className="flex items-center gap-2 px-2.5 py-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: meta?.color ?? 'var(--aw-text-2)' }} />
+                        <span className="text-[11px] text-[var(--aw-text-1)] flex-1 truncate">{meta?.label ?? cat}</span>
+                        <span className="text-[11px] text-[var(--aw-text-2)] tabular-nums shrink-0">{count}</span>
                       </div>
                     );
                   })}
@@ -560,16 +552,16 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
                                   </span>
                                   <p className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{item.text}</p>
                                 </div>
-                                <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all mt-0.5">
+                                <div className="flex gap-0.5 shrink-0 mt-0.5">
                                   <button
                                     onClick={() => startEdit(item.id, item.text, item.category as FeedbackCategory)}
-                                    className="p-1 rounded text-[var(--aw-text-4)] hover:text-[var(--aw-blue)] transition-colors" title="Edit"
+                                    className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-blue)] hover:bg-[var(--aw-blue)]/10 transition-colors" title="Edit"
                                   >
                                     <Pencil className="h-2.5 w-2.5" />
                                   </button>
                                   <button
                                     onClick={() => deleteFeedback(sessionId, item.id)}
-                                    className="p-1 rounded text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-colors" title="Delete"
+                                    className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-red-bright)] hover:bg-[var(--aw-red-bright)]/10 transition-colors" title="Delete"
                                   >
                                     <Trash2 className="h-2.5 w-2.5" />
                                   </button>
@@ -754,10 +746,10 @@ function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind,
       )}
       style={{ borderLeftColor: s.color, borderLeftWidth: '3px' }}
     >
-      {/* ── Header row ── */}
+      {/* ── Header row — actions reveal on hover instead of a permanent extra row ── */}
       <div
         className={cn(
-          'flex items-center gap-2 px-2.5 pt-2 pb-1.5',
+          'group flex items-center gap-2 px-2.5 py-2',
           canExpand && 'cursor-pointer hover:bg-[var(--aw-bg-2)]/40 transition-colors',
         )}
         onClick={canExpand ? onToggle : undefined}
@@ -779,6 +771,25 @@ function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind,
 
         <span className="flex-1" />
 
+        <span className="flex items-center gap-0.5 shrink-0">
+          {canRewind && (
+            <button
+              onClick={e => { e.stopPropagation(); onRewind(); }}
+              className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-orange)] hover:bg-[var(--aw-orange)]/10 transition-colors"
+              title="Rewind — restore conversation to before this cycle"
+            >
+              <RotateCcw className="h-3 w-3" />
+            </button>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-red-bright)] hover:bg-[var(--aw-red-bright)]/10 transition-colors"
+            title="Delete this cycle record"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </span>
+
         <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{date}</span>
 
         {canExpand && (
@@ -786,26 +797,6 @@ function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind,
             ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
             : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
         )}
-      </div>
-
-      {/* ── Action row ── */}
-      <div className="flex items-center gap-1 px-2 pb-2">
-        {canRewind && (
-          <button
-            onClick={e => { e.stopPropagation(); onRewind(); }}
-            className="flex items-center gap-1 text-[10px] text-[var(--aw-text-2)] hover:text-[var(--aw-orange)] transition-colors px-1.5 py-0.5 rounded hover:bg-[var(--aw-orange)]/10"
-            title="Rewind — restore conversation to before this cycle"
-          >
-            <RotateCcw className="h-2.5 w-2.5" /> Rewind
-          </button>
-        )}
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="flex items-center gap-1 text-[10px] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-colors px-1.5 py-0.5 rounded hover:bg-[var(--aw-red-bright)]/10 ml-auto"
-          title="Delete this cycle record"
-        >
-          <Trash2 className="h-2.5 w-2.5" />
-        </button>
       </div>
 
       {/* ── Expanded content ── */}

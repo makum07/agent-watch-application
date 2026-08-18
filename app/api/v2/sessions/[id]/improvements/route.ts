@@ -295,6 +295,13 @@ async function runClaudeResumeAsync(
     // approved, write the change to disk ourselves.
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
     const directApplyOutcomes: Array<{ file: string; applied: boolean; reason?: string }> = [];
+    // Claude sometimes emits more than one tool_use for what is content-wise
+    // the same edit (e.g. a duplicated parallel tool call) — each gets its
+    // own toolUseId, so without this they'd each independently trigger
+    // handleBlockedEdit and show the user two approval cards for one change.
+    // Keyed by the edit's actual content, not toolUseId, so duplicates reuse
+    // the first request's outcome instead of prompting again.
+    const blockedEditResults = new Map<string, Promise<{ applied: boolean; reason?: string }>>();
     let directApplyInFlight = 0;
     let turnEnded = false;
 
@@ -307,7 +314,19 @@ async function runClaudeResumeAsync(
         return;
       }
 
-      const lines = directApplyOutcomes.splice(0).map(o =>
+      // Duplicate tool_use calls resolved to the same outcome (see
+      // blockedEditResults above) — collapse them so the continuation
+      // message doesn't repeat the same line per duplicate call.
+      const outcomes = directApplyOutcomes.splice(0);
+      const seenOutcomes = new Set<string>();
+      const dedupedOutcomes = outcomes.filter(o => {
+        const key = `${o.file}::${o.applied}::${o.reason ?? ''}`;
+        if (seenOutcomes.has(key)) return false;
+        seenOutcomes.add(key);
+        return true;
+      });
+
+      const lines = dedupedOutcomes.map(o =>
         o.applied
           ? `- Applied directly to ${o.file} — Claude Code's Edit tool can't write this file, so AgentWatch wrote your approved change to disk outside the tool.`
           : `- NOT applied to ${o.file}${o.reason ? ` (${o.reason})` : ''}`
@@ -329,27 +348,35 @@ async function runClaudeResumeAsync(
 
     async function handleBlockedEdit(name: string, input: Record<string, unknown>) {
       const filePath = String(input.file_path ?? 'unknown file');
-      let approved: boolean;
+      const dedupeKey = JSON.stringify([name, filePath, input.old_string ?? input.content ?? '', input.new_string ?? '']);
 
-      if (skipPermissions) {
-        // Skip mode is meant to be fully autonomous — a native "sensitive
-        // file" block isn't the interactive permission system, so it still
-        // needs this path, but it shouldn't stop and ask either.
-        approved = true;
-      } else {
-        const requestId = randomUUID();
-        broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
-        const result = await waitForApproval(requestId);
-        approved = result.approved;
-        broadcast('improvement_permission_resolved', { requestId, approved: result.approved, expired: result.expired });
+      let resultPromise = blockedEditResults.get(dedupeKey);
+      if (!resultPromise) {
+        resultPromise = (async (): Promise<{ applied: boolean; reason?: string }> => {
+          let approved: boolean;
+
+          if (skipPermissions) {
+            // Skip mode is meant to be fully autonomous — a native "sensitive
+            // file" block isn't the interactive permission system, so it
+            // still needs this path, but it shouldn't stop and ask either.
+            approved = true;
+          } else {
+            const requestId = randomUUID();
+            broadcast('improvement_permission_request', { requestId, toolName: name, toolInput: input });
+            const result = await waitForApproval(requestId);
+            approved = result.approved;
+            broadcast('improvement_permission_resolved', { requestId, approved: result.approved, expired: result.expired });
+          }
+
+          if (!approved) return { applied: false, reason: 'denied by user' };
+          const applyResult = applyEditLocally(name, input, projectCwd);
+          return { applied: applyResult.ok, reason: applyResult.error };
+        })();
+        blockedEditResults.set(dedupeKey, resultPromise);
       }
 
-      if (!approved) {
-        directApplyOutcomes.push({ file: filePath, applied: false, reason: 'denied by user' });
-      } else {
-        const result = applyEditLocally(name, input, projectCwd);
-        directApplyOutcomes.push({ file: filePath, applied: result.ok, reason: result.error });
-      }
+      const { applied, reason } = await resultPromise;
+      directApplyOutcomes.push({ file: filePath, applied, reason });
     }
 
     function handleStreamEvent(event: Record<string, unknown>) {

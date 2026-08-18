@@ -265,6 +265,12 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     if (event.type === 'improvement_permission_request') {
       const { requestId, toolName, toolInput } = event as { requestId: string; toolName: string; toolInput: Record<string, unknown> };
       set(s => {
+        // Idempotent by requestId — a duplicate delivery of the same request
+        // (e.g. a stale WebSocket connection left over from a hot reload)
+        // must not render a second approval card for it.
+        if (s.pendingApprovals.has(requestId) || s.streamEntries.some(e => e.requestId === requestId)) {
+          return s;
+        }
         const next = new Map(s.pendingApprovals);
         next.set(requestId, { toolName, toolInput });
         const entry: StreamEntry = {
