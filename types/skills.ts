@@ -49,6 +49,8 @@ export interface SkillAnalysisCycle {
   analysisResponse: string | null;
   fixPrompt: string | null;
   recommendations: AnalysisRecommendation[] | null;
+  currentStatus: string | null;
+  growthOpportunities: SkillGrowthOpportunity[] | null;
   status: AnalysisStatus;
   createdAt: string;
   completedAt: string | null;
@@ -62,6 +64,23 @@ export interface AnalysisRecommendation {
   affectedComponent: string;
   proposedChange: string;
   selfCorrectionSignal: string;
+  evidence: string[];
+  confidence: 'high' | 'medium' | 'low';
+}
+
+// Forward-looking, non-bugfix suggestions for evolving a skill's role in the
+// SDLC — distinct from `AnalysisRecommendation`, which targets a specific
+// defect. Populated from the maturity/audit framework in an attached
+// context document when one identifies a relevant gap or next stage.
+export interface SkillGrowthOpportunity {
+  title: string;
+  currentState: string;
+  targetState: string;
+  rationale: string;
+  sdlcImpact: string;
+  suggestedChange: string;
+  impact: 'high' | 'medium' | 'low';
+  sourceDocument: string | null;
 }
 
 export interface SkillFeedbackAggregate {

@@ -300,7 +300,9 @@ The approval gate uses Claude Code's native **PreToolUse hook** system. When Age
 
 This means the improvement loop does **not depend on the terminal** for permission handling. Everything happens in the browser.
 
-**Value:** the improvement targets the real cause, you stay in control of what gets changed, and you never need to switch to the terminal to approve edits.
+Approval is the default, but it's a per-cycle choice, not a fixed requirement. A **skip-permissions toggle** in the Feedback Review panel header lets you run a cycle in auto-apply mode instead: Claude Code launches with `--dangerously-skip-permissions`, so every edit lands without a review step — useful once you trust a fix and don't want to click through each change. Each improvement cycle records which mode it ran in (`approve` or `skip`), so the history stays honest about which changes were reviewed and which were applied unattended.
+
+**Value:** the improvement targets the real cause, you stay in control of what gets changed (or explicitly opt out of per-edit review when you trust the fix), and you never need to switch to the terminal to approve edits.
 
 ### Cross-Project Skill Improvements — *fix skills wherever they live*
 Real-world workflows often span multiple projects. A session might run in project A (e.g. your application repo) but use skills and agents defined in project B (e.g. a shared Claude config repo). AgentWatch handles this automatically:
@@ -552,6 +554,7 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Workflow drift / skill poisoning** | A workflow slowly getting worse because of vague, misdirected feedback |
 | **Self-healing** | A workflow that reviews its own runs and proposes its own fixes |
 | **Edit approval gate** | A browser-based review step — powered by Claude Code's PreToolUse hook — where you approve or deny each file change before it's applied |
+| **Skip-permissions mode** | An optional per-cycle toggle that bypasses the edit approval gate — Claude Code runs with `--dangerously-skip-permissions` and applies every edit automatically; recorded on the cycle so history shows which mode it ran in |
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
 | **Skill analysis** | AI-powered cross-session analysis of a skill's execution history, feedback trends, and definition — runs in the skill's own project directory for native file access |

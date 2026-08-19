@@ -3,7 +3,7 @@ import fs from 'fs';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
-import type { SkillSummary, SkillDetailData, SkillContextFile, AnalysisRecommendation } from '@/types/skills';
+import type { SkillSummary, SkillDetailData, SkillContextFile, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
 import {
   getClaudeProjectsDir,
   listProjectDirs,
@@ -57,6 +57,19 @@ function formatDate(iso: string): string {
 
 function formatDateShort(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
+}
+
+// Shared ordering for recommendation severity and growth-opportunity impact —
+// the model doesn't reliably emit either array pre-sorted, and the UI reads
+// list order as priority order.
+function severityRank(level: string | undefined): number {
+  switch (level) {
+    case 'critical': return 0;
+    case 'high': return 1;
+    case 'medium': return 2;
+    case 'low': return 3;
+    default: return 4;
+  }
 }
 
 function resolveSkillProjectCwd(projectDisplayName: string, sourceId?: string): string | null {
@@ -115,7 +128,7 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
 
   lines.push(`# Skill Analysis — \`${skill.name}\` — ${formatDateShort(now)}\n`);
   lines.push(`You are analyzing the \`${skill.name}\` skill across ${skill.totalSessions} sessions and ${skill.totalExecutions} executions. Your goal is to determine what issues persist, what recurs despite fixes, and what structural changes to the skill definition would make it more reliable.\n`);
-  lines.push(`Start by reading the skill definition file: \`.claude/skills/${skill.name}.md\` (or the equivalent in this project). Understanding what the skill is designed to do is the basis for evaluating whether the historical data reveals gaps in that design.\n`);
+  lines.push(`Start by reading the skill definition file: \`.claude/skills/${skill.name}/SKILL.md\` (the current Claude Code convention), or \`.claude/skills/${skill.name}.md\` if this project predates that layout. If the skill isn't in this project's own \`.claude/skills/\`, it likely lives in an externally-referenced skills directory you've been granted access to — search there before falling back to a broader search. Understanding what the skill is designed to do is the basis for evaluating whether the historical data reveals gaps in that design.\n`);
 
   // ─── Skill metadata ─────────────────────────────────────────────────
 
@@ -138,7 +151,8 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
 
   if (detail.contextFiles.length > 0) {
     lines.push(`## Attached Context Documents (${detail.contextFiles.length})\n`);
-    lines.push(`The user attached the following document(s) as background context for this skill — use them to inform your understanding of its purpose, domain, or intended audience. They are supplementary material, not a spec to validate behavior against line-by-line.\n`);
+    lines.push(`The user attached the following document(s) as context for this skill. Some are pure background (glossaries, domain docs) — use those only to inform your understanding of purpose, domain, or audience. But if a document is itself an audit, assessment, or scorecard (e.g. an AI-maturity assessment, a code-quality review, a compliance checklist) that contains findings, gap entries, scores, or "what to do" items relevant to this skill's discipline or behavior, those are not background — they are required inputs. Extract every entry that bears on this skill specifically and treat it as a candidate finding, on equal footing with the feedback/execution data below.\n`);
+    lines.push(`When you use something from a document below, cite it inline where you use it — name the document and the specific entry/condition/score (see **Output** for the exact style) — rather than only summarizing the document here in isolation.\n`);
     for (const file of detail.contextFiles) {
       if (isContextFileDeferred(file)) {
         lines.push(`### ${file.filename} (${file.extractedText.length.toLocaleString()} chars — too large to inline)\n`);
@@ -326,18 +340,33 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
   lines.push(`After reading the skill definition, use the timestamps above to reason about what is actually happening over time. A finding is worth surfacing when:\n`);
   lines.push(`- A feedback category persists in open items despite an improvement cycle that targeted it — the fix did not address the root cause in the skill definition`);
   lines.push(`- The same type of issue appears across multiple sessions at different times — it is structural, not incidental`);
-  lines.push(`- The skill definition contains an instruction or design decision that the historical data shows consistently failing in practice\n`);
+  lines.push(`- The skill definition contains an instruction or design decision that the historical data shows consistently failing in practice`);
+  lines.push(`- An attached audit/assessment document identifies a gap, unmet condition, or low score that applies to this skill's discipline (e.g. testing, delegation, verification) — cite the specific entry\n`);
   lines.push(`For each finding, identify the specific part of the skill definition that needs to change — not what went wrong in a specific session.\n`);
 
   // ─── Output ─────────────────────────────────────────────────────────
 
   lines.push(`## Output\n`);
-  lines.push(`Describe the skill's health trend (improving, stable, or degrading) with evidence from the timestamps. Then surface each meaningful finding: what the pattern is, what the timeline shows, and what specific change to the skill definition would address it.\n`);
-  lines.push(`Do not make any changes to files. This is an analysis report only.\n`);
+  lines.push(`Every section below must be fully substantive whether or not a context document is attached. Documents, when present, are a supplementary lens on top of the feedback/execution history below — not a prerequisite for a useful analysis. A skill with no attached documents should get an equally thorough report, sourced entirely from its definition, feedback, and execution history.\n`);
+  lines.push(`Write three sections, in this order:\n`);
+  lines.push(`### 1. Current Status`);
+  lines.push(`A substantive paragraph (not one line) covering: the skill's health trend (improving, stable, or degrading) with evidence from the timestamps; how reliably it is being used (execution volume, recurrence of issues, whether fixes have held); and, if an attached document scores or audits this skill's domain, where it currently sits against that framework. This is a status report someone could read without opening any recommendation.\n`);
+  lines.push(`### 2. Findings & Fixes`);
+  lines.push(`Surface each meaningful finding from **What to Look For** above. Each finding needs real substance, not a one-line label — explain the pattern like you're briefing someone who has not read the raw data: what is happening, why it is happening (the mechanism, not just the symptom), what evidence supports it, and how confident you are given the volume/quality of that evidence. A finding with one data point is lower confidence than one repeated across many sessions — say so. If nothing meaningful surfaces here, say so directly rather than inventing a finding to fill the section — this section is allowed to be short when the history is clean.\n`);
+  lines.push(`### 3. Growth Opportunities`);
+  lines.push(`Separately from bug fixes, answer: how could this skill do more, or do it better, within the software development lifecycle — not "what's broken" but "what's the ceiling, and how do we raise it." This section does not depend on a context document being attached — the primary source is the skill definition and its own execution history:`);
+  lines.push(`- Structural opportunities visible in the skill definition and execution history itself: steps still gated on a human that could self-verify, output that stays local when it could feed the next stage of the pipeline automatically, or scope this skill could reasonably absorb from adjacent manual work`);
+  lines.push(`- If a maturity/audit document is attached and scores this skill's discipline below its top level, or lists unmet conditions for the *next* stage up, use it as an additional lens on top of the above — describe what closing that gap would look like concretely for this skill`);
+  lines.push(`Rank each opportunity high/medium/low by how much it would move this skill's reliability or SDLC contribution — this is required per opportunity, the same way severity is required per finding above.`);
+  lines.push(`If nothing genuine applies, say so rather than inventing generic advice — an empty section is better than padding.\n`);
+  lines.push(`### Citing attached documents`);
+  lines.push(`Wherever any section above draws on an attached document, cite it inline the way you would in a written report — name the document and the specific entry, condition, sheet, or score it comes from (e.g. "per Zeroni_AI_Maturity_Assessment.xlsx, condition tst_s1_2 (Not Met), ..."), woven into the sentence, not appended as a separate checklist. That specificity is what makes it verifiable that the document was actually read rather than skimmed for keywords — a vague reference like "the maturity assessment suggests improvements" is not acceptable. If a document contains nothing applicable anywhere in this report, say so once, briefly, in Current Status — don't force a citation that isn't there.\n`);
+  lines.push(`Do not make any changes to files. This is an analysis report only. Growth Opportunities are strategic and belong to the user's judgment, not \`fixPrompt\` — only Findings & Fixes recommendations that are safe, concrete file edits belong there. If Findings & Fixes has nothing to report, \`fixPrompt\` should be omitted or empty.\n`);
   lines.push(`End with:\n`);
   lines.push('```json');
-  lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "..."}], "fixPrompt": "..."}`);
+  lines.push(`{"currentStatus": "...", "recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "...", "evidence": ["..."], "confidence": "high|medium|low", "selfCorrectionSignal": "..."}], "growthOpportunities": [{"title": "...", "currentState": "...", "targetState": "...", "rationale": "...", "sdlcImpact": "...", "suggestedChange": "...", "impact": "high|medium|low", "sourceDocument": "filename or null"}], "fixPrompt": "..."}`);
   lines.push('```');
+  lines.push(`\`rootCause\` and \`proposedChange\` should each be a few sentences, matching the depth of the Current Status and Growth Opportunities prose above — not a fragment. \`evidence\` is a list of specific, citable data points backing the finding — timestamps, session IDs, counts, or a document citation in the inline style above. \`selfCorrectionSignal\` is what future execution data would confirm the fix held or reveal it didn't. \`impact\` on a growth opportunity is how much it would move this skill's reliability or SDLC contribution if pursued. \`sourceDocument\` is the filename it came from, or \`null\` if it came purely from the skill definition/execution history.`);
 
   return lines.join('\n');
 }
@@ -396,7 +425,12 @@ export async function runSkillAnalysis(
       for (const entry of translateStreamEvent(event)) log.push(entry);
     }
 
-    const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000;
+    // 10 min: the output now includes a Current Status writeup, richer
+    // per-finding evidence/confidence, and a Growth Opportunities section —
+    // the old 5-minute budget was tuned for a much shorter report and was
+    // observed timing out mid-synthesis once the skill has an attached
+    // audit document to read through.
+    const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
     const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
       prompt,
       cwd: skillCwd || undefined,
@@ -434,13 +468,23 @@ export async function runSkillAnalysis(
 
     let recommendations: AnalysisRecommendation[] | null = null;
     let fixPrompt: string | null = null;
+    let currentStatus: string | null = null;
+    let growthOpportunities: SkillGrowthOpportunity[] | null = null;
     const parsed = extractJsonFence(fullResponse);
     if (parsed) {
       if (Array.isArray(parsed.recommendations)) {
-        recommendations = parsed.recommendations as AnalysisRecommendation[];
+        recommendations = (parsed.recommendations as AnalysisRecommendation[])
+          .sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
       }
       if (typeof parsed.fixPrompt === 'string') {
         fixPrompt = parsed.fixPrompt;
+      }
+      if (typeof parsed.currentStatus === 'string') {
+        currentStatus = parsed.currentStatus;
+      }
+      if (Array.isArray(parsed.growthOpportunities)) {
+        growthOpportunities = (parsed.growthOpportunities as SkillGrowthOpportunity[])
+          .sort((a, b) => severityRank(a.impact) - severityRank(b.impact));
       }
     }
 
@@ -460,6 +504,8 @@ export async function runSkillAnalysis(
       analysisResponse: fullResponse,
       fixPrompt,
       recommendations,
+      currentStatus,
+      growthOpportunities,
       status: finalStatus,
       streamEntries: log.entries.length > 0 ? log.entries : null,
     }, sourceId);

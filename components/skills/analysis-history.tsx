@@ -4,11 +4,12 @@ import { useState, useEffect, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, Play, Check, X, AlertTriangle, Clock,
   Loader2, Trash2, FileText, Brain, Terminal, Wrench, Eye, MessageSquare,
+  Activity, TrendingUp,
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { cn } from '@/lib/utils';
-import type { SkillAnalysisCycle, AnalysisRecommendation } from '@/types/skills';
+import type { SkillAnalysisCycle, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
 import type { StreamEntry } from '@/types/feedback';
 
 interface AnalysisHistoryProps {
@@ -376,6 +377,19 @@ function AnalysisCycleCard({
             </div>
           </div>
 
+          {/* Current Status (always visible when present) */}
+          {cycle.currentStatus && (
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3 bg-[var(--aw-purple-light)]/5">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Activity className="h-3 w-3 text-[var(--aw-purple-light)]" />
+                <span className="text-[11px] font-semibold text-[var(--aw-text-0)] uppercase tracking-wider">Current Status</span>
+              </div>
+              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">
+                <MarkdownRenderer content={cycle.currentStatus} size="sm" />
+              </div>
+            </div>
+          )}
+
           {/* Generated Prompt (collapsible) */}
           <div className="border-t border-[var(--aw-bg-2)]">
             <button
@@ -460,6 +474,23 @@ function AnalysisCycleCard({
               <div className="space-y-2">
                 {cycle.recommendations.map((rec, i) => (
                   <RecommendationCard key={i} rec={rec} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Growth Opportunities */}
+          {cycle.growthOpportunities && cycle.growthOpportunities.length > 0 && (
+            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <TrendingUp className="h-3 w-3 text-[var(--aw-green)]" />
+                <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
+                  Growth Opportunities ({cycle.growthOpportunities.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {cycle.growthOpportunities.map((op, i) => (
+                  <GrowthOpportunityCard key={i} op={op} />
                 ))}
               </div>
             </div>
@@ -731,6 +762,12 @@ function TextEntry({ entry }: { entry: StreamEntry }) {
 
 // ── Recommendation Card ─────────────────────────────────────────────────────────
 
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'var(--aw-green)',
+  medium: 'var(--aw-orange-bright)',
+  low: 'var(--aw-text-4)',
+};
+
 function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
   const [expanded, setExpanded] = useState(false);
   const colorClass = SEVERITY_COLORS[rec.severity] ?? SEVERITY_COLORS.low;
@@ -745,6 +782,15 @@ function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
           {rec.severity}
         </span>
         <span className="text-xs font-medium text-[var(--aw-text-0)] flex-1">{rec.title}</span>
+        {rec.confidence && (
+          <span
+            className="text-[9px] uppercase font-medium tracking-wider shrink-0"
+            style={{ color: CONFIDENCE_COLORS[rec.confidence] ?? CONFIDENCE_COLORS.low }}
+            title="Confidence"
+          >
+            {rec.confidence} confidence
+          </span>
+        )}
         <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
@@ -752,9 +798,54 @@ function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
           <div><span className="text-[var(--aw-text-2)] font-medium">Root cause:</span> {rec.rootCause}</div>
           <div><span className="text-[var(--aw-text-2)] font-medium">Component:</span> {rec.affectedComponent}</div>
           <div><span className="text-[var(--aw-text-2)] font-medium">Proposed change:</span> {rec.proposedChange}</div>
+          {rec.evidence && rec.evidence.length > 0 && (
+            <div>
+              <span className="text-[var(--aw-text-2)] font-medium">Evidence:</span>
+              <ul className="list-disc list-inside ml-1 mt-0.5 space-y-0.5">
+                {rec.evidence.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          )}
           {rec.selfCorrectionSignal && (
             <div><span className="text-[var(--aw-text-2)] font-medium">Self-correction:</span> {rec.selfCorrectionSignal}</div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Growth Opportunity Card ─────────────────────────────────────────────────────
+
+function GrowthOpportunityCard({ op }: { op: SkillGrowthOpportunity }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border-l-2 border-l-[var(--aw-green)] bg-[var(--aw-green)]/5 rounded-r overflow-hidden">
+      <button
+        className="w-full flex items-center gap-2 p-3 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        {op.impact && (
+          <span className="text-[10px] uppercase font-semibold tracking-wider text-[var(--aw-text-2)] shrink-0 w-14">
+            {op.impact}
+          </span>
+        )}
+        <span className="text-xs font-medium text-[var(--aw-text-0)] flex-1">{op.title}</span>
+        {op.sourceDocument && (
+          <span className="text-[9px] text-[var(--aw-text-4)] font-mono shrink-0 truncate max-w-[140px]" title={op.sourceDocument}>
+            {op.sourceDocument}
+          </span>
+        )}
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 space-y-1.5 text-[11px] text-[var(--aw-text-1)]">
+          <div><span className="text-[var(--aw-text-2)] font-medium">Current state:</span> {op.currentState}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">Target state:</span> {op.targetState}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">Why it matters:</span> {op.rationale}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">SDLC impact:</span> {op.sdlcImpact}</div>
+          <div><span className="text-[var(--aw-text-2)] font-medium">Suggested change:</span> {op.suggestedChange}</div>
         </div>
       )}
     </div>

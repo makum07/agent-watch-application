@@ -395,11 +395,11 @@ AgentWatch summarises the collected feedback and generates an improvement prompt
 
 The key feature here is **per-edit approval**: every individual Edit or Write operation Claude proposes is intercepted by the PreToolUse hook and routed to the browser. You see a diff preview, the target file, and Approve / Deny buttons — and you decide on each change separately. Claude Code applies the edit itself after approval, keeping its internal state in sync with the filesystem.
 
-This is not a bulk approve-or-reject. You review and approve or deny **each edit individually** before it lands.
+By default, this is not a bulk approve-or-reject — you review and approve or deny **each edit individually** before it lands. A **skip-permissions toggle** in the Feedback Review panel header lets you opt out of that gate for a given cycle instead: Claude Code launches with `--dangerously-skip-permissions` and applies every edit automatically, no review step. Each cycle records which mode it ran in, so the improvement history always shows whether it was reviewed edit-by-edit or applied unattended.
 
 ![Improving a skill based on feedback, with per-edit approval support](<UI screenshots/Improving skill based on feedback with Approve on edit support.png>)
 
-**Why it matters:** the improvement targets the real cause, you stay in control of exactly what changes, and you never need to switch to the terminal to approve edits.
+**Why it matters:** the improvement targets the real cause, you stay in control of exactly what changes (or explicitly trade that off for speed when you trust the fix), and you never need to switch to the terminal to approve edits.
 
 ### Cross-Project Skill Improvements — fix skills wherever they live
 
@@ -574,6 +574,7 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Workflow drift / skill poisoning** | A workflow slowly getting worse because of vague, misdirected feedback |
 | **Self-healing** | A planned feature: a workflow that reviews its own runs and proposes its own fixes automatically |
 | **Edit approval gate** | A browser-based review step where you approve or deny each individual file change before it is applied |
+| **Skip-permissions mode** | An optional per-cycle toggle that bypasses the edit approval gate — Claude Code runs with `--dangerously-skip-permissions` and applies every edit automatically; recorded on the cycle so history shows which mode it ran in |
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
 | **Skill analysis** | AI-powered cross-session analysis drawing on feedback and improvement cycle history to identify recurring patterns in a skill's execution |

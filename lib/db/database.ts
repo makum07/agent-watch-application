@@ -466,6 +466,12 @@ function runMigrations(db: Database.Database) {
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'stream_entries')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN stream_entries TEXT;`);
   }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'current_status')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN current_status TEXT;`);
+  }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'growth_opportunities')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN growth_opportunities TEXT;`);
+  }
 
   // Fixup: ensure skill_context_files exists. On DBs where the maturity-model
   // merge's version renumbering (see v16 comment above) landed after v14 had

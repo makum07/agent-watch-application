@@ -78,6 +78,8 @@ function mapAnalysisCycleRow(row: Record<string, unknown>): SkillAnalysisCycle {
     analysisResponse: (row.analysis_response as string) ?? null,
     fixPrompt: (row.fix_prompt as string) ?? null,
     recommendations: row.recommendations ? JSON.parse(row.recommendations as string) : null,
+    currentStatus: (row.current_status as string) ?? null,
+    growthOpportunities: row.growth_opportunities ? JSON.parse(row.growth_opportunities as string) : null,
     status: (row.status as AnalysisStatus) ?? 'pending',
     createdAt: new Date(row.created_at as number).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at as number).toISOString() : null,
@@ -777,6 +779,8 @@ export function createAnalysisCycle(
     analysisResponse: null,
     fixPrompt: null,
     recommendations: null,
+    currentStatus: null,
+    growthOpportunities: null,
     status: 'analyzing',
     createdAt: new Date(now).toISOString(),
     completedAt: null,
@@ -786,7 +790,7 @@ export function createAnalysisCycle(
 
 export function updateAnalysisCycle(
   cycleId: string,
-  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'status' | 'streamEntries'>>,
+  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'currentStatus' | 'growthOpportunities' | 'status' | 'streamEntries'>>,
   sourceId?: string
 ): void {
   const db = getDatabase(sourceId);
@@ -804,6 +808,14 @@ export function updateAnalysisCycle(
   if (updates.recommendations !== undefined) {
     fields.push('recommendations = ?');
     values.push(JSON.stringify(updates.recommendations));
+  }
+  if (updates.currentStatus !== undefined) {
+    fields.push('current_status = ?');
+    values.push(updates.currentStatus);
+  }
+  if (updates.growthOpportunities !== undefined) {
+    fields.push('growth_opportunities = ?');
+    values.push(updates.growthOpportunities ? JSON.stringify(updates.growthOpportunities) : null);
   }
   if (updates.streamEntries !== undefined) {
     fields.push('stream_entries = ?');
