@@ -3,7 +3,7 @@ import fs from 'fs';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
-import type { SkillSummary, SkillDetailData, SkillContextFile, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
+import type { SkillSummary, SkillDetailData, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
 import {
   getClaudeProjectsDir,
   listProjectDirs,
@@ -28,19 +28,28 @@ import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extra
 // keeps the full content available without bloating every analysis prompt.
 const CONTEXT_FILE_INLINE_THRESHOLD = 20_000;
 
-function isContextFileDeferred(file: SkillContextFile): boolean {
+interface DeferrableContextFile {
+  extractedText: string;
+  textPath: string | null;
+}
+
+function isContextFileDeferred(file: DeferrableContextFile): boolean {
   return file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
 }
 
 // Directories to grant via --add-dir so the spawned analysis agent can Read
-// the sidecar text of any deferred (too-large-to-inline) context file.
+// the sidecar text of any deferred (too-large-to-inline) context file —
+// skill-scoped and project-scoped files live under different directories
+// (see attachments routes) so both lists are passed in and merged here.
 // Left untranslated for WSL — spawnClaudeCli translates every --add-dir
 // target to /mnt/<drive> itself when routing through wsl.
-function getDeferredContextFileDirs(contextFiles: SkillContextFile[]): string[] {
+function getDeferredContextFileDirs(...fileLists: DeferrableContextFile[][]): string[] {
   const dirs = new Set<string>();
-  for (const file of contextFiles) {
-    if (!isContextFileDeferred(file)) continue;
-    dirs.add(path.dirname(file.textPath!));
+  for (const files of fileLists) {
+    for (const file of files) {
+      if (!isContextFileDeferred(file)) continue;
+      dirs.add(path.dirname(file.textPath!));
+    }
   }
   return [...dirs];
 }
@@ -148,17 +157,33 @@ export function generateAnalysisPrompt(skill: SkillSummary, detail: SkillDetailD
   lines.push('');
 
   // ─── Attached context documents ─────────────────────────────────────
+  // Two scopes: project-wide (shared by every skill under the same
+  // project, uploaded once) and skill-specific (this skill only). Both are
+  // rendered into one section so the model reasons about them together,
+  // but each entry is labeled with its scope since a project-wide finding
+  // (e.g. a repo-level maturity assessment) implies different things than
+  // something uploaded for this one skill.
 
-  if (detail.contextFiles.length > 0) {
-    lines.push(`## Attached Context Documents (${detail.contextFiles.length})\n`);
-    lines.push(`The user attached the following document(s) as context for this skill. Some are pure background (glossaries, domain docs) — use those only to inform your understanding of purpose, domain, or audience. But if a document is itself an audit, assessment, or scorecard (e.g. an AI-maturity assessment, a code-quality review, a compliance checklist) that contains findings, gap entries, scores, or "what to do" items relevant to this skill's discipline or behavior, those are not background — they are required inputs. Extract every entry that bears on this skill specifically and treat it as a candidate finding, on equal footing with the feedback/execution data below.\n`);
+  const totalContextFiles = detail.projectContextFiles.length + detail.contextFiles.length;
+  if (totalContextFiles > 0) {
+    lines.push(`## Attached Context Documents (${totalContextFiles})\n`);
+    lines.push(`The user attached the following document(s) as context. Some are pure background (glossaries, domain docs) — use those only to inform your understanding of purpose, domain, or audience. But if a document is itself an audit, assessment, or scorecard (e.g. an AI-maturity assessment, a code-quality review, a compliance checklist) that contains findings, gap entries, scores, or "what to do" items relevant to this skill's discipline or behavior, those are not background — they are required inputs. Extract every entry that bears on this skill specifically and treat it as a candidate finding, on equal footing with the feedback/execution data below.\n`);
     lines.push(`When you use something from a document below, cite it inline where you use it — name the document and the specific entry/condition/score (see **Output** for the exact style) — rather than only summarizing the document here in isolation.\n`);
-    for (const file of detail.contextFiles) {
+
+    for (const file of detail.projectContextFiles) {
+      lines.push(`### ${file.filename} — project-wide, shared across every skill in \`${skill.project}\`${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : ''}\n`);
       if (isContextFileDeferred(file)) {
-        lines.push(`### ${file.filename} (${file.extractedText.length.toLocaleString()} chars — too large to inline)\n`);
         lines.push(`Full content is available at \`${file.textPath}\`. Read this file before evaluating the skill so its content informs your analysis.\n`);
       } else {
-        lines.push(`### ${file.filename}\n`);
+        lines.push(file.extractedText.trim());
+        lines.push('');
+      }
+    }
+    for (const file of detail.contextFiles) {
+      lines.push(`### ${file.filename} — specific to this skill${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : ''}\n`);
+      if (isContextFileDeferred(file)) {
+        lines.push(`Full content is available at \`${file.textPath}\`. Read this file before evaluating the skill so its content informs your analysis.\n`);
+      } else {
         lines.push(file.extractedText.trim());
         lines.push('');
       }
@@ -418,7 +443,7 @@ export async function runSkillAnalysis(
     // Deferred (too-large-to-inline) context files live on this (Windows)
     // process's disk — spawnClaudeCli translates every --add-dir target to
     // /mnt/<drive> itself when routing through wsl, so pass raw paths here.
-    const contextDirs = getDeferredContextFileDirs(detail.contextFiles);
+    const contextDirs = getDeferredContextFileDirs(detail.contextFiles, detail.projectContextFiles);
 
     function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('skill_analysis_stream_event', { event });

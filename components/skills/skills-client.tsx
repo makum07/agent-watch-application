@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { Wand2, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { SkillCard } from './skill-card';
+import { ProjectContextDocuments } from './project-context-documents';
 import { SourceSwitcher } from '@/components/source-switcher';
 import { NavBarBrand } from '@/components/shared/navbar-brand';
 import { NavBarTabs } from '@/components/shared/navbar-tabs';
@@ -49,16 +50,32 @@ export function SkillsClient() {
   // Home, so the same project reads as the same name/color everywhere. Different
   // raw project strings (older sessions indexed under stale slugs) that shorten to
   // the same display name are merged into a single entry instead of listed twice.
+  // Project documents are keyed by the raw `project` string (there's no normalized
+  // project ID in this schema — see skill-registry.ts), so when a display name is
+  // backed by more than one raw string, the most-common one is used as the upload
+  // target; the rare drifted minority won't see docs uploaded via this entry until
+  // they're reconciled onto the canonical name (same caveat as skill grouping itself).
   const sidebarProjects = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { count: number; rawProjects: Map<string, number> }>();
     for (const s of skills) {
       const displayName = shortenProjectPath(s.project);
-      map.set(displayName, (map.get(displayName) ?? 0) + 1);
+      const entry = map.get(displayName) ?? { count: 0, rawProjects: new Map<string, number>() };
+      entry.count++;
+      entry.rawProjects.set(s.project, (entry.rawProjects.get(s.project) ?? 0) + 1);
+      map.set(displayName, entry);
     }
     return Array.from(map.entries())
-      .map(([displayName, count]) => ({ displayName, count }))
+      .map(([displayName, { count, rawProjects }]) => ({
+        displayName,
+        count,
+        canonicalProject: [...rawProjects.entries()].sort((a, b) => b[1] - a[1])[0][0],
+      }))
       .sort((a, b) => b.count - a.count);
   }, [skills]);
+
+  const selectedCanonicalProject = selected === 'all'
+    ? null
+    : sidebarProjects.find(p => p.displayName === selected)?.canonicalProject ?? null;
 
   const filtered = selected === 'all' ? skills : skills.filter(s => shortenProjectPath(s.project) === selected);
 
@@ -194,6 +211,12 @@ export function SkillsClient() {
                 </button>
               </div>
             </div>
+
+            {selectedCanonicalProject && (
+              <div className="mb-5">
+                <ProjectContextDocuments project={selectedCanonicalProject} />
+              </div>
+            )}
 
             {isLoading ? (
               <div className="text-center py-16 text-[var(--aw-text-2)]">

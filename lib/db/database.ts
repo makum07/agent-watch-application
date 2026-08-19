@@ -492,6 +492,25 @@ function runMigrations(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_context_files_skill ON skill_context_files(skill_id, created_at DESC);
   `);
+
+  // Context documents shared across every skill in a project — uploaded once
+  // instead of per-skill (see skill_context_files above for the per-skill
+  // equivalent). Keyed by the same `project` string skills already use, not
+  // a normalized project ID — no such ID exists in this schema.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_context_files (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      raw_path TEXT NOT NULL,
+      text_path TEXT,
+      extracted_text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_context_files_project ON project_context_files(project, created_at DESC);
+  `);
 }
 
 export function closeDatabase(sourceId?: string) {

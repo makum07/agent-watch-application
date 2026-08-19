@@ -6,23 +6,33 @@ import type {
   SkillDetailData,
   SkillAnalysisCycle,
   SkillContextFileSummary,
+  ProjectContextFileSummary,
   SelfHealingMode,
 } from '@/types/skills';
 import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
 import type { StreamEntry } from '@/types/feedback';
 
-// The skill-detail endpoint strips extractedText from contextFiles before
-// sending to the browser (it can be large and the UI never needs it).
-type ClientSkillDetailData = Omit<SkillDetailData, 'contextFiles'> & { contextFiles: SkillContextFileSummary[] };
+// The skill-detail endpoint strips extractedText from contextFiles/
+// projectContextFiles before sending to the browser (it can be large and
+// the UI never needs it).
+type ClientSkillDetailData = Omit<SkillDetailData, 'contextFiles' | 'projectContextFiles'> & {
+  contextFiles: SkillContextFileSummary[];
+  projectContextFiles: ProjectContextFileSummary[];
+};
 
 interface SkillStore {
   skills: SkillSummary[];
   selectedSkill: ClientSkillDetailData | null;
   analysisCycles: SkillAnalysisCycle[];
+  // Independent of selectedSkill so project documents can be managed from
+  // the skills list (project-level) without opening any specific skill.
+  projectContextFiles: ProjectContextFileSummary[];
   isLoading: boolean;
   isSyncing: boolean;
   isAnalyzing: boolean;
   isUploadingContext: boolean;
+  isUploadingProjectContext: boolean;
+  isLoadingProjectContext: boolean;
   lastError: string | null;
   sourceId: string | undefined;
 
@@ -46,6 +56,10 @@ interface SkillStore {
   uploadContextFile: (skillId: string, file: File) => Promise<boolean>;
   deleteContextFile: (skillId: string, fileId: string) => Promise<void>;
   viewContextFile: (skillId: string, fileId: string) => Promise<{ filename: string; extractedText: string } | null>;
+  loadProjectContextFiles: (project: string) => Promise<void>;
+  uploadProjectContextFile: (project: string, file: File) => Promise<boolean>;
+  deleteProjectContextFile: (fileId: string) => Promise<void>;
+  viewProjectContextFile: (fileId: string) => Promise<{ filename: string; extractedText: string } | null>;
   handleStreamEvent: (event: SessionEvent) => void;
   clearError: () => void;
   clearStream: () => void;
@@ -65,10 +79,13 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   skills: [],
   selectedSkill: null,
   analysisCycles: [],
+  projectContextFiles: [],
   isLoading: false,
   isSyncing: false,
   isAnalyzing: false,
   isUploadingContext: false,
+  isUploadingProjectContext: false,
+  isLoadingProjectContext: false,
   lastError: null,
   sourceId: undefined,
   streamEntries: [],
@@ -249,6 +266,63 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     }
   },
 
+  loadProjectContextFiles: async (project) => {
+    set({ isLoadingProjectContext: true, lastError: null });
+    try {
+      const res = await fetch(withSource(`/api/v2/projects/attachments?project=${encodeURIComponent(project)}`, get().sourceId));
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      set({ projectContextFiles: data.files, isLoadingProjectContext: false });
+    } catch (err) {
+      set({ lastError: String(err), isLoadingProjectContext: false });
+    }
+  },
+
+  uploadProjectContextFile: async (project, file) => {
+    set({ isUploadingProjectContext: true, lastError: null });
+    try {
+      const body = new FormData();
+      body.append('project', project);
+      body.append('file', file);
+      const res = await fetch(withSource('/api/v2/projects/attachments', get().sourceId), {
+        method: 'POST',
+        body,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || await res.text());
+      }
+      await get().loadProjectContextFiles(project);
+      set({ isUploadingProjectContext: false });
+      return true;
+    } catch (err) {
+      set({ lastError: String(err instanceof Error ? err.message : err), isUploadingProjectContext: false });
+      return false;
+    }
+  },
+
+  deleteProjectContextFile: async (fileId) => {
+    try {
+      await fetch(withSource(`/api/v2/projects/attachments/${fileId}`, get().sourceId), { method: 'DELETE' });
+      set(state => ({
+        projectContextFiles: state.projectContextFiles.filter(f => f.id !== fileId),
+      }));
+    } catch (err) {
+      set({ lastError: String(err) });
+    }
+  },
+
+  viewProjectContextFile: async (fileId) => {
+    try {
+      const res = await fetch(withSource(`/api/v2/projects/attachments/${fileId}`, get().sourceId));
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    } catch (err) {
+      set({ lastError: String(err) });
+      return null;
+    }
+  },
+
   handleStreamEvent: (event: SessionEvent) => {
     if (event.type === 'skill_analysis_started') {
       set({ streamEntries: [], isAnalyzing: true });
@@ -339,10 +413,13 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     skills: [],
     selectedSkill: null,
     analysisCycles: [],
+    projectContextFiles: [],
     isLoading: false,
     isSyncing: false,
     isAnalyzing: false,
     isUploadingContext: false,
+    isUploadingProjectContext: false,
+    isLoadingProjectContext: false,
     lastError: null,
     streamEntries: [],
   }),

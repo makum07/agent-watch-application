@@ -9,6 +9,7 @@ import {
   getProjectDisplayName,
 } from '@/lib/parser/jsonl-parser';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
+import { listProjectContextFiles } from '@/lib/services/project-context';
 import type { SkillInvocation } from '@/types/session';
 import type {
   Skill,
@@ -661,6 +662,7 @@ export function getSkillDetail(skillId: string, sourceId?: string): SkillDetailD
     })),
     analysisCycles: cycleRows.map(mapAnalysisCycleRow),
     improvementCycles,
+    projectContextFiles: listProjectContextFiles(skillRow.project as string, sourceId),
     contextFiles: listContextFiles(skillId, sourceId),
     executionsBySession: sessionExecRows.map(row => ({
       sessionId: row.session_id as string,

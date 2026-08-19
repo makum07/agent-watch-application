@@ -58,8 +58,9 @@ data/*.db-wal
 /agentwatch.db-shm
 /agentwatch.db-wal
 
-# uploaded skill context files (runtime data)
+# uploaded skill/project context files (runtime data)
 data/skill-attachments/
+data/project-attachments/
 
 # Claude Code internals
 .claude/worktrees/

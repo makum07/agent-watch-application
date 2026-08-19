@@ -11,6 +11,7 @@ import { useSkillStore } from '@/store/skill-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { SelfHealingConfig } from '@/components/skills/self-healing-config';
 import { ContextDocuments } from '@/components/skills/context-documents';
+import { ProjectContextDocuments } from '@/components/skills/project-context-documents';
 import { ExecutionHistory } from '@/components/skills/execution-history';
 import { FeedbackAnalytics } from '@/components/skills/feedback-analytics';
 import { AnalysisHistory } from '@/components/skills/analysis-history';
@@ -150,6 +151,7 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
                   mode={skill.selfHealingMode}
                   threshold={skill.selfHealingThreshold}
                 />
+                <ProjectContextDocuments project={skill.project} />
                 <ContextDocuments skillId={skillId} />
               </div>
               <div className="space-y-4">

@@ -129,6 +129,22 @@ export interface SkillContextFile {
 
 export type SkillContextFileSummary = Omit<SkillContextFile, 'extractedText'>;
 
+// Shared across every skill in the same project — uploaded once instead of
+// per-skill. Same shape as SkillContextFile, scoped by `project` instead of
+// `skillId`.
+export interface ProjectContextFile {
+  id: string;
+  project: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+  textPath: string | null;
+  extractedText: string;
+  createdAt: string;
+}
+
+export type ProjectContextFileSummary = Omit<ProjectContextFile, 'extractedText'>;
+
 export interface SkillDetailData {
   skill: SkillSummary;
   recentExecutions: SkillExecution[];
@@ -137,6 +153,7 @@ export interface SkillDetailData {
   feedbackByAgent: Array<{ agentName: string; count: number }>;
   analysisCycles: SkillAnalysisCycle[];
   improvementCycles: ImprovementCycle[];
+  projectContextFiles: ProjectContextFile[];
   contextFiles: SkillContextFile[];
   executionsBySession: Array<{
     sessionId: string;

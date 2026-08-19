@@ -23,6 +23,10 @@ export async function GET(
         void extractedText;
         return summary;
       }),
+      projectContextFiles: detail.projectContextFiles.map(({ extractedText, ...summary }) => {
+        void extractedText;
+        return summary;
+      }),
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
