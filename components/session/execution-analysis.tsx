@@ -10,6 +10,9 @@ import { useExecutionAnalysisStore } from '@/store/execution-analysis-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { CollapsibleStreamLog } from '@/components/shared/collapsible-stream-log';
+import { ModelSelect } from '@/components/shared/model-select';
+import { StopButton } from '@/components/shared/stop-button';
+import { CopyableSessionId } from '@/components/shared/copyable-session-id';
 import type { SessionEvent } from '@/types/events';
 import type { ExecutionAnalysisCycle, ExecutionRecommendation } from '@/types/analytics';
 
@@ -21,14 +24,15 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   analyzing:  { label: 'Analyzing…', color: 'var(--aw-blue)' },
   completed:  { label: 'Completed',  color: 'var(--aw-green)' },
   failed:     { label: 'Failed',     color: 'var(--aw-red-bright)' },
+  cancelled:  { label: 'Cancelled',  color: 'var(--aw-text-3)' },
   pending:    { label: 'Pending',    color: 'var(--aw-text-3)' },
 };
 
 export function ExecutionAnalysis({ sessionId }: ExecutionAnalysisProps) {
   const {
-    cycles, isAnalyzing, lastError, streamEntries,
-    loadCycles, previewPrompt, triggerAnalysis, deleteCycle, handleStreamEvent,
-    clearError, clearStream,
+    cycles, isAnalyzing, isStopping, lastError, streamEntries, model,
+    loadCycles, previewPrompt, triggerAnalysis, stopAnalysis, deleteCycle, handleStreamEvent,
+    clearError, clearStream, setModel,
   } = useExecutionAnalysisStore();
 
   const [showPromptPreview, setShowPromptPreview] = useState(false);
@@ -106,6 +110,10 @@ export function ExecutionAnalysis({ sessionId }: ExecutionAnalysisProps) {
             : <><Sparkles className="h-3 w-3" /> Run AI Analysis</>
           }
         </button>
+        <ModelSelect value={model} onChange={setModel} disabled={isAnalyzing} />
+        {isAnalyzing && (
+          <StopButton onClick={() => stopAnalysis(sessionId)} stopping={isStopping} />
+        )}
         <button
           onClick={handlePreviewPrompt}
           disabled={loadingPrompt}
@@ -276,6 +284,17 @@ function CycleCard({
         >
           {s.label}
         </span>
+
+        {cycle.model && (
+          <span
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] shrink-0"
+            title="Model the CLI actually ran with"
+          >
+            {cycle.model}
+          </span>
+        )}
+
+        {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
 
         <span className="flex-1" />
 

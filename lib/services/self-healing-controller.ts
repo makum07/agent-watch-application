@@ -21,7 +21,8 @@ import { registerActiveCycle, unregisterActiveCycle, resolveApproval } from '@/l
 import { findExternalSkillDirsForSessions } from '@/lib/services/external-dirs';
 import { getWslDistro } from '@/lib/sources';
 import { runClaudeCliOneShot, writePermissionHookSettings } from '@/lib/services/claude-cli';
-import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence } from '@/lib/services/cli-stream-log';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence, extractResolvedModel, extractCliSessionId } from '@/lib/services/cli-stream-log';
+import { sanitizeClaudeCliModel } from '@/lib/claude-models';
 
 // Above this, a file's extracted text is dropped from the prompt in favor of
 // a pointer to its on-disk .extracted.md sidecar (see createContextFile) —
@@ -406,9 +407,11 @@ export async function runSkillAnalysis(
   cycleId: string,
   skillId: string,
   customPrompt?: string,
-  sourceId?: string
+  sourceId?: string,
+  model?: string
 ): Promise<void> {
   const db = getDatabase(sourceId);
+  const resolvedModel = sanitizeClaudeCliModel(model);
 
   const broadcast = createCycleBroadcaster({ skillId, cycleId });
   const log = createStreamLogger('sa');
@@ -447,6 +450,11 @@ export async function runSkillAnalysis(
 
     function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('skill_analysis_stream_event', { event });
+      const resolvedActualModel = extractResolvedModel(event);
+      const cliSessionId = extractCliSessionId(event);
+      if (resolvedActualModel || cliSessionId) {
+        updateAnalysisCycle(cycleId, { model: resolvedActualModel, cliSessionId }, sourceId);
+      }
       for (const entry of translateStreamEvent(event)) log.push(entry);
     }
 
@@ -456,16 +464,29 @@ export async function runSkillAnalysis(
     // observed timing out mid-synthesis once the skill has an attached
     // audit document to read through.
     const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
-    const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
+    const { exitCode, timedOut, stderr, fullText: responseText, cancelled } = await runClaudeCliOneShot({
       prompt,
       cwd: skillCwd || undefined,
-      model: 'claude-sonnet-4-6',
+      model: resolvedModel,
       permission: { mode: 'skipPermissions' },
       externalDirs: [...externalDirs, ...contextDirs],
       wslDistro,
       timeoutMs: ANALYSIS_TIMEOUT_MS,
       onEvent: handleStreamEvent,
+      jobId: cycleId,
     });
+
+    if (cancelled) {
+      log.push({ kind: 'system', text: 'Analysis stopped by user.' });
+      updateAnalysisCycle(cycleId, {
+        status: 'cancelled',
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
+      }, sourceId);
+      broadcast('skill_analysis_failed', { error: 'Stopped by user', cancelled: true });
+      return;
+    }
+
     if (timedOut) {
       log.push({ kind: 'system', text: 'Analysis timed out after 5 minutes.' });
       updateAnalysisCycle(cycleId, {
@@ -538,7 +559,7 @@ export async function runSkillAnalysis(
     broadcast('skill_analysis_complete', { status: finalStatus });
 
     if (mode === 'fully_automatic' && fixPrompt) {
-      await applySkillFix(cycleId, skillId, fixPrompt, sourceId);
+      await applySkillFix(cycleId, skillId, fixPrompt, sourceId, resolvedModel);
     }
   } catch (err) {
     log.push({ kind: 'system', text: `Analysis failed: ${String(err)}` });
@@ -563,8 +584,10 @@ export async function applySkillFix(
   cycleId: string,
   skillId: string,
   fixPrompt: string,
-  sourceId?: string
+  sourceId?: string,
+  model?: string
 ): Promise<void> {
+  const resolvedModel = sanitizeClaudeCliModel(model);
   const wss = getWsServer();
   const broadcast = createCycleBroadcaster({ skillId, cycleId });
 
@@ -594,21 +617,34 @@ export async function applySkillFix(
         registerActiveCycle(registeredSessionId, cycleId);
       }
 
+      const resolvedActualModel = extractResolvedModel(event);
+      const cliSessionId = extractCliSessionId(event);
+      if (resolvedActualModel || cliSessionId) {
+        updateAnalysisCycle(cycleId, { model: resolvedActualModel, cliSessionId }, sourceId);
+      }
+
       broadcast('skill_analysis_stream_event', { event });
     }
 
     // Grant Edit/Write access to the skill's real definition directory when it
     // lives outside skillCwd — otherwise the workspace-boundary check blocks
     // the edit even after the user approves it via the browser hook.
-    await runClaudeCliOneShot({
+    const { cancelled } = await runClaudeCliOneShot({
       prompt: fixPrompt,
       cwd: skillCwd || undefined,
-      model: 'claude-sonnet-4-6',
+      model: resolvedModel,
       permission: { mode: 'hook', settingsPath },
       externalDirs,
       wslDistro,
       onEvent: handleStreamEvent,
+      jobId: cycleId,
     });
+
+    if (cancelled) {
+      updateAnalysisCycle(cycleId, { status: 'cancelled' }, sourceId);
+      broadcast('skill_analysis_failed', { error: 'Stopped by user', cancelled: true });
+      return;
+    }
 
     const db = getDatabase(sourceId);
     db.prepare('UPDATE skills SET version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), skillId);

@@ -15,6 +15,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { registerJob, unregisterJob, isJobCancelled, killProcessTree } from './job-control';
 
 export type ClaudePermissionOptions =
   // Read-only / analysis-only runs — no edits expected, so skip the
@@ -165,7 +166,7 @@ export function waitForClaudeExit(
 
     if (timeoutMs) {
       timer = setTimeout(() => {
-        try { child.kill(); } catch { /* already dead */ }
+        killProcessTree(child);
         settle({ exitCode: 124, timedOut: true, spawnError: null });
       }, timeoutMs);
     }
@@ -215,6 +216,8 @@ export interface RunClaudeCliOneShotOptions {
   timeoutMs?: number;
   /** Raw stream-json event passthrough — for broadcasting and building a stream log. */
   onEvent?: (event: Record<string, unknown>) => void;
+  /** DB cycle id to track this run under, so `cancelJob(jobId)` (job-control.ts) can stop it. */
+  jobId?: string;
 }
 
 export interface RunClaudeCliOneShotResult {
@@ -224,6 +227,8 @@ export interface RunClaudeCliOneShotResult {
   stderr: string;
   /** Concatenation of every assistant text block, in order. */
   fullText: string;
+  /** True if `cancelJob(jobId)` killed this run before it exited on its own. */
+  cancelled: boolean;
 }
 
 /**
@@ -237,6 +242,7 @@ export async function runClaudeCliOneShot(
   opts: RunClaudeCliOneShotOptions,
 ): Promise<RunClaudeCliOneShotResult> {
   const child = spawnClaudeCli(opts);
+  if (opts.jobId) registerJob(opts.jobId, child);
   writeUserTurn(child, opts.prompt);
   child.stdin.end();
 
@@ -255,5 +261,8 @@ export async function runClaudeCliOneShot(
   const { exitCode, timedOut, spawnError } = await waitForClaudeExit(child, opts.timeoutMs);
   flushRemaining();
 
-  return { exitCode, timedOut, spawnError, stderr: getStderr(), fullText: responseChunks.join('') };
+  const cancelled = opts.jobId ? isJobCancelled(opts.jobId) : false;
+  if (opts.jobId) unregisterJob(opts.jobId);
+
+  return { exitCode, timedOut, spawnError, stderr: getStderr(), fullText: responseChunks.join(''), cancelled };
 }

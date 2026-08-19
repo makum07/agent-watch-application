@@ -85,6 +85,8 @@ function mapAnalysisCycleRow(row: Record<string, unknown>): SkillAnalysisCycle {
     createdAt: new Date(row.created_at as number).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at as number).toISOString() : null,
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries as string) : null,
+    model: (row.model as string) ?? null,
+    cliSessionId: (row.cli_session_id as string) ?? null,
   };
 }
 
@@ -787,12 +789,14 @@ export function createAnalysisCycle(
     createdAt: new Date(now).toISOString(),
     completedAt: null,
     streamEntries: null,
+    model: null,
+    cliSessionId: null,
   };
 }
 
 export function updateAnalysisCycle(
   cycleId: string,
-  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'currentStatus' | 'growthOpportunities' | 'status' | 'streamEntries'>>,
+  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'currentStatus' | 'growthOpportunities' | 'status' | 'streamEntries' | 'model' | 'cliSessionId'>>,
   sourceId?: string
 ): void {
   const db = getDatabase(sourceId);
@@ -826,10 +830,18 @@ export function updateAnalysisCycle(
   if (updates.status !== undefined) {
     fields.push('status = ?');
     values.push(updates.status);
-    if (updates.status === 'completed' || updates.status === 'failed') {
+    if (updates.status === 'completed' || updates.status === 'failed' || updates.status === 'cancelled') {
       fields.push('completed_at = ?');
       values.push(Date.now());
     }
+  }
+  if (updates.model !== undefined) {
+    fields.push('model = ?');
+    values.push(updates.model);
+  }
+  if (updates.cliSessionId !== undefined) {
+    fields.push('cli_session_id = ?');
+    values.push(updates.cliSessionId);
   }
 
   if (fields.length === 0) return;

@@ -4,18 +4,23 @@ import { create } from 'zustand';
 import type { ExecutionAnalysisCycle } from '@/types/analytics';
 import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
 import type { StreamEntry } from '@/types/feedback';
+import { DEFAULT_CLAUDE_CLI_MODEL, type ClaudeCliModel } from '@/lib/claude-models';
 
 interface ExecutionAnalysisStore {
   cycles: ExecutionAnalysisCycle[];
   isAnalyzing: boolean;
+  isStopping: boolean;
   isLoading: boolean;
   lastError: string | null;
   streamEntries: StreamEntry[];
   activeCycleId: string | null;
+  model: ClaudeCliModel;
 
+  setModel: (model: ClaudeCliModel) => void;
   loadCycles: (sessionId: string) => Promise<void>;
   previewPrompt: (sessionId: string) => Promise<string | null>;
   triggerAnalysis: (sessionId: string, customPrompt?: string) => Promise<ExecutionAnalysisCycle | null>;
+  stopAnalysis: (sessionId: string) => Promise<void>;
   deleteCycle: (sessionId: string, cycleId: string) => Promise<void>;
   handleStreamEvent: (event: SessionEvent) => void;
   clearError: () => void;
@@ -28,10 +33,14 @@ let streamIdCounter = 0;
 export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, get) => ({
   cycles: [],
   isAnalyzing: false,
+  isStopping: false,
   isLoading: false,
   lastError: null,
   streamEntries: [],
   activeCycleId: null,
+  model: DEFAULT_CLAUDE_CLI_MODEL,
+
+  setModel: (model) => set({ model }),
 
   loadCycles: async (sessionId) => {
     set({ isLoading: true, lastError: null });
@@ -66,7 +75,7 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
   triggerAnalysis: async (sessionId, customPrompt?) => {
     set({ isAnalyzing: true, lastError: null, streamEntries: [] });
     try {
-      const body: Record<string, unknown> = {};
+      const body: Record<string, unknown> = { model: get().model };
       if (customPrompt) body.customPrompt = customPrompt;
 
       const res = await fetch(`/api/v2/sessions/${sessionId}/analysis`, {
@@ -84,6 +93,24 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
     } catch (err) {
       set({ lastError: String(err), isAnalyzing: false });
       return null;
+    }
+  },
+
+  stopAnalysis: async (sessionId) => {
+    const cycleId = get().activeCycleId;
+    if (!cycleId) return;
+    set({ isStopping: true });
+    try {
+      const res = await fetch(`/api/v2/sessions/${sessionId}/analysis/${cycleId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (err) {
+      set({ lastError: String(err) });
+    } finally {
+      set({ isStopping: false });
     }
   },
 
@@ -161,6 +188,29 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
         }
       }
 
+      // Confirms the model picker's choice actually took effect, and captures
+      // this new one-shot session's own id (unlike the improvement loop,
+      // this always starts a fresh session rather than resuming one) — both
+      // come from the CLI's own init event.
+      if (streamEvent.type === 'system' && streamEvent.subtype === 'init') {
+        const resolvedModel = (streamEvent as { model?: string }).model;
+        const cliSessionId = (streamEvent as { session_id?: string }).session_id;
+        entries.push({
+          id: `ea-${++streamIdCounter}`,
+          kind: 'system',
+          timestamp: Date.now(),
+          text: `Session initialized (model: ${resolvedModel ?? 'unknown'}${cliSessionId ? `, session: ${cliSessionId}` : ''})`,
+        });
+        if (resolvedModel || cliSessionId) {
+          const activeId = get().activeCycleId;
+          set(s => ({
+            cycles: s.cycles.map(c => c.id === activeId
+              ? { ...c, model: resolvedModel ?? c.model, cliSessionId: cliSessionId ?? c.cliSessionId }
+              : c),
+          }));
+        }
+      }
+
       if (entries.length > 0) {
         set(state => ({ streamEntries: [...state.streamEntries, ...entries] }));
       }
@@ -188,6 +238,7 @@ export const useExecutionAnalysisStore = create<ExecutionAnalysisStore>((set, ge
   reset: () => set({
     cycles: [],
     isAnalyzing: false,
+    isStopping: false,
     isLoading: false,
     lastError: null,
     streamEntries: [],

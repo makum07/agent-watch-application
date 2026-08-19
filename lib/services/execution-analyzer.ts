@@ -21,7 +21,8 @@ import { getDatabase } from '@/lib/db/database';
 import { getWslDistro } from '@/lib/sources';
 import type { StreamEntry } from '@/types/feedback';
 import { runClaudeCliOneShot } from './claude-cli';
-import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence } from './cli-stream-log';
+import { translateStreamEvent, createStreamLogger, createCycleBroadcaster, extractJsonFence, extractResolvedModel, extractCliSessionId } from './cli-stream-log';
+import { sanitizeClaudeCliModel } from '@/lib/claude-models';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1407,6 +1408,8 @@ export function updateExecutionAnalysisCycle(
     analysisResponse?: string | null;
     recommendations?: ExecutionRecommendation[] | null;
     streamEntries?: StreamEntry[] | null;
+    model?: string | null;
+    cliSessionId?: string | null;
   },
   sourceId?: string
 ): void {
@@ -1417,7 +1420,7 @@ export function updateExecutionAnalysisCycle(
   if (updates.status !== undefined) {
     sets.push('status = ?');
     values.push(updates.status);
-    if (updates.status === 'completed' || updates.status === 'failed') {
+    if (updates.status === 'completed' || updates.status === 'failed' || updates.status === 'cancelled') {
       sets.push('completed_at = ?');
       values.push(Date.now());
     }
@@ -1433,6 +1436,14 @@ export function updateExecutionAnalysisCycle(
   if (updates.streamEntries !== undefined) {
     sets.push('stream_entries = ?');
     values.push(updates.streamEntries ? JSON.stringify(updates.streamEntries) : null);
+  }
+  if (updates.model !== undefined) {
+    sets.push('model = ?');
+    values.push(updates.model);
+  }
+  if (updates.cliSessionId !== undefined) {
+    sets.push('cli_session_id = ?');
+    values.push(updates.cliSessionId);
   }
 
   if (sets.length === 0) return;
@@ -1453,8 +1464,10 @@ export function getExecutionAnalysisCycles(sessionId: string): import('@/types/a
     analysisPrompt: row.analysis_prompt as string,
     analysisResponse: (row.analysis_response as string) || null,
     recommendations: row.recommendations ? JSON.parse(row.recommendations as string) : null,
-    status: row.status as 'pending' | 'analyzing' | 'completed' | 'failed',
+    status: row.status as 'pending' | 'analyzing' | 'completed' | 'failed' | 'cancelled',
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries as string) : null,
+    model: (row.model as string) || null,
+    cliSessionId: (row.cli_session_id as string) || null,
     createdAt: new Date(row.created_at as number).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at as number).toISOString() : null,
   }));
@@ -1479,7 +1492,9 @@ export async function runExecutionAnalysis(
   externalSkillDirs: string[] = [],
   sourceId?: string,
   agentCount = 1,
+  model?: string,
 ): Promise<void> {
+  const resolvedModel = sanitizeClaudeCliModel(model);
   const broadcast = createCycleBroadcaster({ sessionId, cycleId });
   const log = createStreamLogger('ea');
 
@@ -1494,6 +1509,11 @@ export async function runExecutionAnalysis(
 
     function handleStreamEvent(event: Record<string, unknown>) {
       broadcast('execution_analysis_stream_event', { event });
+      const resolvedActualModel = extractResolvedModel(event);
+      const cliSessionId = extractCliSessionId(event);
+      if (resolvedActualModel || cliSessionId) {
+        updateExecutionAnalysisCycle(cycleId, { model: resolvedActualModel, cliSessionId }, sourceId);
+      }
       for (const entry of translateStreamEvent(event)) log.push(entry);
     }
 
@@ -1505,16 +1525,28 @@ export async function runExecutionAnalysis(
     );
     const timeoutMinutes = Math.round(ANALYSIS_TIMEOUT_MS / 60000);
 
-    const { exitCode, timedOut, stderr, fullText: responseText } = await runClaudeCliOneShot({
+    const { exitCode, timedOut, stderr, fullText: responseText, cancelled } = await runClaudeCliOneShot({
       prompt,
       cwd,
-      model: 'claude-sonnet-4-6',
+      model: resolvedModel,
       permission: { mode: 'skipPermissions' },
       externalDirs: externalSkillDirs,
       wslDistro: getWslDistro(sourceId),
       timeoutMs: ANALYSIS_TIMEOUT_MS,
       onEvent: handleStreamEvent,
+      jobId: cycleId,
     });
+
+    if (cancelled) {
+      log.push({ kind: 'system', text: 'Analysis stopped by user.' });
+      updateExecutionAnalysisCycle(cycleId, {
+        status: 'cancelled',
+        analysisResponse: responseText || null,
+        streamEntries: log.entries.length > 0 ? log.entries : null,
+      }, sourceId);
+      broadcast('execution_analysis_failed', { error: 'Stopped by user', cancelled: true });
+      return;
+    }
 
     // Salvages a partial recommendations block if the model had already
     // written one before being cut off — a timeout/non-zero exit means the

@@ -27,6 +27,8 @@ interface DbCycle {
   recommendations: string | null;
   status: string;
   stream_entries: string | null;
+  model: string | null;
+  cli_session_id: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -41,6 +43,8 @@ function mapCycle(row: DbCycle): ExecutionAnalysisCycle {
     recommendations: row.recommendations ? JSON.parse(row.recommendations) : null,
     status: row.status as ExecutionAnalysisCycle['status'],
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
+    model: row.model || null,
+    cliSessionId: row.cli_session_id || null,
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
   };
@@ -97,9 +101,11 @@ export async function POST(
     }
 
     let customPrompt: string | undefined;
+    let model: string | undefined;
     try {
       const body = await req.json();
       customPrompt = body.customPrompt;
+      model = body.model;
     } catch { /* no body is fine */ }
 
     const row = db.prepare(
@@ -120,7 +126,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length, model).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });

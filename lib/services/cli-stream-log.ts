@@ -51,7 +51,38 @@ export function translateStreamEvent(event: Record<string, unknown>): StreamEntr
     }
   }
 
+  // The CLI's own init event reports the model it actually resolved to run
+  // with, and this new session's own id — surfacing both confirms the model
+  // picker's choice actually took effect, and gives the user a session id
+  // they can `claude --resume` into later for skill analysis/execution
+  // analysis, which (unlike the improvement loop) always start a fresh
+  // one-shot session rather than resuming an existing one.
+  if (eventType === 'system' && event.subtype === 'init') {
+    const model = typeof event.model === 'string' ? event.model : undefined;
+    const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined;
+    entries.push({
+      kind: 'system',
+      text: `Session initialized (model: ${model ?? 'unknown'}${sessionId ? `, session: ${sessionId}` : ''})`,
+    });
+  }
+
   return entries;
+}
+
+/** Pulls the actual resolved model off a raw stream-json event, if this is the CLI's init event. */
+export function extractResolvedModel(event: Record<string, unknown>): string | null {
+  if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') {
+    return event.model;
+  }
+  return null;
+}
+
+/** Pulls the new CLI session's own id off a raw stream-json event, if this is the CLI's init event. */
+export function extractCliSessionId(event: Record<string, unknown>): string | null {
+  if (event.type === 'system' && event.subtype === 'init' && typeof event.session_id === 'string') {
+    return event.session_id;
+  }
+  return null;
 }
 
 /** Owns the `${prefix}-N` id counter and timestamp stamping for a cycle's stream log. */

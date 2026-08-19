@@ -1,6 +1,6 @@
 export type SelfHealingMode = 'analysis_only' | 'analysis_and_fix' | 'fully_automatic';
 export type AnalysisTrigger = 'manual' | 'auto_threshold';
-export type AnalysisStatus = 'pending' | 'analyzing' | 'awaiting_review' | 'applying' | 'completed' | 'failed';
+export type AnalysisStatus = 'pending' | 'analyzing' | 'awaiting_review' | 'applying' | 'completed' | 'failed' | 'cancelled';
 
 export interface Skill {
   id: string;
@@ -55,6 +55,10 @@ export interface SkillAnalysisCycle {
   createdAt: string;
   completedAt: string | null;
   streamEntries: import('@/types/feedback').StreamEntry[] | null;
+  /** Model the CLI actually reported running (from its init stream-json event), not just what was requested. */
+  model: string | null;
+  /** The new one-shot CLI session's own id — unlike the improvement loop, this always starts a fresh session rather than resuming one. Resumable via `claude --resume <id>`. */
+  cliSessionId: string | null;
 }
 
 export interface AnalysisRecommendation {

@@ -73,7 +73,7 @@ export interface ImprovementCycle {
   feedbackIds: string[];
   generatedPrompt: string;
   claudeResponse: string | null;
-  status: 'applying' | 'completed' | 'failed' | 'rewound';
+  status: 'applying' | 'completed' | 'failed' | 'rewound' | 'cancelled';
   createdAt: string;
   completedAt: string | null;
   snapshotSize: number | null;

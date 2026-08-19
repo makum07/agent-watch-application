@@ -18,6 +18,8 @@ import {
   FileContentViewer,
   DiffLines,
 } from '@/components/shared/collapsible-stream-log';
+import { ModelSelect } from '@/components/shared/model-select';
+import { StopButton } from '@/components/shared/stop-button';
 import { cn } from '@/lib/utils';
 import type { ImprovementCycle } from '@/types/feedback';
 
@@ -36,15 +38,16 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   applying:  { label: 'Applying…', color: 'var(--aw-blue)' },
   completed: { label: 'Completed', color: 'var(--aw-green)' },
   failed:    { label: 'Failed',    color: 'var(--aw-red-bright)' },
+  cancelled: { label: 'Cancelled', color: 'var(--aw-text-3)' },
   rewound:   { label: 'Rewound',   color: 'var(--aw-text-3)' },
 };
 
 export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
   const {
-    items, cycles, isLoading, isApplying, lastError, lastCycle, autoDetectedSkills,
-    streamEntries, pendingApprovals,
+    items, cycles, isLoading, isApplying, isStopping, lastError, lastCycle, autoDetectedSkills,
+    streamEntries, pendingApprovals, model,
     loadFeedback, loadCycles, deleteFeedback, updateFeedback,
-    previewPrompt, applyImprovements, rewindCycle, deleteCycle, clearRewoundCycles,
+    previewPrompt, applyImprovements, stopImprovements, setModel, rewindCycle, deleteCycle, clearRewoundCycles,
     clearError, handleStreamEvent,
   } = useFeedbackStore();
   const agentMap = useSessionStore(s => s.agentMap);
@@ -109,6 +112,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
 
   // Poll while any cycle is applying
   const hasApplying = cycles.some(c => c.status === 'applying');
+  const applyingCycleId = cycles.find(c => c.status === 'applying')?.id ?? null;
   useEffect(() => {
     if (!hasApplying) return;
     const t = setInterval(() => loadCycles(sessionId), 3000);
@@ -249,6 +253,12 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
           />
         </span>
       </button>
+
+      {/* Model — sticks for whatever "Apply Improvements" runs next */}
+      <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)]">
+        <span className="text-xs font-medium text-[var(--aw-text-2)]">Model</span>
+        <ModelSelect value={model} onChange={setModel} disabled={isApplying || hasApplying} />
+      </div>
 
       {/* Tab rail */}
       <div className="shrink-0 flex border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
@@ -688,11 +698,11 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
             </div>
           </div>
         ) : (
-          <div className="p-3">
+          <div className="p-3 flex items-center gap-2">
             <button
               onClick={handlePreview}
               disabled={items.length === 0 || applyStep !== 'idle' || hasApplying}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded bg-[var(--aw-blue-action)] hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded bg-[var(--aw-blue-action)] hover:bg-[var(--aw-blue-action-hover)] disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
               {applyStep === 'loading-preview' || applyStep === 'applying' || hasApplying
                 ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -701,6 +711,9 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
                 : applyStep === 'applying' || hasApplying ? 'A cycle is already running…'
                 : <>Apply Improvements{items.length > 0 && <span className="text-xs opacity-75 ml-1">({items.length})</span>}</>}
             </button>
+            {hasApplying && applyingCycleId && (
+              <StopButton onClick={() => stopImprovements(sessionId, applyingCycleId)} stopping={isStopping} />
+            )}
           </div>
         )}
       </div>

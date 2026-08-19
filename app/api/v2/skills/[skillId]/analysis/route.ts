@@ -41,10 +41,12 @@ export async function POST(
     const { skillId } = await params;
     const sourceId = await resolveSourceFromRequest(req);
     let customPrompt: string | undefined;
+    let model: string | undefined;
 
     try {
       const body = await req.json();
       customPrompt = body.customPrompt;
+      model = body.model;
     } catch {
       // No body — that's fine
     }
@@ -69,7 +71,7 @@ export async function POST(
     const cycle = createAnalysisCycle(skillId, cycleNumber, 'manual', prompt, sessionIds, feedbackIds, sourceId);
 
     setImmediate(() => {
-      runSkillAnalysis(cycle.id, skillId, customPrompt, sourceId).catch(err => {
+      runSkillAnalysis(cycle.id, skillId, customPrompt, sourceId, model).catch(err => {
         console.error('Skill analysis failed:', err);
       });
     });

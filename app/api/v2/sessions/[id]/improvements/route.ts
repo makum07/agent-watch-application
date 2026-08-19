@@ -19,6 +19,8 @@ import {
   writePermissionHookSettings,
 } from '@/lib/services/claude-cli';
 import { translateStreamEvent, createStreamLogger, createCycleBroadcaster } from '@/lib/services/cli-stream-log';
+import { sanitizeClaudeCliModel } from '@/lib/claude-models';
+import { registerJob, unregisterJob, isJobCancelled, cancelJob } from '@/lib/services/job-control';
 
 interface DbFeedbackItem {
   id: string;
@@ -188,7 +190,9 @@ async function runClaudeResumeAsync(
   resolvedProjectCwd?: string,
   externalSkillDirs: string[] = [],
   skipPermissions = false,
+  model?: string,
 ) {
+  const resolvedModel = sanitizeClaudeCliModel(model);
   const wss = getWsServer();
   const db = getDatabase();
 
@@ -273,10 +277,12 @@ async function runClaudeResumeAsync(
       resumeSessionId: sessionId,
       cwd: wslCtx ? wslCtx.wslCwd : projectCwd,
       wslDistro: wslCtx?.distro ?? null,
+      model: resolvedModel,
       permission: skipPermissions ? { mode: 'skipPermissions' } : { mode: 'hook', settingsPath: settingsPath! },
       // Grant Read access to external skill/agent directories.
       externalDirs: externalSkillDirs,
     });
+    registerJob(cycleId, child);
 
     writeUserTurn(child, prompt);
 
@@ -384,10 +390,6 @@ async function runClaudeResumeAsync(
 
       const eventType = event.type as string;
 
-      if (eventType === 'system') {
-        log.push({ kind: 'system', text: 'Session initialized' });
-      }
-
       for (const entry of translateStreamEvent(event)) {
         log.push(entry);
 
@@ -429,6 +431,7 @@ async function runClaudeResumeAsync(
 
     if (unsubscribe) unsubscribe();
 
+    const cancelled = isJobCancelled(cycleId);
     const fileChanges = captureFileChanges(projectCwd);
     const now = Date.now();
     const fullResponse = responseChunks.join('');
@@ -436,7 +439,10 @@ async function runClaudeResumeAsync(
     let status: string;
     let response: string;
 
-    if (exitCode === 0 && fullResponse) {
+    if (cancelled) {
+      status = 'cancelled';
+      response = fullResponse || 'Stopped by user.';
+    } else if (exitCode === 0 && fullResponse) {
       status = 'completed';
       response = fullResponse;
     } else {
@@ -454,7 +460,11 @@ async function runClaudeResumeAsync(
       WHERE id = ?
     `).run(response, status, now, fileChanges.length ? JSON.stringify(fileChanges) : null, log.entries.length ? JSON.stringify(log.entries) : null, cycleId);
 
-    broadcast('improvement_complete', { status, response, fileChanges });
+    if (cancelled) {
+      broadcast('improvement_failed', { error: 'Stopped by user', cancelled: true });
+    } else {
+      broadcast('improvement_complete', { status, response, fileChanges });
+    }
   } catch (err) {
     const errMsg = String(err);
     db.prepare(`
@@ -462,6 +472,7 @@ async function runClaudeResumeAsync(
     `).run(errMsg, Date.now(), cycleId);
     broadcast('improvement_failed', { error: errMsg });
   } finally {
+    unregisterJob(cycleId);
     unregisterActiveCycle(sessionId);
     cleanupSettings();
   }
@@ -587,7 +598,7 @@ export async function POST(
     }
 
     // Allow an optional custom prompt, skill selection, and permission mode from the client
-    let body: { customPrompt?: string; skillIds?: string[]; skipPermissions?: boolean } = {};
+    let body: { customPrompt?: string; skillIds?: string[]; skipPermissions?: boolean; model?: string } = {};
     try { body = await req.json(); } catch { /* no body is fine */ }
     const skipPermissions = body.skipPermissions === true;
 
@@ -626,10 +637,45 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, JSON.stringify(items.map(i => i.id)), prompt, snapshotSize || null, skipPermissions ? 'skip' : 'approve', now);
 
     // Fire-and-forget — client polls GET or listens via WebSocket
-    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs, skipPermissions));
+    setImmediate(() => runClaudeResumeAsync(cycleId, sessionId, prompt, projectCwd, externalSkillDirs, skipPermissions, body.model));
 
     const cycle = db.prepare(`SELECT * FROM improvement_cycles WHERE id = ?`).get(cycleId) as DbCycle;
     return NextResponse.json(mapCycle(cycle), { status: 201 });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: sessionId } = await params;
+    const db = getDatabase();
+
+    let body: { cycleId?: string; action?: string } = {};
+    try { body = await req.json(); } catch { /* no body */ }
+
+    if (body.action !== 'cancel' || !body.cycleId) {
+      return NextResponse.json({ error: 'Expected { action: "cancel", cycleId }' }, { status: 400 });
+    }
+
+    const cycle = db.prepare(
+      `SELECT status FROM improvement_cycles WHERE id = ? AND session_id = ?`
+    ).get(body.cycleId, sessionId) as { status: string } | undefined;
+    if (!cycle) return NextResponse.json({ error: 'Cycle not found' }, { status: 404 });
+
+    if (cycle.status !== 'applying') {
+      return NextResponse.json({ error: 'Cycle is not running' }, { status: 400 });
+    }
+
+    const killed = cancelJob(body.cycleId);
+    if (!killed) {
+      return NextResponse.json({ error: 'No running process found for this cycle — it may have just finished' }, { status: 409 });
+    }
+
+    return NextResponse.json({ ok: true, status: 'cancelling' });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

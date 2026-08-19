@@ -343,8 +343,12 @@ export interface ExecutionAnalysisCycle {
   analysisPrompt: string;
   analysisResponse: string | null;
   recommendations: ExecutionRecommendation[] | null;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'cancelled';
   streamEntries: import('@/types/feedback').StreamEntry[] | null;
+  /** Model the CLI actually reported running (from its init stream-json event), not just what was requested. */
+  model: string | null;
+  /** The new one-shot CLI session's own id — unlike the improvement loop, this always starts a fresh session rather than resuming one. Resumable via `claude --resume <id>`. */
+  cliSessionId: string | null;
   createdAt: string;
   completedAt: string | null;
 }

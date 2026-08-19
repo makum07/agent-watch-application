@@ -472,6 +472,29 @@ function runMigrations(db: Database.Database) {
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'growth_opportunities')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN growth_opportunities TEXT;`);
   }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'model')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN model TEXT;`);
+  }
+  // Unlike the improvement loop (which resumes the session being reviewed),
+  // skill analysis and execution analysis always start a brand-new one-shot
+  // `claude` session — this records that new session's own id (from the
+  // CLI's `system`/init event) so the user can `claude --resume <id>` into
+  // it later, e.g. to dig further into how the analysis was produced.
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'cli_session_id')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN cli_session_id TEXT;`);
+  }
+
+  // Fixup: ensure model/cli_session_id columns exist on execution_analysis_cycles
+  // — records the model the CLI actually reported running and the new
+  // one-shot session's own id (both from its `system`/init stream-json
+  // event), not just what the user requested.
+  const eacCols = db.prepare("PRAGMA table_info(execution_analysis_cycles)").all() as { name: string }[];
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'model')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN model TEXT;`);
+  }
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'cli_session_id')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN cli_session_id TEXT;`);
+  }
 
   // Fixup: ensure skill_context_files exists. On DBs where the maturity-model
   // merge's version renumbering (see v16 comment above) landed after v14 had

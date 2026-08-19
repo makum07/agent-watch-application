@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
+import { ModelSelect } from '@/components/shared/model-select';
+import { StopButton } from '@/components/shared/stop-button';
+import { CopyableSessionId } from '@/components/shared/copyable-session-id';
 import { cn } from '@/lib/utils';
 import type { SkillAnalysisCycle, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
 import type { StreamEntry } from '@/types/feedback';
@@ -26,6 +29,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: React.ReactNode; labe
   applying: { color: 'var(--aw-blue)', icon: <Loader2 className="h-3 w-3 animate-spin" />, label: 'Applying' },
   completed: { color: 'var(--aw-green)', icon: <Check className="h-3 w-3" />, label: 'Completed' },
   failed: { color: 'var(--aw-red-bright)', icon: <X className="h-3 w-3" />, label: 'Failed' },
+  cancelled: { color: 'var(--aw-text-3)', icon: <X className="h-3 w-3" />, label: 'Cancelled' },
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -66,7 +70,10 @@ function formatToolInput(toolName: string, toolInput: Record<string, unknown>): 
 }
 
 export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
-  const { triggerAnalysis, approveFixPrompt, deleteAnalysisCycle, previewPrompt, loadAnalysisCycles, isAnalyzing, streamEntries } = useSkillStore();
+  const {
+    triggerAnalysis, stopAnalysis, approveFixPrompt, deleteAnalysisCycle, previewPrompt,
+    loadAnalysisCycles, isAnalyzing, isStopping, streamEntries, model, setModel,
+  } = useSkillStore();
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [editingFixPrompt, setEditingFixPrompt] = useState<string | null>(null);
@@ -189,6 +196,8 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
             {isAnalyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             {isAnalyzing ? 'Analyzing...' : 'Run Analysis'}
           </button>
+          <ModelSelect value={model} onChange={setModel} disabled={isAnalyzing} />
+          {isAnalyzing && <StopButton onClick={() => stopAnalysis(skillId)} stopping={isStopping} />}
           <button
             onClick={() => setPromptStep('idle')}
             className="px-4 py-2 rounded border border-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] text-xs transition-colors"
@@ -219,6 +228,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
             )}
             {promptStep === 'loading' ? 'Loading...' : 'Preview Prompt'}
           </button>
+          <ModelSelect value={model} onChange={setModel} disabled={isAnalyzing} />
           <button
             onClick={() => startAnalysis()}
             disabled={isAnalyzing}
@@ -231,6 +241,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
             )}
             {isAnalyzing ? 'Analyzing...' : 'Quick Analysis'}
           </button>
+          {isAnalyzing && <StopButton onClick={() => stopAnalysis(skillId)} stopping={isStopping} />}
         </div>
       </div>
 
@@ -334,6 +345,15 @@ function CycleListItem({ cycle, isSelected, onSelect, onDelete }: {
           {status.icon}
           {status.label}
         </span>
+        {cycle.model && (
+          <span
+            className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)]"
+            title="Model the CLI actually ran with"
+          >
+            {cycle.model}
+          </span>
+        )}
+        {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
           className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-opacity"
@@ -434,6 +454,20 @@ function CycleDetailPanel({
           {status.icon}
           {status.label}
         </span>
+        {cycle.model && (
+          <span
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)]"
+            title="Model the CLI actually ran with"
+          >
+            {cycle.model}
+          </span>
+        )}
+        {cycle.cliSessionId && (
+          <CopyableSessionId
+            sessionId={cycle.cliSessionId}
+            className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors shrink-0"
+          />
+        )}
         <span className="text-[11px] text-[var(--aw-text-4)] ml-auto">
           {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'} · {date}
         </span>
