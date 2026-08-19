@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  ChevronDown, ChevronRight, Play, Check, X, AlertTriangle, Clock,
-  Loader2, Trash2, FileText, Brain, Terminal, Wrench, Eye, MessageSquare,
-  Activity, TrendingUp,
+  ChevronRight, Play, Check, X, AlertTriangle, Clock,
+  Loader2, Trash2, FileText, Brain, Terminal, Wrench, Eye,
+  Activity, TrendingUp, Copy,
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
@@ -16,6 +16,8 @@ interface AnalysisHistoryProps {
   skillId: string;
   cycles: SkillAnalysisCycle[];
 }
+
+type DetailTab = 'overview' | 'activity' | 'report' | 'prompt';
 
 const STATUS_CONFIG: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
   pending: { color: 'var(--aw-text-2)', icon: <Clock className="h-3 w-3" />, label: 'Pending' },
@@ -64,8 +66,9 @@ function formatToolInput(toolName: string, toolInput: Record<string, unknown>): 
 }
 
 export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
-  const { triggerAnalysis, approveFixPrompt, deleteAnalysisCycle, previewPrompt, isAnalyzing, streamEntries } = useSkillStore();
-  const [expandedCycles, setExpandedCycles] = useState<Set<string>>(new Set());
+  const { triggerAnalysis, approveFixPrompt, deleteAnalysisCycle, previewPrompt, loadAnalysisCycles, isAnalyzing, streamEntries } = useSkillStore();
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [editingFixPrompt, setEditingFixPrompt] = useState<string | null>(null);
   const [fixPromptText, setFixPromptText] = useState('');
 
@@ -74,23 +77,16 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
   const [promptDraft, setPromptDraft] = useState('');
   const [promptViewMode, setPromptViewMode] = useState<'preview' | 'edit'>('preview');
 
-  // Auto-expand latest analyzing/active cycle
-  useEffect(() => {
-    const activeCycle = cycles.find(c => c.status === 'analyzing' || c.status === 'applying');
-    if (activeCycle) {
-      setExpandedCycles(prev => {
-        const next = new Set(prev);
-        next.add(activeCycle.id);
-        return next;
-      });
-    }
-  }, [cycles]);
+  // The panel to show is derived, not synced via effect: an explicit pick
+  // wins if it still exists in `cycles`; otherwise fall back to the newest
+  // cycle, which also naturally recovers if the selected one gets deleted.
+  const selectedCycle = (selectedCycleId ? cycles.find(c => c.id === selectedCycleId) : undefined)
+    ?? cycles[0]
+    ?? null;
 
-  const toggleExpand = (cycleId: string) => {
-    const next = new Set(expandedCycles);
-    if (next.has(cycleId)) next.delete(cycleId);
-    else next.add(cycleId);
-    setExpandedCycles(next);
+  const selectCycle = (cycleId: string) => {
+    setSelectedCycleId(cycleId);
+    setActiveTab('overview');
   };
 
   const handlePreview = async () => {
@@ -100,17 +96,22 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
     else setPromptStep('idle');
   };
 
+  // The trigger endpoint creates the cycle row and returns it immediately,
+  // but the store's `cycles` list only reflects it after a reload — without
+  // this, the newly-running cycle wouldn't be selectable until it completes.
+  const startAnalysis = async (customPrompt?: string) => {
+    const cycle = await triggerAnalysis(skillId, customPrompt);
+    if (cycle) {
+      await loadAnalysisCycles(skillId);
+      setSelectedCycleId(cycle.id);
+      setActiveTab('activity');
+    }
+  };
+
   const handleTrigger = async () => {
     const customPrompt = promptStep === 'editing' ? promptDraft : undefined;
     setPromptStep('idle');
-    const cycle = await triggerAnalysis(skillId, customPrompt);
-    if (cycle) {
-      setExpandedCycles(prev => {
-        const next = new Set(prev);
-        next.add(cycle.id);
-        return next;
-      });
-    }
+    await startAnalysis(customPrompt);
   };
 
   const handleApprove = async (cycleId: string) => {
@@ -219,7 +220,7 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
             {promptStep === 'loading' ? 'Loading...' : 'Preview Prompt'}
           </button>
           <button
-            onClick={() => triggerAnalysis(skillId)}
+            onClick={() => startAnalysis()}
             disabled={isAnalyzing}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white transition-colors font-medium disabled:opacity-50"
           >
@@ -233,114 +234,199 @@ export function AnalysisHistory({ skillId, cycles }: AnalysisHistoryProps) {
         </div>
       </div>
 
-      {/* Live stream viewer during analysis */}
-      {isAnalyzing && streamEntries.length > 0 && (
-        <div className="border border-[var(--aw-purple-light)]/30 rounded-lg bg-[var(--aw-bg-0)] overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 bg-[var(--aw-purple-light)]/5 border-b border-[var(--aw-purple-light)]/20">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--aw-purple-light)]" />
-            <span className="text-xs font-medium text-[var(--aw-purple-light)]">Live Analysis Stream</span>
-            <span className="text-[10px] text-[var(--aw-text-4)] ml-auto">{streamEntries.length} events</span>
-          </div>
-          <div className="p-3">
-            <StreamLog entries={streamEntries} isLive />
-          </div>
-        </div>
-      )}
-
-      {isAnalyzing && streamEntries.length === 0 && (
-        <div className="border border-[var(--aw-purple-light)]/30 rounded-lg bg-[var(--aw-bg-0)] p-4 flex items-center gap-2 text-xs text-[var(--aw-purple-light)]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Starting analysis...
-        </div>
-      )}
-
-      {/* Cycle list */}
-      {cycles.map(cycle => (
-        <AnalysisCycleCard
-          key={cycle.id}
-          cycle={cycle}
-          isExpanded={expandedCycles.has(cycle.id)}
-          onToggle={() => toggleExpand(cycle.id)}
-          onDelete={() => handleDelete(cycle.id)}
-          onApprove={() => handleApprove(cycle.id)}
-          editingFixPrompt={editingFixPrompt}
-          fixPromptText={fixPromptText}
-          onStartEditFixPrompt={(text) => { setFixPromptText(text); setEditingFixPrompt(cycle.id); }}
-          onCancelEditFixPrompt={() => setEditingFixPrompt(null)}
-          onFixPromptChange={setFixPromptText}
-          liveStreamEntries={streamEntries}
-          isAnalyzing={isAnalyzing}
-        />
-      ))}
-
-      {cycles.length === 0 && !isAnalyzing && (
+      {cycles.length === 0 && !isAnalyzing ? (
         <div className="text-center py-12 text-[var(--aw-text-4)]">
           <Brain className="h-8 w-8 mx-auto mb-3 opacity-30" />
           <p className="text-xs font-medium text-[var(--aw-text-2)]">No analysis cycles yet</p>
           <p className="text-[11px] mt-1 text-[var(--aw-text-4)]">
-            Click "Preview Prompt" to review the generated analysis prompt, or "Quick Analysis" to start immediately.
+            Click &quot;Preview Prompt&quot; to review the generated analysis prompt, or &quot;Quick Analysis&quot; to start immediately.
           </p>
+        </div>
+      ) : (
+        <div className="flex gap-3 h-[640px]">
+          <CycleList
+            cycles={cycles}
+            selectedId={selectedCycleId}
+            isAnalyzing={isAnalyzing}
+            onSelect={selectCycle}
+            onDelete={handleDelete}
+          />
+          <CycleDetailPanel
+            cycle={selectedCycle}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            isAnalyzing={isAnalyzing}
+            liveStreamEntries={streamEntries}
+            onApprove={() => selectedCycle && handleApprove(selectedCycle.id)}
+            editingFixPrompt={editingFixPrompt}
+            fixPromptText={fixPromptText}
+            onStartEditFixPrompt={(text) => {
+              if (!selectedCycle) return;
+              setFixPromptText(text);
+              setEditingFixPrompt(selectedCycle.id);
+            }}
+            onCancelEditFixPrompt={() => setEditingFixPrompt(null)}
+            onFixPromptChange={setFixPromptText}
+          />
         </div>
       )}
     </div>
   );
 }
 
-// ── Analysis Cycle Card ─────────────────────────────────────────────────────────
+// ── Cycle List (left pane) ───────────────────────────────────────────────────────
 
-interface AnalysisCycleCardProps {
+function CycleList({ cycles, selectedId, isAnalyzing, onSelect, onDelete }: {
+  cycles: SkillAnalysisCycle[];
+  selectedId: string | null;
+  isAnalyzing: boolean;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="w-64 shrink-0 rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] overflow-y-auto">
+      {cycles.length === 0 && isAnalyzing && (
+        <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-[var(--aw-purple-light)]">
+          <Loader2 className="h-3 w-3 animate-spin" /> Starting analysis…
+        </div>
+      )}
+      {cycles.map(cycle => (
+        <CycleListItem
+          key={cycle.id}
+          cycle={cycle}
+          isSelected={cycle.id === selectedId}
+          onSelect={() => onSelect(cycle.id)}
+          onDelete={() => onDelete(cycle.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CycleListItem({ cycle, isSelected, onSelect, onDelete }: {
   cycle: SkillAnalysisCycle;
-  isExpanded: boolean;
-  onToggle: () => void;
+  isSelected: boolean;
+  onSelect: () => void;
   onDelete: () => void;
+}) {
+  const status = STATUS_CONFIG[cycle.status] ?? STATUS_CONFIG.pending;
+  const date = new Date(cycle.createdAt).toLocaleDateString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const recCount = cycle.recommendations?.length ?? 0;
+  const growthCount = cycle.growthOpportunities?.length ?? 0;
+
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'group flex flex-col gap-1 px-3 py-2.5 border-b border-[var(--aw-bg-2)] cursor-pointer transition-colors',
+        isSelected ? 'bg-[var(--aw-bg-2)]' : 'hover:bg-[var(--aw-bg-2)]/50',
+      )}
+      style={{ borderLeftWidth: '3px', borderLeftColor: status.color }}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-bold text-[var(--aw-text-0)]">#{cycle.cycleNumber}</span>
+        <span
+          className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded"
+          style={{ color: status.color, background: `${status.color}18` }}
+        >
+          {status.icon}
+          {status.label}
+        </span>
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-opacity"
+          title="Delete cycle"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="text-[10px] text-[var(--aw-text-4)]">
+        {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'} · {date}
+      </div>
+      {(recCount > 0 || growthCount > 0) && (
+        <div className="flex items-center gap-1.5">
+          {recCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-purple-light)]/10 text-[var(--aw-purple-light)]">
+              {recCount} fix{recCount !== 1 ? 'es' : ''}
+            </span>
+          )}
+          {growthCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-green)]/10 text-[var(--aw-green)]">
+              {growthCount} growth
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cycle Detail Panel (right pane) ──────────────────────────────────────────────
+
+interface CycleDetailPanelProps {
+  cycle: SkillAnalysisCycle | null;
+  activeTab: DetailTab;
+  onTabChange: (tab: DetailTab) => void;
+  isAnalyzing: boolean;
+  liveStreamEntries: StreamEntry[];
   onApprove: () => void;
   editingFixPrompt: string | null;
   fixPromptText: string;
   onStartEditFixPrompt: (text: string) => void;
   onCancelEditFixPrompt: () => void;
   onFixPromptChange: (text: string) => void;
-  liveStreamEntries: StreamEntry[];
-  isAnalyzing: boolean;
 }
 
-function AnalysisCycleCard({
-  cycle, isExpanded, onToggle, onDelete, onApprove,
-  editingFixPrompt, fixPromptText, onStartEditFixPrompt, onCancelEditFixPrompt, onFixPromptChange,
-  liveStreamEntries, isAnalyzing,
-}: AnalysisCycleCardProps) {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [showStream, setShowStream] = useState(false);
-  const [showResponse, setShowResponse] = useState(false);
+function CycleDetailPanel({
+  cycle, activeTab, onTabChange, isAnalyzing, liveStreamEntries,
+  onApprove, editingFixPrompt, fixPromptText, onStartEditFixPrompt, onCancelEditFixPrompt, onFixPromptChange,
+}: CycleDetailPanelProps) {
+  if (!cycle) {
+    return (
+      <div className="flex-1 rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] flex items-center justify-center">
+        {isAnalyzing ? (
+          <div className="flex items-center gap-2 text-xs text-[var(--aw-purple-light)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting analysis…
+          </div>
+        ) : (
+          <span className="text-xs text-[var(--aw-text-4)]">Select a cycle</span>
+        )}
+      </div>
+    );
+  }
+
+  const isLiveNow = (cycle.status === 'analyzing' || cycle.status === 'applying') && isAnalyzing;
   const isStaleAnalyzing = (cycle.status === 'analyzing' || cycle.status === 'applying') && !isAnalyzing;
   const displayStatus = isStaleAnalyzing ? 'failed' : cycle.status;
   const status = STATUS_CONFIG[displayStatus] ?? STATUS_CONFIG.pending;
-
   const date = new Date(cycle.createdAt).toLocaleDateString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 
-  const hasStream = (cycle.streamEntries && cycle.streamEntries.length > 0) ||
-    (cycle.status === 'analyzing' && isAnalyzing);
-  const streamEntries = cycle.status === 'analyzing' && isAnalyzing
-    ? liveStreamEntries
-    : cycle.streamEntries ?? [];
+  const streamEntries = isLiveNow ? liveStreamEntries : cycle.streamEntries ?? [];
+  const hasStream = streamEntries.length > 0 || isLiveNow;
+  const hasReport = !!cycle.analysisResponse;
+  const hasSummary = !!cycle.currentStatus
+    || (cycle.recommendations?.length ?? 0) > 0
+    || (cycle.growthOpportunities?.length ?? 0) > 0
+    || !!cycle.fixPrompt;
+
+  const tabs: Array<{ key: DetailTab; label: string; show: boolean }> = [
+    { key: 'overview', label: 'Overview', show: true },
+    { key: 'activity', label: hasStream ? `Activity (${streamEntries.length})` : 'Activity', show: hasStream },
+    { key: 'report', label: 'Report', show: hasReport },
+    { key: 'prompt', label: 'Prompt', show: true },
+  ];
+  const visibleTabs = tabs.filter(t => t.show);
+  const tab = visibleTabs.some(t => t.key === activeTab) ? activeTab : 'overview';
 
   return (
-    <div
-      className="rounded-lg border overflow-hidden transition-colors"
-      style={{ borderColor: `${status.color}30`, borderLeftWidth: '3px', borderLeftColor: status.color }}
-    >
+    <div className="flex-1 min-w-0 rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] flex flex-col overflow-hidden">
       {/* Header */}
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[var(--aw-bg-1)] transition-colors"
-        onClick={onToggle}
-      >
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-[var(--aw-text-2)] shrink-0" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-[var(--aw-text-2)] shrink-0" />
-        )}
-        <span className="text-xs font-bold text-[var(--aw-text-0)]">Cycle #{cycle.cycleNumber}</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--aw-bg-2)] shrink-0">
+        <span className="text-sm font-bold text-[var(--aw-text-0)]">Cycle #{cycle.cycleNumber}</span>
         <span
           className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
           style={{ color: status.color, background: `${status.color}18` }}
@@ -349,174 +435,144 @@ function AnalysisCycleCard({
           {status.label}
         </span>
         <span className="text-[11px] text-[var(--aw-text-4)] ml-auto">
-          {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'}
-          {' · '}
-          {date}
+          {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'} · {date}
         </span>
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="p-1 rounded hover:bg-[var(--aw-bg-2)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)]"
-          title="Delete cycle"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
       </div>
 
-      {/* Expanded content */}
-      {isExpanded && (
-        <div className="border-t border-[var(--aw-bg-2)]">
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 px-3 py-2 text-xs bg-[var(--aw-bg-0)]">
-            <div>
-              <span className="text-[var(--aw-text-2)]">Sessions analyzed:</span>{' '}
-              <span className="text-[var(--aw-text-1)] font-medium">{cycle.sessionsAnalyzed.length}</span>
-            </div>
-            <div>
-              <span className="text-[var(--aw-text-2)]">Feedback analyzed:</span>{' '}
-              <span className="text-[var(--aw-text-1)] font-medium">{cycle.feedbackAnalyzed.length}</span>
-            </div>
-          </div>
-
-          {/* Current Status (always visible when present) */}
-          {cycle.currentStatus && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3 bg-[var(--aw-purple-light)]/5">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <Activity className="h-3 w-3 text-[var(--aw-purple-light)]" />
-                <span className="text-[11px] font-semibold text-[var(--aw-text-0)] uppercase tracking-wider">Current Status</span>
-              </div>
-              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">
-                <MarkdownRenderer content={cycle.currentStatus} size="sm" />
-              </div>
-            </div>
-          )}
-
-          {/* Generated Prompt (collapsible) */}
-          <div className="border-t border-[var(--aw-bg-2)]">
-            <button
-              onClick={e => { e.stopPropagation(); setShowPrompt(v => !v); }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
-            >
-              {showPrompt
-                ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-                : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-              <FileText className="h-3 w-3 shrink-0 text-[var(--aw-purple-light)]" />
-              <span className="font-medium">Generated Prompt</span>
-              <span className="text-[var(--aw-text-4)] ml-auto font-mono">{cycle.analysisPrompt.length.toLocaleString()} chars</span>
-            </button>
-            {showPrompt && (
-              <div className="px-3 pb-3">
-                <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono bg-[var(--aw-bg-4)] p-3 rounded border border-[var(--aw-bg-2)] leading-relaxed">
-                  {cycle.analysisPrompt}
-                </pre>
-              </div>
+      {/* Section tabs */}
+      <div className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--aw-bg-2)] shrink-0">
+        {visibleTabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => onTabChange(t.key)}
+            className={cn(
+              'text-[11px] font-medium px-2.5 py-1.5 rounded-t transition-colors border-b-2 -mb-px',
+              tab === t.key
+                ? 'border-[var(--aw-blue)] text-[var(--aw-text-0)]'
+                : 'border-transparent text-[var(--aw-text-3)] hover:text-[var(--aw-text-0)]',
             )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {tab === 'overview' && (
+          <OverviewTab
+            cycle={cycle}
+            hasSummary={hasSummary}
+            onApprove={onApprove}
+            editingFixPrompt={editingFixPrompt}
+            fixPromptText={fixPromptText}
+            onStartEditFixPrompt={onStartEditFixPrompt}
+            onCancelEditFixPrompt={onCancelEditFixPrompt}
+            onFixPromptChange={onFixPromptChange}
+          />
+        )}
+        {tab === 'activity' && <StreamLog entries={streamEntries} isLive={isLiveNow} />}
+        {tab === 'report' && cycle.analysisResponse && (
+          <MarkdownRenderer content={cycle.analysisResponse} size="sm" />
+        )}
+        {tab === 'prompt' && (
+          <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap font-mono bg-[var(--aw-bg-4)] p-3 rounded border border-[var(--aw-bg-2)] leading-relaxed">
+            {cycle.analysisPrompt}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Overview tab content ─────────────────────────────────────────────────────────
+
+function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPromptText, onStartEditFixPrompt, onCancelEditFixPrompt, onFixPromptChange }: {
+  cycle: SkillAnalysisCycle;
+  hasSummary: boolean;
+  onApprove: () => void;
+  editingFixPrompt: string | null;
+  fixPromptText: string;
+  onStartEditFixPrompt: (text: string) => void;
+  onCancelEditFixPrompt: () => void;
+  onFixPromptChange: (text: string) => void;
+}) {
+  if (!hasSummary) {
+    return (
+      <div className="text-center py-8 text-[var(--aw-text-4)]">
+        <p className="text-xs">
+          {cycle.status === 'analyzing' || cycle.status === 'applying'
+            ? 'Results will appear here once the run finishes — check Activity for live progress.'
+            : 'No findings recorded for this cycle.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 text-xs">
+        <div>
+          <span className="text-[var(--aw-text-2)]">Sessions analyzed:</span>{' '}
+          <span className="text-[var(--aw-text-1)] font-medium">{cycle.sessionsAnalyzed.length}</span>
+        </div>
+        <div>
+          <span className="text-[var(--aw-text-2)]">Feedback analyzed:</span>{' '}
+          <span className="text-[var(--aw-text-1)] font-medium">{cycle.feedbackAnalyzed.length}</span>
+        </div>
+      </div>
+
+      {cycle.currentStatus && (
+        <CalloutField label="Current Status" tone="purple" icon={<Activity className="h-2.5 w-2.5" />}>
+          <MarkdownRenderer content={cycle.currentStatus} size="sm" />
+        </CalloutField>
+      )}
+
+      {cycle.recommendations && cycle.recommendations.length > 0 && (
+        <div>
+          <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2 uppercase tracking-wider">
+            Recommendations ({cycle.recommendations.length})
           </div>
+          <div className="space-y-2">
+            {cycle.recommendations.map((rec, i) => <RecommendationCard key={i} rec={rec} />)}
+          </div>
+        </div>
+      )}
 
-          {/* Stream / Activity Log (collapsible) */}
-          {(hasStream || streamEntries.length > 0) && (
-            <div className="border-t border-[var(--aw-bg-2)]">
-              <button
-                onClick={e => { e.stopPropagation(); setShowStream(v => !v); }}
-                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
-              >
-                {showStream
-                  ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-                  : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-                <Terminal className="h-3 w-3 shrink-0 text-[var(--aw-blue)]" />
-                <span className="font-medium">
-                  {cycle.status === 'analyzing' && isAnalyzing ? 'Live Stream' : 'Activity Log'}
-                </span>
-                <span className="text-[var(--aw-text-4)] ml-1">({streamEntries.length} events)</span>
-                {cycle.status === 'analyzing' && isAnalyzing && (
-                  <Loader2 className="h-2.5 w-2.5 animate-spin text-[var(--aw-blue)] ml-auto" />
-                )}
-              </button>
-              {showStream && (
-                <div className="px-3 pb-3">
-                  <StreamLog
-                    entries={streamEntries}
-                    isLive={cycle.status === 'analyzing' && isAnalyzing}
-                  />
-                </div>
-              )}
-            </div>
+      {cycle.growthOpportunities && cycle.growthOpportunities.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <TrendingUp className="h-3 w-3 text-[var(--aw-green)]" />
+            <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
+              Growth Opportunities ({cycle.growthOpportunities.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {cycle.growthOpportunities.map((op, i) => <GrowthOpportunityCard key={i} op={op} />)}
+          </div>
+        </div>
+      )}
+
+      {cycle.fixPrompt && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">Fix Prompt</span>
+            <CopyButton text={editingFixPrompt === cycle.id ? fixPromptText : cycle.fixPrompt} />
+          </div>
+          {editingFixPrompt === cycle.id ? (
+            <textarea
+              value={fixPromptText}
+              onChange={e => onFixPromptChange(e.target.value)}
+              className="w-full h-40 text-[11px] bg-[var(--aw-bg-4)] border border-[var(--aw-bg-3)] rounded p-2.5 text-[var(--aw-text-1)] font-mono resize-y focus:outline-none focus:border-[var(--aw-blue)]/50"
+            />
+          ) : (
+            <pre className="bg-[var(--aw-bg-4)] rounded border border-[var(--aw-bg-2)] p-3 text-[10px] text-[var(--aw-text-1)] max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+              {cycle.fixPrompt}
+            </pre>
           )}
 
-          {/* Analysis Response (collapsible) */}
-          {cycle.analysisResponse && (
-            <div className="border-t border-[var(--aw-bg-2)]">
-              <button
-                onClick={e => { e.stopPropagation(); setShowResponse(v => !v); }}
-                className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-1)] transition-colors text-left"
-              >
-                {showResponse
-                  ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-                  : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-                <MessageSquare className="h-3 w-3 shrink-0 text-[var(--aw-green)]" />
-                <span className="font-medium">Analysis Report</span>
-              </button>
-              {showResponse && (
-                <div className="px-3 pb-3">
-                  <div className="max-h-[600px] overflow-y-auto bg-[var(--aw-bg-4)] rounded border border-[var(--aw-bg-2)] p-4">
-                    <MarkdownRenderer content={cycle.analysisResponse} size="sm" />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {cycle.recommendations && cycle.recommendations.length > 0 && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
-              <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2 uppercase tracking-wider">
-                Recommendations ({cycle.recommendations.length})
-              </div>
-              <div className="space-y-2">
-                {cycle.recommendations.map((rec, i) => (
-                  <RecommendationCard key={i} rec={rec} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Growth Opportunities */}
-          {cycle.growthOpportunities && cycle.growthOpportunities.length > 0 && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
-              <div className="flex items-center gap-1.5 mb-2">
-                <TrendingUp className="h-3 w-3 text-[var(--aw-green)]" />
-                <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
-                  Growth Opportunities ({cycle.growthOpportunities.length})
-                </span>
-              </div>
-              <div className="space-y-2">
-                {cycle.growthOpportunities.map((op, i) => (
-                  <GrowthOpportunityCard key={i} op={op} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Fix Prompt */}
-          {cycle.fixPrompt && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-3">
-              <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2">Fix Prompt</div>
-              {editingFixPrompt === cycle.id ? (
-                <textarea
-                  value={fixPromptText}
-                  onChange={e => onFixPromptChange(e.target.value)}
-                  className="w-full h-40 text-[11px] bg-[var(--aw-bg-4)] border border-[var(--aw-bg-3)] rounded p-2.5 text-[var(--aw-text-1)] font-mono resize-y focus:outline-none focus:border-[var(--aw-blue)]/50"
-                />
-              ) : (
-                <pre className="bg-[var(--aw-bg-4)] rounded border border-[var(--aw-bg-2)] p-3 text-[10px] text-[var(--aw-text-1)] max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
-                  {cycle.fixPrompt}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {/* Actions for awaiting_review */}
-          {cycle.status === 'awaiting_review' && cycle.fixPrompt && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-2.5 flex items-center gap-2 bg-[var(--aw-orange-bright)]/5">
+          {cycle.status === 'awaiting_review' && (
+            <div className="flex items-center gap-2 mt-2.5">
               {editingFixPrompt === cycle.id ? (
                 <>
                   <button
@@ -552,15 +608,14 @@ function AnalysisCycleCard({
               )}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Completed timestamp */}
-          {cycle.completedAt && (
-            <div className="border-t border-[var(--aw-bg-2)] px-3 py-2 text-[10px] text-[var(--aw-text-4)]">
-              Completed {new Date(cycle.completedAt).toLocaleString([], {
-                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-              })}
-            </div>
-          )}
+      {cycle.completedAt && (
+        <div className="text-[10px] text-[var(--aw-text-4)] pt-2 border-t border-[var(--aw-bg-2)]">
+          Completed {new Date(cycle.completedAt).toLocaleString([], {
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          })}
         </div>
       )}
     </div>
@@ -768,6 +823,65 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: 'var(--aw-text-4)',
 };
 
+// Shared label-over-value block used by both cards' expanded detail — a
+// small uppercase caption keeps each field scannable instead of running
+// label and prose together on one line.
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-text-3)] mb-1">{label}</div>
+      <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{children}</div>
+    </div>
+  );
+}
+
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable (permissions, insecure context) — nothing to fall back to
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="flex items-center gap-1 text-[10px] text-[var(--aw-text-3)] hover:text-[var(--aw-text-0)] transition-colors shrink-0"
+    >
+      {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
+      {copied ? 'Copied' : label}
+    </button>
+  );
+}
+
+const CALLOUT_TONES: Record<'green' | 'purple', string> = {
+  green: 'var(--aw-green)',
+  purple: 'var(--aw-purple-light)',
+};
+
+function CalloutField({ label, children, tone = 'green', icon }: {
+  label: string;
+  children: React.ReactNode;
+  tone?: 'green' | 'purple';
+  icon?: React.ReactNode;
+}) {
+  const color = CALLOUT_TONES[tone];
+  return (
+    <div className="rounded border p-2.5" style={{ borderColor: `${color}40`, background: `${color}0d` }}>
+      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color }}>
+        {icon}
+        {label}
+      </div>
+      <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{children}</div>
+    </div>
+  );
+}
+
 function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
   const [expanded, setExpanded] = useState(false);
   const colorClass = SEVERITY_COLORS[rec.severity] ?? SEVERITY_COLORS.low;
@@ -794,20 +908,31 @@ function RecommendationCard({ rec }: { rec: AnalysisRecommendation }) {
         <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
-        <div className="px-3 pb-3 space-y-1.5 text-[11px] text-[var(--aw-text-1)]">
-          <div><span className="text-[var(--aw-text-2)] font-medium">Root cause:</span> {rec.rootCause}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">Component:</span> {rec.affectedComponent}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">Proposed change:</span> {rec.proposedChange}</div>
+        <div className="px-3 pb-3 pt-2.5 space-y-3 border-t border-[var(--aw-bg-2)]">
+          <Field label="Root cause">{rec.rootCause}</Field>
+
+          <Field label="Affected component">
+            <span className="font-mono text-[10px] text-[var(--aw-text-2)] bg-[var(--aw-bg-4)] px-1.5 py-0.5 rounded break-all">
+              {rec.affectedComponent}
+            </span>
+          </Field>
+
+          <CalloutField label="Proposed change">{rec.proposedChange}</CalloutField>
+
           {rec.evidence && rec.evidence.length > 0 && (
-            <div>
-              <span className="text-[var(--aw-text-2)] font-medium">Evidence:</span>
-              <ul className="list-disc list-inside ml-1 mt-0.5 space-y-0.5">
-                {rec.evidence.map((e, i) => <li key={i}>{e}</li>)}
+            <Field label={`Evidence (${rec.evidence.length})`}>
+              <ul className="space-y-1.5">
+                {rec.evidence.map((e, i) => (
+                  <li key={i} className="pl-2.5 border-l-2 border-[var(--aw-bg-3)]">{e}</li>
+                ))}
               </ul>
-            </div>
+            </Field>
           )}
+
           {rec.selfCorrectionSignal && (
-            <div><span className="text-[var(--aw-text-2)] font-medium">Self-correction:</span> {rec.selfCorrectionSignal}</div>
+            <Field label="Self-correction signal">
+              <span className="italic text-[var(--aw-text-2)]">{rec.selfCorrectionSignal}</span>
+            </Field>
           )}
         </div>
       )}
@@ -840,12 +965,21 @@ function GrowthOpportunityCard({ op }: { op: SkillGrowthOpportunity }) {
         <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
-        <div className="px-3 pb-3 space-y-1.5 text-[11px] text-[var(--aw-text-1)]">
-          <div><span className="text-[var(--aw-text-2)] font-medium">Current state:</span> {op.currentState}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">Target state:</span> {op.targetState}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">Why it matters:</span> {op.rationale}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">SDLC impact:</span> {op.sdlcImpact}</div>
-          <div><span className="text-[var(--aw-text-2)] font-medium">Suggested change:</span> {op.suggestedChange}</div>
+        <div className="px-3 pb-3 pt-2.5 space-y-3 border-t border-[var(--aw-bg-2)]">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)] p-2.5">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-text-3)] mb-1">Current state</div>
+              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{op.currentState}</div>
+            </div>
+            <div className="rounded border border-[var(--aw-green)]/25 bg-[var(--aw-green)]/5 p-2.5">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-green)] mb-1">Target state</div>
+              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{op.targetState}</div>
+            </div>
+          </div>
+
+          <Field label="Why it matters">{op.rationale}</Field>
+          <Field label="SDLC impact">{op.sdlcImpact}</Field>
+          <CalloutField label="Suggested change">{op.suggestedChange}</CalloutField>
         </div>
       )}
     </div>
