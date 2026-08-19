@@ -1,4 +1,5 @@
 import path from 'path';
+import { getPreference, setPreference } from '@/lib/services/preferences';
 
 export interface SourceConfig {
   id: string;
@@ -6,9 +7,10 @@ export interface SourceConfig {
   path: string;
 }
 
+// The env/Docker-derived sources — always present, never user-removable.
 // AGENTWATCH_SOURCES format: "Label:/mount/path,Label2:/mount/path2"
 // Colons in paths are fine because we split on the FIRST colon only.
-export function getSources(): SourceConfig[] {
+function getBaseSources(): SourceConfig[] {
   const raw = process.env.AGENTWATCH_SOURCES;
   if (raw) {
     return raw.split(',').map(entry => {
@@ -21,6 +23,56 @@ export function getSources(): SourceConfig[] {
   const home = process.env.HOME || process.env.USERPROFILE || '';
   const claudeHome = process.env.CLAUDE_HOME || path.join(home, '.claude');
   return [{ id: 'default', label: 'Default', path: claudeHome }];
+}
+
+// User-added sources (e.g. a WSL distro's .claude, or a Claude Desktop data
+// dir) persisted via the Home page's source settings panel — additive on
+// top of whatever the env/Docker config already provides.
+export function getCustomSources(): SourceConfig[] {
+  return getPreference('customSources');
+}
+
+export function getSources(): SourceConfig[] {
+  const base = getBaseSources();
+  const baseIds = new Set(base.map(s => s.id));
+  const custom = getCustomSources().filter(s => !baseIds.has(s.id));
+  return [...base, ...custom];
+}
+
+// Whether a source ID came from the env/Docker config (fixed) rather than
+// the user-managed custom list (removable) — used by the sources API/UI.
+export function isRemovableSource(id: string): boolean {
+  return getCustomSources().some(s => s.id === id);
+}
+
+export function addCustomSource(label: string, rawPath: string): SourceConfig[] {
+  const trimmedLabel = label.trim();
+  const normalizedPath = rawPath.trim().replace(/\\/g, '/');
+  if (!trimmedLabel || !normalizedPath) {
+    throw new Error('Label and path are required');
+  }
+
+  const existingIds = new Set(getSources().map(s => s.id));
+  let id = slugify(trimmedLabel) || 'source';
+  let suffix = 2;
+  while (existingIds.has(id)) {
+    id = `${slugify(trimmedLabel) || 'source'}-${suffix++}`;
+  }
+
+  const custom = getCustomSources();
+  custom.push({ id, label: trimmedLabel, path: normalizedPath });
+  setPreference('customSources', custom);
+  return getSources();
+}
+
+export function removeCustomSource(id: string): SourceConfig[] {
+  const custom = getCustomSources();
+  const next = custom.filter(s => s.id !== id);
+  if (next.length === custom.length) {
+    throw new Error('Source not found or not removable');
+  }
+  setPreference('customSources', next);
+  return getSources();
 }
 
 export function getSourceById(id: string): SourceConfig | undefined {

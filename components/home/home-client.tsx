@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Pin, Clock, Layers, TerminalSquare, MessageSquare } from 'lucide-react';
+import { Pin, Clock, Layers, TerminalSquare, MessageSquare, Settings } from 'lucide-react';
 import { SessionCard } from './session-card';
 import { LocalDate } from './local-date';
+import { SourcePathsSettings } from './source-paths-settings';
 import { SourceSwitcher } from '@/components/source-switcher';
 import { NavBarBrand } from '@/components/shared/navbar-brand';
 import { NavBarTabs } from '@/components/shared/navbar-tabs';
@@ -161,6 +162,7 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
     return exists ? requestedProject! : 'recent';
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showSourceSettings, setShowSourceSettings] = useState(false);
   const sidebarPanelRef = usePanelRef();
   const collapsedRef = useRef(false);
 
@@ -321,6 +323,18 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
               </div>
             )}
           </div>
+
+          {/* Footer — settings that live below the scrollable nav list, not lost among it */}
+          <div className="px-2 py-2 border-t border-sidebar-border/50">
+            <SidebarNavItem
+              active={showSourceSettings}
+              collapsed={sidebarCollapsed}
+              onClick={() => setShowSourceSettings(o => !o)}
+              icon={<Settings className="h-4 w-4" />}
+              label="Data Sources"
+              title="Data Sources"
+            />
+          </div>
         </Panel>
 
         {/* Drag handle */}
@@ -335,6 +349,13 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-[1800px] mx-auto px-6 py-8">
               <h2 className="text-sm font-semibold mb-5 truncate">{panelTitle}</h2>
+
+              {showSourceSettings && (
+                <div className="mb-6">
+                  <SourcePathsSettings />
+                </div>
+              )}
+
               {isEmpty ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <Layers className="h-8 w-8 mx-auto mb-3 opacity-20" />

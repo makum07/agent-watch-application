@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Pin, Star, Users, Zap, Clock, DollarSign, Wrench, TerminalSquare, MessageSquare } from 'lucide-react';
+import { Pin, Star, Users, Zap, Clock, DollarSign, Wrench, TerminalSquare, MessageSquare, ArchiveX } from 'lucide-react';
 import {
   cn, formatTokens, formatDuration, formatCost, formatRelativeTime,
   parseSessionTitle, shortenProjectPath, projectColorVar,
@@ -98,11 +98,22 @@ export function SessionCard({ session, titleOverride, projectOverride, isCommand
         <div className="flex items-center gap-1.5 min-w-0" title={project}>
           <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: `var(${colorVar})` }} />
           <span className="text-xs text-[var(--aw-text-1)] font-mono truncate">{projectName}</span>
-          {isCommand && (
-            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide font-medium text-[var(--aw-purple)] bg-[var(--aw-purple)]/10 px-1.5 py-0.5 rounded">
-              Command
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-1 shrink-0">
+            {isCommand && (
+              <span className="text-[10px] uppercase tracking-wide font-medium text-[var(--aw-purple)] bg-[var(--aw-purple)]/10 px-1.5 py-0.5 rounded">
+                Command
+              </span>
+            )}
+            {!session.sourceExists && (
+              <span
+                title="The original session file is no longer on disk (removed by Claude Code's own local retention). Stats below are preserved, but conversation and artifacts can't be shown."
+                className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium text-[var(--aw-orange-bright)] bg-[var(--aw-orange-bright)]/10 px-1.5 py-0.5 rounded"
+              >
+                <ArchiveX className="h-3 w-3" />
+                Archived
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

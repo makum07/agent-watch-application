@@ -15,10 +15,15 @@ export function SourceSwitcher({ initialSourceId }: { initialSourceId: string })
   const router = useRouter();
 
   useEffect(() => {
-    fetch('/api/v2/sources')
-      .then(r => r.json())
-      .then(data => setSources(data.sources ?? []))
-      .catch(() => {});
+    const load = () => {
+      fetch('/api/v2/sources')
+        .then(r => r.json())
+        .then(data => setSources(data.sources ?? []))
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener('aw-sources-changed', load);
+    return () => window.removeEventListener('aw-sources-changed', load);
   }, []);
 
   if (sources.length <= 1) return null;

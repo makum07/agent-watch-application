@@ -1,10 +1,23 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { getSources } from '@/lib/sources';
 
 const dbs = new Map<string, Database.Database>();
 
+// A sourceId can arrive here from a long-lived `aw-source` cookie or a stale
+// `?source=` param that refers to a custom source removed since via the Home
+// page's Data Sources panel. Without this check it would silently open (and
+// on first access, CREATE) its own empty per-source .db file instead of
+// falling back — every query then "succeeds" against a database that never
+// had any data, which looks identical to a real empty result.
+function normalizeSourceId(sourceId?: string): string | undefined {
+  if (!sourceId || sourceId === 'default') return sourceId;
+  return getSources().some(s => s.id === sourceId) ? sourceId : undefined;
+}
+
 export function getDatabase(sourceId?: string): Database.Database {
+  sourceId = normalizeSourceId(sourceId);
   const key = sourceId ?? 'default';
   if (dbs.has(key)) return dbs.get(key)!;
 

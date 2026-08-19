@@ -27,6 +27,18 @@ export default async function HomePage() {
     // DB may not be ready on first run
   }
 
+  // session_history rows never expire once written, but Claude Code's own local
+  // retention can remove the underlying .jsonl at any time — cross-reference against
+  // the live discovery scan (already run above) rather than trust the DB's stored
+  // source_exists flag, which is never actually updated after the row is first written.
+  const discoveredIds = new Set(allDiscovered.map(s => s.id));
+  const withSourceExists = (list: typeof allHistory) =>
+    list.map(s => ({ ...s, sourceExists: discoveredIds.has(s.sessionId) }));
+
+  pinned = withSourceExists(pinned);
+  recent = withSourceExists(recent);
+  allHistory = withSourceExists(allHistory);
+
   const historyMap = new Map(allHistory.map(s => [s.sessionId, s]));
 
   // Group discovered sessions by project
