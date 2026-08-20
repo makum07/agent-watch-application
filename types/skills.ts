@@ -1,6 +1,6 @@
 export type SelfHealingMode = 'analysis_only' | 'analysis_and_fix' | 'fully_automatic';
 export type AnalysisTrigger = 'manual' | 'auto_threshold';
-export type AnalysisStatus = 'pending' | 'analyzing' | 'awaiting_review' | 'applying' | 'completed' | 'failed';
+export type AnalysisStatus = 'pending' | 'analyzing' | 'awaiting_review' | 'applying' | 'completed' | 'failed' | 'cancelled';
 
 export interface Skill {
   id: string;
@@ -49,10 +49,16 @@ export interface SkillAnalysisCycle {
   analysisResponse: string | null;
   fixPrompt: string | null;
   recommendations: AnalysisRecommendation[] | null;
+  currentStatus: string | null;
+  growthOpportunities: SkillGrowthOpportunity[] | null;
   status: AnalysisStatus;
   createdAt: string;
   completedAt: string | null;
   streamEntries: import('@/types/feedback').StreamEntry[] | null;
+  /** Model the CLI actually reported running (from its init stream-json event), not just what was requested. */
+  model: string | null;
+  /** The new one-shot CLI session's own id — unlike the improvement loop, this always starts a fresh session rather than resuming one. Resumable via `claude --resume <id>`. */
+  cliSessionId: string | null;
 }
 
 export interface AnalysisRecommendation {
@@ -62,6 +68,23 @@ export interface AnalysisRecommendation {
   affectedComponent: string;
   proposedChange: string;
   selfCorrectionSignal: string;
+  evidence: string[];
+  confidence: 'high' | 'medium' | 'low';
+}
+
+// Forward-looking, non-bugfix suggestions for evolving a skill's role in the
+// SDLC — distinct from `AnalysisRecommendation`, which targets a specific
+// defect. Populated from the maturity/audit framework in an attached
+// context document when one identifies a relevant gap or next stage.
+export interface SkillGrowthOpportunity {
+  title: string;
+  currentState: string;
+  targetState: string;
+  rationale: string;
+  sdlcImpact: string;
+  suggestedChange: string;
+  impact: 'high' | 'medium' | 'low';
+  sourceDocument: string | null;
 }
 
 export interface SkillFeedbackAggregate {
@@ -97,6 +120,35 @@ export interface ImprovementCycle {
   fileChanges: string | null;
 }
 
+export interface SkillContextFile {
+  id: string;
+  skillId: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+  textPath: string | null;
+  extractedText: string;
+  createdAt: string;
+}
+
+export type SkillContextFileSummary = Omit<SkillContextFile, 'extractedText'>;
+
+// Shared across every skill in the same project — uploaded once instead of
+// per-skill. Same shape as SkillContextFile, scoped by `project` instead of
+// `skillId`.
+export interface ProjectContextFile {
+  id: string;
+  project: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+  textPath: string | null;
+  extractedText: string;
+  createdAt: string;
+}
+
+export type ProjectContextFileSummary = Omit<ProjectContextFile, 'extractedText'>;
+
 export interface SkillDetailData {
   skill: SkillSummary;
   recentExecutions: SkillExecution[];
@@ -105,6 +157,8 @@ export interface SkillDetailData {
   feedbackByAgent: Array<{ agentName: string; count: number }>;
   analysisCycles: SkillAnalysisCycle[];
   improvementCycles: ImprovementCycle[];
+  projectContextFiles: ProjectContextFile[];
+  contextFiles: SkillContextFile[];
   executionsBySession: Array<{
     sessionId: string;
     timestamp: string;

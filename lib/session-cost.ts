@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { estimateAgentCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricebank';
 
 export interface SessionCostResult {
   cost: number;

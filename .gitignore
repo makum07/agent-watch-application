@@ -32,7 +32,6 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-!.env.example
 !.env.local.example
 
 # vercel
@@ -54,6 +53,16 @@ server.log
 data/*.db
 data/*.db-shm
 data/*.db-wal
+/agentwatch.db
+/agentwatch.db-shm
+/agentwatch.db-wal
+
+# uploaded skill/project context files (runtime data)
+data/skill-attachments/
+data/project-attachments/
+
+# live-synced model pricing cache (runtime data — see lib/pricing/default-pricing.json for the committed baseline)
+data/model-pricing.json
 
 # Claude Code internals
 .claude/worktrees/

@@ -37,6 +37,19 @@ export function findExternalSkillDirsFromSession(jsonlPath: string, projectCwd: 
         const resolved = path.resolve(unescaped);
         if (!resolved.startsWith(normalizedCwd)) {
           dirs.add(resolved);
+          // A skill only ever prints its own `.claude/skills/<name>` path into the
+          // transcript (via "Base directory for this skill: ..."); the sibling
+          // `.claude/agents` directory it delegates to is loaded internally by
+          // Claude Code and never appears as an absolute path anywhere in the
+          // transcript. Without this, --add-dir grants the skill directory but
+          // not the agent definitions it invokes, so edits to those agent files
+          // get silently blocked by Claude Code's own workspace-boundary check.
+          const claudeRootMatch = resolved.match(/^(.*\.claude)\\(?:skills|agents)(?:\\.*)?$/i);
+          if (claudeRootMatch) {
+            for (const sibling of ['skills', 'agents']) {
+              dirs.add(path.join(claudeRootMatch[1], sibling));
+            }
+          }
         }
       } catch { continue; }
     }
@@ -58,24 +71,4 @@ export function findExternalSkillDirsForSessions(jsonlPaths: string[], projectCw
     }
   }
   return Array.from(dirs);
-}
-
-// Every skill invocation echoes its own base directory into the transcript
-// (e.g. "Base directory for this skill: /home/sarat/.claude/skills/egsb-review"),
-// which lets us recover exactly which named skill(s) this session actually
-// used — as opposed to findExternalSkillDirsFromSession above, which only
-// recovers the shared skills-root directory it was granted access to.
-export function findInvokedSkillsFromSession(jsonlPath: string): { name: string; dir: string }[] {
-  let raw: string;
-  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch { return []; }
-
-  const seen = new Map<string, string>();
-  const re = /Base directory for this skill:\s*(.+?)\\n/g;
-  let match;
-  while ((match = re.exec(raw)) !== null) {
-    const dir = match[1].replace(/\\\\/g, '\\').trim();
-    const name = dir.split(/[\\/]/).pop();
-    if (name && !seen.has(name)) seen.set(name, dir);
-  }
-  return Array.from(seen, ([name, dir]) => ({ name, dir }));
 }

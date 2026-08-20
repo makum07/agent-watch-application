@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db/database';
+import { resolveSourceFromRequest } from '@/lib/api/resolve-source';
 import type { SkillExecution } from '@/types/skills';
 
 export const dynamic = 'force-dynamic';
@@ -13,8 +14,9 @@ export async function GET(
     const url = new URL(req.url);
     const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
     const offset = parseInt(url.searchParams.get('offset') ?? '0', 10);
+    const sourceId = await resolveSourceFromRequest(req);
 
-    const db = getDatabase();
+    const db = getDatabase(sourceId);
 
     const totalRow = db.prepare(
       'SELECT COUNT(*) as count FROM skill_executions WHERE skill_id = ?'

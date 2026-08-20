@@ -11,7 +11,8 @@ import { FeedbackTab } from './feedback-tab';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';
-import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
+import { cn, formatTokens, formatDuration, formatCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricing-core';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import { findOtherPane, getFirstPaneId } from '@/lib/workspace-utils';
 import type { AgentSubTab } from '@/types/workspace';
@@ -259,10 +260,10 @@ export function AgentView({ sessionId, agentId, paneId, isSingleTab, activeSubTa
       {/* Tab content */}
       <div className="flex-1 overflow-hidden min-h-0">
         {activeSubTab === 'conversation' && <ConversationTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
-        {activeSubTab === 'artifacts'    && <ArtifactsTab sessionId={sessionId} agentId={agentId} />}
+        {activeSubTab === 'artifacts'    && <ArtifactsTab sessionId={sessionId} agentId={agentId} paneId={paneId} />}
         {activeSubTab === 'context'      && <ContextTab agent={agent} paneId={paneId} />}
         {activeSubTab === 'tools'        && <ToolsTab sessionId={sessionId} agentId={agentId} />}
-        {activeSubTab === 'summary'      && <SummaryTab agent={agent} />}
+        {activeSubTab === 'summary'      && <SummaryTab agent={agent} paneId={paneId} />}
         {activeSubTab === 'feedback'     && <FeedbackTab sessionId={sessionId} agentId={agentId} />}
       </div>
 

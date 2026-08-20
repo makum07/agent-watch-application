@@ -5,6 +5,8 @@ import { getDatabase } from '@/lib/db/database';
 import { ingestSession } from '@/lib/services/session-ingester';
 import { computeExecutionFacts } from '@/lib/services/execution-facts';
 import { parseJsonlFile, resolveToolCalls, decodeProjectPath } from '@/lib/parser/jsonl-parser';
+import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
 import {
@@ -25,6 +27,8 @@ interface DbCycle {
   recommendations: string | null;
   status: string;
   stream_entries: string | null;
+  model: string | null;
+  cli_session_id: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -39,6 +43,8 @@ function mapCycle(row: DbCycle): ExecutionAnalysisCycle {
     recommendations: row.recommendations ? JSON.parse(row.recommendations) : null,
     status: row.status as ExecutionAnalysisCycle['status'],
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
+    model: row.model || null,
+    cliSessionId: row.cli_session_id || null,
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
   };
@@ -50,11 +56,12 @@ export async function GET(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
 
     const preview = req.nextUrl.searchParams.get('preview');
     if (preview === '1') {
-      const session = ingestSession(sessionId);
+      const session = ingestSession(sessionId, sourceId);
       if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
 
       const promptData = buildPromptData(sessionId, session, db);
@@ -78,9 +85,10 @@ export async function POST(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
 
-    const session = ingestSession(sessionId);
+    const session = ingestSession(sessionId, sourceId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -93,9 +101,11 @@ export async function POST(
     }
 
     let customPrompt: string | undefined;
+    let model: string | undefined;
     try {
       const body = await req.json();
       customPrompt = body.customPrompt;
+      model = body.model;
     } catch { /* no body is fine */ }
 
     const row = db.prepare(
@@ -116,7 +126,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length, model).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });
@@ -131,17 +141,15 @@ export async function POST(
   }
 }
 
-function readCwdFromJsonl(filePath: string): string | null {
+function statJsonl(filePath: string): { lines: number; sizeBytes: number } | null {
   try {
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(4096);
-    const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-    fs.closeSync(fd);
-    const chunk = buf.toString('utf8', 0, bytesRead);
-    const match = chunk.match(/"cwd"\s*:\s*"([^"]+)"/);
-    if (match) return match[1].replace(/\\\\/g, '\\');
-  } catch { /* non-fatal */ }
-  return null;
+    const sizeBytes = fs.statSync(filePath).size;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.length === 0 ? 0 : content.split('\n').length;
+    return { lines, sizeBytes };
+  } catch {
+    return null;
+  }
 }
 
 function buildPromptData(sessionId: string, session: import('@/types/session').Session, db: ReturnType<typeof getDatabase>) {
@@ -189,10 +197,15 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
 
   // Load full tool call timeline for every agent + collect skill definition paths
   const agentToolTimelines = new Map<string, PromptToolCall[]>();
+  const agentJsonlStats = new Map<string, { lines: number; sizeBytes: number }>();
   const skillDefinitionPaths = new Map<string, string>();
   for (const agent of session.agents) {
     const jsonlPath = agentJsonlPaths.get(agent.id);
     if (!jsonlPath || !fs.existsSync(jsonlPath)) continue;
+
+    const stat = statJsonl(jsonlPath);
+    if (stat) agentJsonlStats.set(agent.id, stat);
+
     try {
       const parsed = parseJsonlFile(jsonlPath);
 
@@ -250,6 +263,7 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
     externalSkillDirs: [...externalSkillDirs],
     facts,
     agentJsonlPaths,
+    agentJsonlStats: agentJsonlStats.size > 0 ? agentJsonlStats : undefined,
     agentToolTimelines,
     artifacts,
     feedbackItems,
@@ -276,7 +290,8 @@ export async function DELETE(
 ) {
   try {
     const { id: sessionId } = await params;
-    const db = getDatabase();
+    const sourceId = await resolveSessionSource(req, sessionId);
+    const db = getDatabase(sourceId);
     const cycleId = req.nextUrl.searchParams.get('cycleId');
     if (!cycleId) return NextResponse.json({ error: 'Missing cycleId' }, { status: 400 });
 

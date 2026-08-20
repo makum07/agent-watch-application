@@ -1,5 +1,11 @@
 import { getDatabase } from '@/lib/db/database';
 
+export interface CustomSourceEntry {
+  id: string;
+  label: string;
+  path: string;
+}
+
 interface UserPreferences {
   alwaysResumeWorkspace: boolean;
   defaultLayoutPreset: string;
@@ -9,6 +15,7 @@ interface UserPreferences {
   alertCostThreshold: number;
   alertDurationThresholdHours: number;
   teamsWebhookUrl: string;
+  customSources: CustomSourceEntry[];
 }
 
 const DEFAULTS: UserPreferences = {
@@ -20,6 +27,7 @@ const DEFAULTS: UserPreferences = {
   alertCostThreshold: 5,
   alertDurationThresholdHours: 0,
   teamsWebhookUrl: '',
+  customSources: [],
 };
 
 export function getPreferences(): UserPreferences {

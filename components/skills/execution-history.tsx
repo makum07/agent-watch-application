@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDuration, formatRelativeTime } from '@/lib/utils';
+import { useSkillStore } from '@/store/skill-store';
 
 interface ExecutionRow {
   id: string;
@@ -21,6 +22,7 @@ interface ExecutionHistoryProps {
 }
 
 export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
+  const sourceId = useSkillStore(s => s.sourceId);
   const [executions, setExecutions] = useState<ExecutionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -30,7 +32,8 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
   const load = useCallback(async (p: number) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/v2/skills/${skillId}/executions?limit=${pageSize}&offset=${p * pageSize}`);
+      const sourceParam = sourceId ? `&source=${encodeURIComponent(sourceId)}` : '';
+      const res = await fetch(`/api/v2/skills/${skillId}/executions?limit=${pageSize}&offset=${p * pageSize}${sourceParam}`);
       if (!res.ok) return;
       const data = await res.json();
       setExecutions(data.executions);
@@ -38,7 +41,7 @@ export function ExecutionHistory({ skillId }: ExecutionHistoryProps) {
     } finally {
       setLoading(false);
     }
-  }, [skillId]);
+  }, [skillId, sourceId]);
 
   useEffect(() => { load(page); }, [load, page]);
 

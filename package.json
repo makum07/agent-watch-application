@@ -22,6 +22,7 @@
     "pretest": "node scripts/check-node-version.js",
     "test": "vitest",
     "db:reset": "node -e \"const fs=require('fs');const p=require('path').join(process.cwd(),'data','agentwatch.db');[p,p+'-wal',p+'-shm'].forEach(f=>{try{fs.unlinkSync(f);console.log('Deleted',f)}catch{}});console.log('DB reset — will recreate on next request')\"",
+    "pricing:sync": "tsx scripts/sync-model-pricing.ts",
     "rebuild-native": "npm rebuild better-sqlite3",
     "postinstall": "npm rebuild better-sqlite3"
   },
@@ -41,6 +42,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.17.0",
     "next": "16.2.6",
     "radix-ui": "^1.6.0",

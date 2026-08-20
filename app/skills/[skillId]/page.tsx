@@ -10,6 +10,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useSkillStore } from '@/store/skill-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { SelfHealingConfig } from '@/components/skills/self-healing-config';
+import { ContextDocuments } from '@/components/skills/context-documents';
+import { ProjectContextDocuments } from '@/components/skills/project-context-documents';
 import { ExecutionHistory } from '@/components/skills/execution-history';
 import { FeedbackAnalytics } from '@/components/skills/feedback-analytics';
 import { AnalysisHistory } from '@/components/skills/analysis-history';
@@ -25,12 +27,28 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
     loadSkillDetail,
     loadAnalysisCycles,
     handleStreamEvent,
+    setSourceId,
+    sourceId,
   } = useSkillStore();
+
+  // Skills are per-source — pick up the active source from the same cookie
+  // the Skills list page's SourceSwitcher writes, so navigating in from
+  // there (or switching source there and coming back) stays consistent.
+  useEffect(() => {
+    const readSourceCookie = () => {
+      const match = document.cookie.match(/(?:^|; )aw-source=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
+    };
+    setSourceId(readSourceCookie());
+    const onSourceChanged = (e: Event) => setSourceId((e as CustomEvent<string>).detail);
+    window.addEventListener('aw-source-changed', onSourceChanged);
+    return () => window.removeEventListener('aw-source-changed', onSourceChanged);
+  }, [setSourceId]);
 
   useEffect(() => {
     loadSkillDetail(skillId);
     loadAnalysisCycles(skillId);
-  }, [skillId, loadSkillDetail, loadAnalysisCycles]);
+  }, [skillId, loadSkillDetail, loadAnalysisCycles, sourceId]);
 
   useWebSocket((event: SessionEvent) => {
     if (
@@ -94,7 +112,6 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-xl font-semibold text-[var(--aw-text-0)] font-mono">/{skill.name}</h1>
-            <span className="text-xs bg-[var(--aw-bg-2)] px-2 py-0.5 rounded text-[var(--aw-text-2)]">v{skill.version}</span>
           </div>
           <div className="text-sm text-[var(--aw-text-2)] font-mono">{skill.project}</div>
           {skill.description && (
@@ -126,12 +143,16 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
 
           <TabsContent value="overview">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-              <SelfHealingConfig
-                skillId={skillId}
-                enabled={skill.selfHealingEnabled}
-                mode={skill.selfHealingMode}
-                threshold={skill.selfHealingThreshold}
-              />
+              <div className="space-y-4">
+                <SelfHealingConfig
+                  skillId={skillId}
+                  enabled={skill.selfHealingEnabled}
+                  mode={skill.selfHealingMode}
+                  threshold={skill.selfHealingThreshold}
+                />
+                <ProjectContextDocuments project={skill.project} />
+                <ContextDocuments skillId={skillId} />
+              </div>
               <div className="space-y-4">
                 <div className="rounded-lg border border-[var(--aw-bg-3)] bg-[var(--aw-bg-1)] p-4">
                   <h3 className="text-xs font-medium text-[var(--aw-text-2)] mb-3 uppercase tracking-wide">
@@ -145,10 +166,6 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
                     <div className="flex justify-between">
                       <dt className="text-[var(--aw-text-2)]">Project</dt>
                       <dd className="text-[var(--aw-text-0)] font-mono">{skill.project}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-[var(--aw-text-2)]">Version</dt>
-                      <dd className="text-[var(--aw-text-0)]">{skill.version}</dd>
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-[var(--aw-text-2)]">Created</dt>

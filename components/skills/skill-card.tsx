@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Zap, Clock, MessageSquare, Activity, HeartPulse, Layers } from 'lucide-react';
-import { cn, formatDuration } from '@/lib/utils';
+import { Zap, Clock, MessageSquare, HeartPulse, Layers } from 'lucide-react';
+import { cn, formatDuration, shortenProjectPath, projectColorVar } from '@/lib/utils';
 import type { SkillSummary } from '@/types/skills';
 
 interface SkillCardProps {
@@ -13,13 +13,15 @@ export function SkillCard({ skill }: SkillCardProps) {
   const healingColor = skill.selfHealingEnabled
     ? (skill.lastAnalysisStatus === 'analyzing' ? 'bg-yellow-400' : 'bg-green-400')
     : 'bg-[var(--aw-text-4)]';
+  const projectName = shortenProjectPath(skill.project);
+  const colorVar = projectColorVar(skill.project);
 
   return (
     <Link href={`/skills/${skill.id}`}>
-      <div className={cn(
-        'rounded-md border bg-card hover:bg-[var(--aw-bg-5)] transition-colors group',
-        'border-[var(--aw-bg-3)]'
-      )}>
+      <div
+        className="rounded-md border border-l-[3px] border-[var(--aw-bg-3)] bg-card hover:bg-[var(--aw-bg-5)] transition-colors group"
+        style={{ borderLeftColor: `var(${colorVar})` }}
+      >
         <div className="p-4 pb-3">
           <div className="flex items-start justify-between gap-2 mb-1.5">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -36,29 +38,28 @@ export function SkillCard({ skill }: SkillCardProps) {
               )}
             </div>
           </div>
-          <div className="text-xs text-[var(--aw-text-1)] font-mono truncate">{skill.project}</div>
+          <div className="flex items-center gap-1.5 min-w-0" title={skill.project}>
+            <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: `var(${colorVar})` }} />
+            <span className="text-xs text-[var(--aw-text-1)] font-mono truncate">{projectName}</span>
+          </div>
           {skill.description && (
             <div className="text-xs text-[var(--aw-text-2)] mt-1 line-clamp-2">{skill.description}</div>
           )}
         </div>
 
-        <div className="px-4 pb-3 grid grid-cols-4 gap-1">
+        <div className="px-4 pb-3 flex flex-wrap gap-1.5">
           <Stat icon={<Zap className="h-3 w-3" />} value={String(skill.totalExecutions)} label="executions" />
           <Stat icon={<Layers className="h-3 w-3" />} value={String(skill.totalSessions)} label="sessions" />
           <Stat icon={<MessageSquare className="h-3 w-3" />} value={String(skill.totalFeedback)} label="feedback" />
           <Stat icon={<Clock className="h-3 w-3" />} value={skill.avgDurationMs > 0 ? formatDuration(skill.avgDurationMs) : '—'} label="avg" />
         </div>
 
-        <div className="px-4 pb-3 flex items-center justify-between text-[11px] text-[var(--aw-text-3)] border-t border-[var(--aw-bg-2)] pt-2">
+        <div className="px-4 pb-3 flex items-center text-[11px] text-[var(--aw-text-3)] border-t border-[var(--aw-bg-2)] pt-2">
           <span>
             {skill.lastAnalysisAt
               ? `Last analyzed ${new Date(skill.lastAnalysisAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
               : 'Never analyzed'
             }
-          </span>
-          <span className="flex items-center gap-1">
-            <Activity className="h-3 w-3" />
-            v{skill.version}
           </span>
         </div>
       </div>
@@ -68,10 +69,10 @@ export function SkillCard({ skill }: SkillCardProps) {
 
 function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 py-1.5 rounded bg-[var(--aw-bg-0)]">
-      <div className="text-[var(--aw-text-1)]">{icon}</div>
-      <div className="text-[11px] font-semibold text-[var(--aw-text-0)] leading-none">{value}</div>
-      {label && <div className="text-[10px] text-[var(--aw-text-3)]">{label}</div>}
+    <div className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--aw-bg-0)] whitespace-nowrap">
+      <span className="text-[var(--aw-text-1)]">{icon}</span>
+      <span className="text-[11px] font-semibold text-[var(--aw-text-0)]">{value}</span>
+      {label && <span className="text-[10px] text-[var(--aw-text-3)]">{label}</span>}
     </div>
   );
 }

@@ -28,9 +28,9 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-      className="flex items-center justify-center w-7 h-7 rounded text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+      className="flex items-center justify-center w-9 h-9 rounded-md text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
     >
-      {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+      {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
     </button>
   );
 }

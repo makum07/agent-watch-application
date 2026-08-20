@@ -13,6 +13,10 @@ interface SelfHealingConfigProps {
   threshold: number;
 }
 
+// Labels the feature as still-maturing without blocking configuration —
+// flip to false once it's no longer considered early/preview.
+const COMING_SOON = true;
+
 const MODES: Array<{ value: SelfHealingMode; label: string; description: string }> = [
   { value: 'analysis_only', label: 'Analysis Only', description: 'Generates report for manual review' },
   { value: 'analysis_and_fix', label: 'Analysis + Fix', description: 'Generates report and fix prompt for review' },
@@ -58,6 +62,11 @@ export function SelfHealingConfig({ skillId, enabled, mode, threshold }: SelfHea
         <div className="flex items-center gap-2">
           <HeartPulse className={cn('h-4 w-4', localEnabled ? 'text-green-400' : 'text-[var(--aw-text-4)]')} />
           <span className="text-sm font-medium text-[var(--aw-text-0)]">Self-Healing</span>
+          {COMING_SOON && (
+            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--aw-purple-light)]/15 text-[var(--aw-purple-light)]">
+              Coming soon
+            </span>
+          )}
         </div>
         <button
           onClick={() => handleChange('enabled', !localEnabled)}

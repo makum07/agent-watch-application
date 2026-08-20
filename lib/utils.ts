@@ -32,7 +32,16 @@ export function formatRelativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  // Fixed locale: relying on the runtime default locale here made SSR (Node's
+  // default locale) and the browser (its Accept-Language locale) render different
+  // digit orders for the same date, which React flags as a hydration mismatch.
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function truncate(text: string, maxLength: number): string {
@@ -51,33 +60,64 @@ export function isPermissionDenial(resultText: string): boolean {
 
 export function formatTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch { return iso; }
 }
 
-const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  fable:  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
-  opus:   { input:  5.00, output: 25.00, cacheWrite:  6.25, cacheRead: 0.50 },
-  sonnet: { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
-  haiku:  { input:  1.00, output:  5.00, cacheWrite:  1.25, cacheRead: 0.10 },
-};
+/**
+ * Cleans up raw session titles that leaked Claude Code's internal slash-command
+ * XML wrapper (`<command-name>`, `<command-args>`, `<local-command-caveat>`, ...)
+ * instead of a human-readable string, and flags whether the session was a
+ * command invocation so the UI can badge it distinctly from a plain conversation.
+ */
+export const MIN_TITLE_LEN = 10;
 
-function modelTier(model: string): keyof typeof MODEL_PRICING {
-  const m = model.toLowerCase();
-  if (m.includes('fable'))  return 'fable';
-  if (m.includes('opus'))   return 'opus';
-  if (m.includes('haiku'))  return 'haiku';
-  return 'sonnet';
+export function parseSessionTitle(raw: string | null | undefined): { text: string; isCommand: boolean } {
+  if (!raw) return { text: '', isCommand: false };
+  const nameMatch = raw.match(/<command-name>([^<]*)<\/command-name>/);
+  if (nameMatch && nameMatch[1].trim()) {
+    let text = nameMatch[1].trim();
+    const argsMatch = raw.match(/<command-args>([^<]*)<\/command-args>/);
+    const args = argsMatch?.[1]?.trim();
+    if (args) text += ` ${args}`;
+    return { text, isCommand: true };
+  }
+  // No command was invoked (e.g. a bare `!shell` local command) — the caveat text
+  // itself is boilerplate repeated on every such session, so prefer its actual
+  // output as the identifying text when present.
+  const stdoutMatch = raw.match(/<local-command-stdout>([^<]*)<\/local-command-stdout>/);
+  if (stdoutMatch && stdoutMatch[1].trim()) {
+    return { text: stdoutMatch[1].trim(), isCommand: false };
+  }
+  if (/<[a-z-]+>/.test(raw)) {
+    const stripped = raw.replace(/<\/?[a-z-]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (stripped) return { text: stripped, isCommand: /^\/[\w-]/.test(stripped) };
+  }
+  return { text: raw, isCommand: /^\/[\w-]/.test(raw) };
 }
 
-export function estimateAgentCost(usage: {
-  input: number; output: number; cacheCreation: number; cacheRead: number;
-}, model: string): number {
-  const p = MODEL_PRICING[modelTier(model)];
-  return (
-    usage.input         * p.input      / 1_000_000 +
-    usage.output        * p.output     / 1_000_000 +
-    usage.cacheCreation * p.cacheWrite / 1_000_000 +
-    usage.cacheRead     * p.cacheRead  / 1_000_000
-  );
+/**
+ * Reduces a `/`-separated relative project path down to just the project name
+ * (its last segment) for display — e.g. `Zeroni Product/ZER-app` → `ZER-app`.
+ * Pass the full path as a tooltip for the cases where that context is lost.
+ */
+export function shortenProjectPath(relPath: string): string {
+  const parts = relPath.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || relPath;
 }
+
+const PROJECT_COLOR_VARS = [
+  '--aw-blue', '--aw-purple', '--aw-cyan', '--aw-amber',
+  '--aw-lime', '--aw-pink', '--aw-orange', '--aw-green-bright',
+];
+
+/** Deterministic color assignment so the same project always gets the same accent, for quick visual grouping. */
+export function projectColorVar(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return PROJECT_COLOR_VARS[hash % PROJECT_COLOR_VARS.length];
+}
+
+// Model pricing lives in lib/pricing/ — import `estimateAgentCost` from
+// `@/lib/pricing/pricebank` in server code or `@/lib/pricing/pricing-core` in
+// client components (this file is bundled into both and must stay `fs`-free).

@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, Copy, Image as ImageIcon, Check, Loader2, Eye, X, GitFork } from 'lucide-react';
-import { cn, formatTokens, formatDuration, formatCost, estimateAgentCost } from '@/lib/utils';
+import { cn, formatTokens, formatDuration, formatCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricing-core';
 import { getAgentDisplay, getStatusDisplay } from '@/lib/agent-display';
 import {
   hierarchyToText,

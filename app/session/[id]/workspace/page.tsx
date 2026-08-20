@@ -9,7 +9,8 @@ import { useFeedbackStore } from '@/store/feedback-store';
 import { AgentSidebar } from '@/components/session/agent-sidebar';
 import { WorkspaceShell } from '@/components/workspace/workspace-shell';
 import { FeedbackPanel } from '@/components/session/feedback-panel';
-import { Loader2, Layers, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
+import { SessionPinToggle } from '@/components/shared/session-pin-toggle';
+import { Loader2, Layers, Home, Clock, LayoutDashboard, Columns2, Rows2, Grid2x2, Square, MessageSquare, Save, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
@@ -253,7 +254,7 @@ export default function WorkspacePage({ params }: Props) {
           id="sidebar-panel"
           panelRef={sidebarPanelRef}
           defaultSize={256}
-          minSize={160}
+          minSize={256}
           maxSize={600}
           collapsible
           collapsedSize={40}
@@ -274,23 +275,30 @@ export default function WorkspacePage({ params }: Props) {
         <Panel id="main-panel" minSize={300}>
           <div className="flex flex-col h-full overflow-hidden">
             {/* Workspace header — never wraps; breadcrumb truncates first, controls stay on one line */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] shrink-0 overflow-x-auto overflow-y-hidden">
+            <div className="flex items-center gap-3 px-3 h-12 border-b border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] shrink-0 overflow-x-auto overflow-y-hidden">
               {/* Breadcrumb cluster — shrinks/truncates before the controls do */}
               <div className="flex items-center gap-2 min-w-0 shrink">
-                <Link href="/" className="text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors shrink-0">
-                  <Layers className="h-4 w-4" />
+                <Link href="/" title="Back to dashboard" className="flex items-center shrink-0 text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors">
+                  <Home className="h-4 w-4" />
                 </Link>
                 <span className="text-[var(--aw-text-4)] shrink-0">/</span>
-                <span className="text-sm font-semibold text-[var(--aw-text-0)] truncate">{projectName}</span>
+                <Link
+                  href={`/?project=${encodeURIComponent(session.project)}`}
+                  title={`Back to ${projectName}`}
+                  className="text-sm font-semibold text-[var(--aw-text-0)] truncate min-w-[3ch] hover:text-[var(--aw-blue)] transition-colors"
+                >
+                  {projectName}
+                </Link>
                 <div className="flex items-center gap-1 ml-1 text-[11px] text-[var(--aw-text-3)] shrink-0 hidden lg:flex whitespace-nowrap">
                   <span>{session.totalAgents} agent{session.totalAgents !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span className="font-mono">{id.slice(0, 8)}…</span>
                 </div>
+                <SessionPinToggle sessionId={id} />
               </div>
               <div className="flex-1 min-w-2" />
               {/* Controls cluster — fixed, never compresses */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={async () => {
                     setIsRefreshing(true);
@@ -299,15 +307,15 @@ export default function WorkspacePage({ params }: Props) {
                     setTimeout(() => setIsRefreshing(false), 800);
                   }}
                   title="Refresh session data"
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors shrink-0"
+                  className="flex items-center gap-1 p-1.5 rounded-md text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors shrink-0"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
                 </button>
                 <LayoutMenu session={session} setLayout={setLayout} sessionId={id} />
-                <div className="flex items-center gap-1 border-l border-[var(--aw-bg-3)] pl-2">
+                <div className="flex items-center gap-1.5 border-l border-[var(--aw-bg-3)] pl-1.5">
                   <button
                     onClick={() => setPanelOpen(!isPanelOpen)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap ${
                       isPanelOpen
                         ? 'bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] border border-[var(--aw-blue)]/30'
                         : 'text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-2)]'
@@ -315,7 +323,7 @@ export default function WorkspacePage({ params }: Props) {
                     title="Feedback Review"
                   >
                     <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                    <span>Review</span>
+                    <span className="hidden sm:inline">Review</span>
                     {items.length > 0 && (
                       <span className={`text-[10px] px-1 rounded-full font-medium ${isPanelOpen ? 'bg-[var(--aw-blue)]/30 text-[var(--aw-blue)]' : 'bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]'}`}>
                         {items.length}
@@ -434,10 +442,10 @@ function LayoutMenu({ session, setLayout, sessionId }: {
       <button
         ref={btnRef}
         onClick={isOpen ? () => setIsOpen(false) : open}
-        className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-[var(--aw-text-1)] hover:text-white hover:bg-[var(--aw-bg-3)] transition-colors"
       >
         <LayoutDashboard className="h-3.5 w-3.5" />
-        <span>Layout</span>
+        <span className="hidden sm:inline">Layout</span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
 

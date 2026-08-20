@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteSnapshot } from '@/lib/services/workspace-snapshots';
+import { resolveSessionSource } from '@/lib/api/resolve-source';
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ sessionId: string; snapshotId: string }> }
 ) {
-  const { snapshotId } = await params;
-  const deleted = deleteSnapshot(snapshotId);
+  const { sessionId, snapshotId } = await params;
+  const sourceId = await resolveSessionSource(req, sessionId);
+  const deleted = deleteSnapshot(snapshotId, sourceId);
   if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

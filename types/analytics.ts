@@ -317,16 +317,23 @@ export interface ToolTimelineEntry {
 
 // ── AI Analysis Types ─────────────────────────────────────────────────
 
+// The model's response is free-form JSON, not a validated schema — any
+// field can arrive missing, and in practice the model sometimes drifts to
+// different field names entirely for the same concept. `target`/`finding`
+// are alternates seen in the wild for `title`/`observation`; the renderer
+// falls back across both rather than assuming the requested shape held.
 export interface ExecutionRecommendation {
-  severity: 'critical' | 'high' | 'medium' | 'low';
-  title: string;
-  category: string;
+  severity?: 'critical' | 'high' | 'medium' | 'low';
+  title?: string;
+  category?: string;
   agentId?: string;
-  observation: string;
-  rootCause: string;
-  recommendation: string;
-  evidence: string;
+  observation?: string;
+  rootCause?: string;
+  recommendation?: string;
+  evidence?: string;
   confidence?: 'high' | 'medium' | 'low';
+  target?: string;
+  finding?: string;
 }
 
 export interface ExecutionAnalysisCycle {
@@ -336,8 +343,12 @@ export interface ExecutionAnalysisCycle {
   analysisPrompt: string;
   analysisResponse: string | null;
   recommendations: ExecutionRecommendation[] | null;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'cancelled';
   streamEntries: import('@/types/feedback').StreamEntry[] | null;
+  /** Model the CLI actually reported running (from its init stream-json event), not just what was requested. */
+  model: string | null;
+  /** The new one-shot CLI session's own id — unlike the improvement loop, this always starts a fresh session rather than resuming one. Resumable via `claude --resume <id>`. */
+  cliSessionId: string | null;
   createdAt: string;
   completedAt: string | null;
 }

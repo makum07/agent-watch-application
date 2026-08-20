@@ -1,8 +1,8 @@
 import { getDatabase } from '@/lib/db/database';
-import type { SessionHistory, SessionHistoryUpdate } from '@/types/history';
+import type { SessionHistory, SessionHistoryUpdate, SessionSearchResult } from '@/types/history';
 import type { Session } from '@/types/session';
 import { extractAiTitle, extractFirstUserMessage } from '@/lib/parser/agent-correlator';
-import { discoverSessions } from './session-ingester';
+import { discoverSessions, backfillContentIndex } from './session-ingester';
 
 function rowToHistory(row: Record<string, unknown>): SessionHistory {
   return {
@@ -149,6 +149,86 @@ export function searchSessionHistory(query: string, limit = 20, sourceId?: strin
   }
 }
 
+/** Builds a safe FTS5 MATCH expression from free-text (words AND-ed, prefix on the last word). */
+function buildFtsMatch(query: string): string | null {
+  const tokens = query.trim().split(/\s+/).filter(Boolean).slice(0, 12);
+  if (tokens.length === 0) return null;
+  return tokens
+    .map((t, i) => {
+      const escaped = t.replace(/"/g, '""');
+      return i === tokens.length - 1 ? `"${escaped}"*` : `"${escaped}"`;
+    })
+    .join(' ');
+}
+
+function titleForUnopenedSession(conv: Record<string, unknown>): string {
+  const filePath = conv.file_path as string;
+  try {
+    const aiTitle = extractAiTitle(filePath);
+    if (aiTitle) return aiTitle;
+    const firstMsg = extractFirstUserMessage(filePath);
+    if (firstMsg) return firstMsg;
+  } catch { /* fall through to project name */ }
+  return (conv.project as string) || 'Session';
+}
+
+/**
+ * Single search covering both session titles AND the actual prompt/response text of
+ * every message in every session — so a remembered phrase from mid-conversation finds
+ * the session even when it never made it into the title. Title matches rank first.
+ */
+export function searchSessions(query: string, limit = 10, sourceId?: string): SessionSearchResult[] {
+  const db = getDatabase(sourceId);
+  const matchExpr = buildFtsMatch(query);
+  if (!matchExpr) return [];
+
+  // Best-effort: catch up indexing a few never-opened sessions so they become
+  // searchable too. Bounded so a single search never pays for a full history scan.
+  try { backfillContentIndex(sourceId, 8); } catch { /* non-fatal */ }
+
+  const results = new Map<string, SessionSearchResult>();
+
+  try {
+    const titleRows = db.prepare(`
+      SELECT session_id FROM session_history_fts WHERE session_history_fts MATCH ? LIMIT ?
+    `).all(matchExpr, limit) as { session_id: string }[];
+    for (const row of titleRows) {
+      const hist = getSessionHistory(row.session_id, sourceId);
+      if (!hist) continue;
+      results.set(hist.sessionId, {
+        sessionId: hist.sessionId, title: hist.title, project: hist.project,
+        lastOpened: hist.lastOpened, snippet: null, matchType: 'title',
+      });
+    }
+  } catch { /* malformed FTS query — skip title pass, content pass still runs */ }
+
+  if (results.size < limit) {
+    try {
+      const contentRows = db.prepare(`
+        SELECT session_id, snippet(message_fts, 0, '', '', '…', 14) AS snip
+        FROM message_fts WHERE message_fts MATCH ? ORDER BY rank LIMIT ?
+      `).all(matchExpr, limit * 4) as { session_id: string; snip: string }[];
+
+      for (const row of contentRows) {
+        if (results.has(row.session_id) || results.size >= limit) continue;
+        const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(row.session_id) as Record<string, unknown> | undefined;
+        if (!conv) continue;
+        const hist = getSessionHistory(row.session_id, sourceId);
+        results.set(row.session_id, {
+          sessionId: row.session_id,
+          title: hist?.title ?? titleForUnopenedSession(conv),
+          project: hist?.project ?? (conv.project as string),
+          lastOpened: hist?.lastOpened ?? new Date(conv.last_modified as number).toISOString(),
+          snippet: row.snip,
+          matchType: 'content',
+        });
+      }
+    } catch { /* malformed FTS query — return whatever the title pass found */ }
+  }
+
+  return Array.from(results.values()).slice(0, limit);
+}
+
 export function updateSessionHistory(sessionId: string, update: SessionHistoryUpdate, sourceId?: string): SessionHistory | null {
   const db = getDatabase(sourceId);
   const fields: string[] = [];
@@ -199,5 +279,6 @@ function isMeaninglessTitle(title: string): boolean {
   if (!title) return true;
   if (/^[0-9a-f]{8}/i.test(title)) return true;
   if (/ — \d+ agents?$/.test(title)) return true;
+  if (/<[a-z-]+>/.test(title)) return true; // leaked command/caveat XML wrapper
   return false;
 }

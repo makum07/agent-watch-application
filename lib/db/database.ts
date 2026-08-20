@@ -1,10 +1,23 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { getSources } from '@/lib/sources';
 
 const dbs = new Map<string, Database.Database>();
 
+// A sourceId can arrive here from a long-lived `aw-source` cookie or a stale
+// `?source=` param that refers to a custom source removed since via the Home
+// page's Data Sources panel. Without this check it would silently open (and
+// on first access, CREATE) its own empty per-source .db file instead of
+// falling back — every query then "succeeds" against a database that never
+// had any data, which looks identical to a real empty result.
+function normalizeSourceId(sourceId?: string): string | undefined {
+  if (!sourceId || sourceId === 'default') return sourceId;
+  return getSources().some(s => s.id === sourceId) ? sourceId : undefined;
+}
+
 export function getDatabase(sourceId?: string): Database.Database {
+  sourceId = normalizeSourceId(sourceId);
   const key = sourceId ?? 'default';
   if (dbs.has(key)) return dbs.get(key)!;
 
@@ -406,12 +419,134 @@ function runMigrations(db: Database.Database) {
     `);
   }
 
+  if (currentVersion < 14) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS skill_context_files (
+        id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        raw_path TEXT NOT NULL,
+        text_path TEXT,
+        extracted_text TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (skill_id) REFERENCES skills(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_context_files_skill ON skill_context_files(skill_id, created_at DESC);
+
+      INSERT INTO schema_version (version, applied_at) VALUES (14, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 15) {
+    const cols = db.prepare("PRAGMA table_info(skill_context_files)").all() as { name: string }[];
+    if (cols.length > 0 && !cols.find(c => c.name === 'text_path')) {
+      db.exec(`ALTER TABLE skill_context_files ADD COLUMN text_path TEXT;`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (15, ${Date.now()});`);
+  }
+
+  // Appended after a merge with maturity-model, which independently used
+  // versions 14/15 for message_fts/permission_mode — kept at new slots
+  // rather than renumbered, since a real DB already has this branch's
+  // 14/15 recorded (renumbering those would make it skip this content).
+  if (currentVersion < 16) {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+        text,
+        session_id UNINDEXED,
+        role UNINDEXED,
+        ts UNINDEXED
+      );
+
+      INSERT INTO schema_version (version, applied_at) VALUES (16, ${Date.now()});
+    `);
+  }
+
+  if (currentVersion < 17) {
+    const icCols = db.prepare("PRAGMA table_info(improvement_cycles)").all() as { name: string }[];
+    if (!icCols.find(c => c.name === 'permission_mode')) {
+      db.exec(`ALTER TABLE improvement_cycles ADD COLUMN permission_mode TEXT DEFAULT 'approve';`);
+    }
+    db.exec(`INSERT INTO schema_version (version, applied_at) VALUES (17, ${Date.now()});`);
+  }
+
   // Fixup: ensure stream_entries column exists on skill_analysis_cycles
   // (v9 migration may have recorded success without actually adding the column)
   const sacCols = db.prepare("PRAGMA table_info(skill_analysis_cycles)").all() as { name: string }[];
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'stream_entries')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN stream_entries TEXT;`);
   }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'current_status')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN current_status TEXT;`);
+  }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'growth_opportunities')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN growth_opportunities TEXT;`);
+  }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'model')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN model TEXT;`);
+  }
+  // Unlike the improvement loop (which resumes the session being reviewed),
+  // skill analysis and execution analysis always start a brand-new one-shot
+  // `claude` session — this records that new session's own id (from the
+  // CLI's `system`/init event) so the user can `claude --resume <id>` into
+  // it later, e.g. to dig further into how the analysis was produced.
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'cli_session_id')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN cli_session_id TEXT;`);
+  }
+
+  // Fixup: ensure model/cli_session_id columns exist on execution_analysis_cycles
+  // — records the model the CLI actually reported running and the new
+  // one-shot session's own id (both from its `system`/init stream-json
+  // event), not just what the user requested.
+  const eacCols = db.prepare("PRAGMA table_info(execution_analysis_cycles)").all() as { name: string }[];
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'model')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN model TEXT;`);
+  }
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'cli_session_id')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN cli_session_id TEXT;`);
+  }
+
+  // Fixup: ensure skill_context_files exists. On DBs where the maturity-model
+  // merge's version renumbering (see v16 comment above) landed after v14 had
+  // already been recorded under different content, the currentVersion < 14
+  // gate above never re-runs and this table is silently missing.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_context_files (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      raw_path TEXT NOT NULL,
+      text_path TEXT,
+      extracted_text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (skill_id) REFERENCES skills(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_context_files_skill ON skill_context_files(skill_id, created_at DESC);
+  `);
+
+  // Context documents shared across every skill in a project — uploaded once
+  // instead of per-skill (see skill_context_files above for the per-skill
+  // equivalent). Keyed by the same `project` string skills already use, not
+  // a normalized project ID — no such ID exists in this schema.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_context_files (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      raw_path TEXT NOT NULL,
+      text_path TEXT,
+      extracted_text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_context_files_project ON project_context_files(project, created_at DESC);
+  `);
 }
 
 export function closeDatabase(sourceId?: string) {

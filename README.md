@@ -111,6 +111,7 @@ AgentWatch does not just read from Claude Code — it integrates with Claude Cod
 | **PreToolUse hooks** | An HTTP hook routes Edit/Write permission requests to the browser UI instead of the terminal |
 | **Directory access** | Cross-project skill directories are granted read access via `--add-dir` |
 | **Stream protocol** | Real-time progress is delivered via Claude Code's `stream-json` output format, displayed live in the browser |
+| **Model selection & cancellation** | Execution Analysis, Skill Analysis, and Apply Improvements each let you pick the model (`--model haiku/sonnet/opus`) and stop the run mid-flight; the CLI's own reported model confirms the choice actually took effect rather than silently falling back to a default |
 
 This means the entire improvement workflow — from feedback to analysis to file edits to approval — happens in the browser. The terminal is only needed to *run* the original workflow.
 
@@ -217,6 +218,8 @@ CLAUDE_HOME=C:/Users/YourName/.claude
 
 Everything else in `.env.local.example` is also optional and commented out — defaults work for most setups.
 
+To read from **more than one** `.claude` folder (e.g. a WSL distro or Claude Desktop's data dir alongside your default one), skip the env var entirely — use the **Data Sources** panel at the bottom of the Home page sidebar instead. It lists your default path, lets you add others, and shows which ones are actually found on disk.
+
 Open [http://localhost:3456](http://localhost:3456).
 
 If you update Node.js or switch versions and see a 500 error on load, rebuild the native SQLite module:
@@ -275,7 +278,7 @@ The features below are described in the order a user typically encounters them.
 
 Browse projects and the sessions inside them, instead of digging through terminal history. Each run is a real, openable thing with a title, size, cost, and timing. Sessions can be pinned, tagged, and annotated. Sessions are organised by project, so related runs are always grouped together.
 
-![Home page with sessions listed, grouped by project](<UI screenshots/Home page with session listed grouped by projects.png>)
+![Home page with sessions listed, grouped by project](<UI screenshots/home-page-project.png>)
 
 **Why it matters:** runs stop being throwaway terminal output and become a reviewable, searchable record.
 
@@ -291,13 +294,17 @@ The hierarchy can also be viewed as a **Sequence** (chronological) view, and exp
 
 The workspace is a flexible, multi-pane environment. Open any agent, artifact, timeline, analytics view, or context graph in its own pane. Split horizontally or vertically and compare anything side by side. Artifacts open **inside the pane** — no separate window or navigation needed — so you can view intermediate outputs while keeping the agent conversation in view. Your layout is automatically saved and restored as a **workspace snapshot**.
 
-![Session workspace with multi-pane support and in-pane artifact viewer](<UI screenshots/Session workspace with Multi pane support and in pane artifact viewer.png>)
+![Session workspace combining a vertical and horizontal pane split, real tool calls in the Conversation tabs, and an artifact open in-pane](<UI screenshots/Session workspace with Multi pane support and in pane artifact viewer.png>)
 
 **Why it matters:** instead of scrolling endlessly, you build a focused investigation layout tailored to what you need to understand.
 
 ### Agent Detail — the full record of one agent
 
 Open any agent to see its **Conversation**, the **Artifacts** it produced, the **Context** it received, the **Tools** it used, a **Summary**, and a **Feedback** tab. Health is shown honestly — a clean success looks different from "finished, but with errors or blocked actions."
+
+The **Context** tab shows exactly where an agent sits in the call graph: its invocation chain from the orchestrator down, which agents' outputs informed its prompt, which agent it in turn fed into, and the literal prompt text it received from its parent.
+
+![Agent Context tab showing invocation chain, informing agents, and prompt from parent](<UI screenshots/Agent Context tab showing invocation chain and prompt from parent.png>)
 
 **Why it matters:** you can trace a single agent's reasoning and outputs without losing the thread.
 
@@ -357,6 +364,8 @@ The AI analysis surfaces:
 
 The analysis streams live in the browser — thinking blocks, tool calls (colour-coded by type), text output, and progress indicators auto-scroll as new events arrive. Each analysis cycle is stored for future reference.
 
+You choose which model (Haiku, Sonnet, or Opus) drives the analysis, and can stop a run mid-flight if it's no longer needed — both save tokens on a run you no longer want. Execution analysis always spawns a brand-new one-shot Claude Code session rather than resuming the session being analysed, so AgentWatch surfaces that new session's id on the cycle (click to copy) — useful if you want to `claude --resume <id>` into it later to see exactly how the analysis itself was produced. A small badge on the cycle also shows the model the CLI actually reported running, confirming your choice took effect.
+
 **Why it matters:** instead of guessing which agent caused a problem, you get an evidence-based answer grounded in the actual instructions the agents were given — so your feedback lands on the right target.
 
 ### Feedback — the most important capability
@@ -395,11 +404,13 @@ AgentWatch summarises the collected feedback and generates an improvement prompt
 
 The key feature here is **per-edit approval**: every individual Edit or Write operation Claude proposes is intercepted by the PreToolUse hook and routed to the browser. You see a diff preview, the target file, and Approve / Deny buttons — and you decide on each change separately. Claude Code applies the edit itself after approval, keeping its internal state in sync with the filesystem.
 
-This is not a bulk approve-or-reject. You review and approve or deny **each edit individually** before it lands.
+By default, this is not a bulk approve-or-reject — you review and approve or deny **each edit individually** before it lands. A **skip-permissions toggle** in the Feedback Review panel header lets you opt out of that gate for a given cycle instead: Claude Code launches with `--dangerously-skip-permissions` and applies every edit automatically, no review step. Each cycle records which mode it ran in, so the improvement history always shows whether it was reviewed edit-by-edit or applied unattended.
+
+You can also pick the model (Haiku, Sonnet, or Opus) for the cycle, and stop it mid-flight if it's stuck or no longer needed — unlike execution and skill analysis, an improvement cycle resumes the original session (`--resume`) rather than starting a new one, so there's no separate session id to surface here.
 
 ![Improving a skill based on feedback, with per-edit approval support](<UI screenshots/Improving skill based on feedback with Approve on edit support.png>)
 
-**Why it matters:** the improvement targets the real cause, you stay in control of exactly what changes, and you never need to switch to the terminal to approve edits.
+**Why it matters:** the improvement targets the real cause, you stay in control of exactly what changes (or explicitly trade that off for speed when you trust the fix), and you never need to switch to the terminal to approve edits.
 
 ### Cross-Project Skill Improvements — fix skills wherever they live
 
@@ -429,22 +440,40 @@ The top-level skills page shows every registered skill as a card, organised by p
 
 Skills are discovered automatically from Claude Code session data — not configured manually. When a session uses a skill (slash command), AgentWatch records the invocation and builds the skill registry from actual usage.
 
+When you select a project in the sidebar, a **Project Documents** panel appears above the skill grid — attach a `.xlsx`, `.pptx`, `.md`, or `.txt` file once (e.g. a maturity-model assessment, a repo audit, or a prior evaluation report) and every skill in that project can draw on it during analysis, instead of re-uploading the same document per skill. A skill can still have its own additional documents on top of the project-wide ones, attached from its Overview tab.
+
+**Why it matters:** these documents are the yardstick AI-powered skill analysis measures against. Without one, analysis can only compare a skill to its own past runs. With an evaluation result attached — an AI-maturity model score, a repo audit, a prior assessment — the AI grounds its findings in that framework instead of generic advice: it cites the specific condition or finding the skill currently falls short of, and proposes changes aimed at closing that gap. Re-attach the latest evaluation after each round of fixes and skill analysis compounds over time — each cycle building on where the last one left off — steadily advancing the skill up the maturity model toward genuinely efficient AI usage across the software development lifecycle, instead of producing a one-off report.
+
 ![Skill dashboard to analyse a skill across sessions, with self-heal configuration](<UI screenshots/Skill dashboard to analyse the skill across the sessions and with option to configure the self heal(just ui created).png>)
 
 #### Skill detail — four tabs
 
 | Tab | What it shows |
 | --- | --- |
-| **Overview** | Self-healing configuration, skill metadata, top feedback categories |
+| **Overview** | Self-healing configuration, skill metadata, top feedback categories, skill-specific context documents |
 | **Executions** | Paginated table of every execution: session, agent, timing, feedback count |
 | **Feedback** | Three views: by session, by category (bar chart + top agents breakdown), and full history (improvement cycles + analysis cycles + open/closed feedback items) |
-| **Analysis** | Preview/edit the analysis prompt, trigger analysis, view live stream, review cycle history and parsed recommendations |
+| **Analysis** | Choose a model and preview/edit the analysis prompt, trigger analysis, view live stream, stop a run in progress, and review cycle history — current status, findings & fixes, and growth opportunities |
+
+![Skill detail Overview tab, with self-healing config, skill metadata, and project/skill documents](<UI screenshots/Skill detail Overview tab with self-healing config, project and skill documents.png>)
 
 #### AI-powered skill analysis
 
-The Analysis tab lets you ask Claude to analyse a skill's entire execution history — drawing on **both accumulated feedback and past improvement cycle data** across all sessions — and produce prioritised recommendations. This cross-session view reveals patterns that no single run can show: recurring failure modes, feedback categories that keep appearing, and whether past improvements actually stuck.
+The Analysis tab lets you ask Claude to analyse a skill's entire execution history — drawing on **both accumulated feedback and past improvement cycle data** across all sessions, plus any attached context documents — and produce a structured report. This cross-session view reveals patterns that no single run can show: recurring failure modes, feedback categories that keep appearing, and whether past improvements actually stuck.
 
 ![Analysing a skill with AI using feedback and improvement cycle data across sessions](<UI screenshots/Analysing the skill with ai using feedback and improvement cycle data across the sessions.png>)
+
+Each report has three parts:
+
+| Section | What it covers |
+| --- | --- |
+| **Current Status** | The skill's health trend (improving, stable, or degrading), how reliably it's being used, and — if a maturity/audit document is attached — where it sits against that framework |
+| **Findings & Fixes** | Concrete recommendations with root cause, evidence, and confidence — the same depth as Execution Analysis, not a one-line label |
+| **Growth Opportunities** | Separate from bug fixes — how the skill could do more or do it better within the SDLC, ranked by impact |
+
+Attached documents are **optional** — a skill with none still gets an equally thorough report, sourced from its definition and execution history. When a document is used, the model **cites it inline** (e.g. "per Zeroni_AI_Maturity_Assessment.xlsx, condition tst_s1_2 (Not Met)...") rather than vaguely referencing it, so it's verifiable that the document was actually read.
+
+As with Execution Analysis, you choose the model, can stop a run in progress, and get a badge confirming the model the CLI actually used plus a copyable id for the new one-shot session it ran in.
 
 **Why it matters:** you stop fixing single executions and start improving the **workflow itself** — with evidence from every run, not just the last one.
 
@@ -518,11 +547,13 @@ To keep this from becoming noisy once a session **has** been reviewed, the Alert
 
 **Why it matters:** cost and duration surprises are caught early, with real-time browser alerts and recurring Teams notifications.
 
-### Multi-Source Support — WSL, Windows, and beyond
+### Multi-Source Support — WSL, Windows, Claude Desktop, and beyond
 
-AgentWatch can read Claude data from **multiple sources** on the same machine — for example, a native Windows `.claude` folder and a WSL Linux `.claude` folder. Switch between sources from the home page.
+AgentWatch can read Claude data from **multiple sources** on the same machine — for example, a native Windows `.claude` folder, a WSL Linux `.claude` folder, and a Claude Desktop data directory, all at once.
 
-**Why it matters:** if you use Claude across environments, you see all your work in one place.
+Sources are managed entirely from the browser — no env vars or config files to edit. The **Data Sources** panel at the bottom of the Home page sidebar shows your default path (auto-detected, always present) and lets you add, label, and remove additional ones; each entry shows whether it's actually reachable on disk. Once more than one source is configured, a switcher appears in the top bar to jump between them.
+
+**Why it matters:** if you use Claude across environments, you see all your work in one place — and setting it up takes a form, not a restart.
 
 ### Export — take insights with you
 
@@ -574,9 +605,12 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Workflow drift / skill poisoning** | A workflow slowly getting worse because of vague, misdirected feedback |
 | **Self-healing** | A planned feature: a workflow that reviews its own runs and proposes its own fixes automatically |
 | **Edit approval gate** | A browser-based review step where you approve or deny each individual file change before it is applied |
+| **Skip-permissions mode** | An optional per-cycle toggle that bypasses the edit approval gate — Claude Code runs with `--dangerously-skip-permissions` and applies every edit automatically; recorded on the cycle so history shows which mode it ran in |
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
-| **Skill analysis** | AI-powered cross-session analysis drawing on feedback and improvement cycle history to identify recurring patterns in a skill's execution |
+| **Skill analysis** | AI-powered cross-session analysis drawing on feedback, improvement cycle history, and optional context documents, producing a report of current status, findings & fixes, and growth opportunities |
+| **Context document** | An optional `.xlsx`, `.pptx`, `.md`, or `.txt` file (e.g. a maturity assessment or audit) attached at the project level (shared by every skill in that project) or the skill level, used as supplementary evidence during AI analysis |
+| **Growth opportunity** | A structural, non-bug-fix suggestion from skill analysis for how a skill could do more, or do it better, within the software development lifecycle |
 | **Session review page** | A session-wide view aggregating all feedback items, showing which are open and which have been addressed |
 | **Threshold alert** | A notification created when an active session's cost or duration exceeds a configured limit |
 | **Threshold monitor** | A background process that scans active sessions every 2 minutes and creates alerts for breaching sessions |

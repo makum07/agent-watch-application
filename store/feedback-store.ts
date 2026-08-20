@@ -1,18 +1,20 @@
 'use client';
 
 import { create } from 'zustand';
-import type { FeedbackItem, ImprovementCycle, FeedbackCategory, StreamEntry, DetectedSkill } from '@/types/feedback';
+import type { FeedbackItem, ImprovementCycle, FeedbackCategory, StreamEntry } from '@/types/feedback';
 import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
+import { DEFAULT_CLAUDE_CLI_MODEL, type ClaudeCliModel } from '@/lib/claude-models';
 
 interface FeedbackStore {
   items: FeedbackItem[];
   cycles: ImprovementCycle[];
   isLoading: boolean;
   isApplying: boolean;
+  isStopping: boolean;
   isPanelOpen: boolean;
   lastError: string | null;
   lastCycle: ImprovementCycle | null;
-  autoDetectedSkills: DetectedSkill[];
+  model: ClaudeCliModel;
 
   // Live streaming state for the active cycle
   streamEntries: StreamEntry[];
@@ -30,8 +32,10 @@ interface FeedbackStore {
   }) => Promise<FeedbackItem | null>;
   updateFeedback: (sessionId: string, itemId: string, updates: { text?: string; category?: FeedbackCategory }) => Promise<void>;
   deleteFeedback: (sessionId: string, itemId: string) => Promise<void>;
-  previewPrompt: (sessionId: string, skillIds?: string[]) => Promise<string | null>;
-  applyImprovements: (sessionId: string, customPrompt?: string, skillIds?: string[]) => Promise<ImprovementCycle | null>;
+  previewPrompt: (sessionId: string) => Promise<string | null>;
+  applyImprovements: (sessionId: string, customPrompt?: string, skipPermissions?: boolean) => Promise<ImprovementCycle | null>;
+  stopImprovements: (sessionId: string, cycleId: string) => Promise<void>;
+  setModel: (model: ClaudeCliModel) => void;
   rewindCycle: (sessionId: string, cycleId: string) => Promise<{ ok: boolean; error?: string }>;
   deleteCycle: (sessionId: string, cycleId: string) => Promise<void>;
   clearRewoundCycles: (sessionId: string) => Promise<void>;
@@ -50,12 +54,15 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   cycles: [],
   isLoading: false,
   isApplying: false,
+  isStopping: false,
   isPanelOpen: false,
   lastError: null,
   lastCycle: null,
-  autoDetectedSkills: [],
+  model: DEFAULT_CLAUDE_CLI_MODEL,
   streamEntries: [],
   pendingApprovals: new Map(),
+
+  setModel: (model) => set({ model }),
 
   loadFeedback: async (sessionId) => {
     set({ isLoading: true, lastError: null });
@@ -122,13 +129,11 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
-  previewPrompt: async (sessionId, skillIds = []) => {
+  previewPrompt: async (sessionId) => {
     try {
-      const qs = skillIds.length ? `?skills=${encodeURIComponent(skillIds.join(','))}` : '';
-      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements/preview${qs}`);
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements/preview`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      set({ autoDetectedSkills: data.autoDetectedSkills ?? [] });
       return data.prompt as string;
     } catch (e) {
       set({ lastError: String(e) });
@@ -136,15 +141,16 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
-  applyImprovements: async (sessionId, customPrompt, skillIds) => {
+  applyImprovements: async (sessionId, customPrompt, skipPermissions) => {
     set({ isApplying: true, lastError: null });
     try {
       const res = await fetch(`/api/v2/sessions/${sessionId}/improvements`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          model: get().model,
           ...(customPrompt ? { customPrompt } : {}),
-          ...(skillIds?.length ? { skillIds } : {}),
+          ...(skipPermissions ? { skipPermissions: true } : {}),
         }),
       });
       if (!res.ok) {
@@ -159,6 +165,25 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
       return null;
     } finally {
       set({ isApplying: false });
+    }
+  },
+
+  stopImprovements: async (sessionId, cycleId) => {
+    set({ isStopping: true });
+    try {
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', cycleId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? res.statusText);
+      }
+    } catch (e) {
+      set({ lastError: String(e) });
+    } finally {
+      set({ isStopping: false });
     }
   },
 
@@ -264,6 +289,12 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     if (event.type === 'improvement_permission_request') {
       const { requestId, toolName, toolInput } = event as { requestId: string; toolName: string; toolInput: Record<string, unknown> };
       set(s => {
+        // Idempotent by requestId — a duplicate delivery of the same request
+        // (e.g. a stale WebSocket connection left over from a hot reload)
+        // must not render a second approval card for it.
+        if (s.pendingApprovals.has(requestId) || s.streamEntries.some(e => e.requestId === requestId)) {
+          return s;
+        }
         const next = new Map(s.pendingApprovals);
         next.set(requestId, { toolName, toolInput });
         const entry: StreamEntry = {
@@ -299,8 +330,8 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   clearError: () => set({ lastError: null }),
   clearStream: () => set({ streamEntries: [], pendingApprovals: new Map() }),
   reset: () => set({
-    items: [], cycles: [], isLoading: false, isApplying: false,
-    isPanelOpen: false, lastError: null, lastCycle: null, autoDetectedSkills: [],
+    items: [], cycles: [], isLoading: false, isApplying: false, isStopping: false,
+    isPanelOpen: false, lastError: null, lastCycle: null,
     streamEntries: [], pendingApprovals: new Map(),
   }),
 }));
