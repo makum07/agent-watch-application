@@ -17,7 +17,7 @@ function readSourceCookie(): string | undefined {
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
-export function SourcePathsSettings() {
+export function SourcePathsSettings({ onClose }: { onClose?: () => void }) {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [newLabel, setNewLabel] = useState('');
@@ -90,12 +90,23 @@ export function SourcePathsSettings() {
 
   return (
     <div className="border border-[var(--aw-bg-3)] rounded-lg p-4 bg-[var(--aw-bg-1)] space-y-3">
-      <div>
-        <h3 className="text-sm font-medium text-[var(--aw-text-0)]">Data sources</h3>
-        <p className="text-[11px] text-[var(--aw-text-2)] mt-0.5">
-          Paths to `.claude` folders AgentWatch reads sessions/skills from — add one per system
-          (native, WSL, Claude Desktop, etc.) and switch between them from the source selector above.
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium text-[var(--aw-text-0)]">Data sources</h3>
+          <p className="text-[11px] text-[var(--aw-text-2)] mt-0.5">
+            Paths to `.claude` folders AgentWatch reads sessions/skills from — add one per system
+            (native, WSL, Claude Desktop, etc.) and switch between them from the source selector above.
+          </p>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            title="Close"
+            className="p-1 rounded hover:bg-[var(--aw-bg-2)] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="space-y-1.5">

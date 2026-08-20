@@ -352,7 +352,7 @@ export function HomeClient({ pinned, recent, byProject, historyMap: historyMapAr
 
               {showSourceSettings && (
                 <div className="mb-6">
-                  <SourcePathsSettings />
+                  <SourcePathsSettings onClose={() => setShowSourceSettings(false)} />
                 </div>
               )}
 
