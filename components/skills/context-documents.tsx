@@ -53,11 +53,11 @@ export function ContextDocuments({ skillId }: ContextDocumentsProps) {
           {isUploadingContext ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           {isUploadingContext ? 'Uploading...' : 'Upload'}
         </button>
-        <input ref={inputRef} type="file" accept=".xlsx,.pptx" className="hidden" onChange={handleFileChange} />
+        <input ref={inputRef} type="file" accept=".xlsx,.pptx,.md,.txt" className="hidden" onChange={handleFileChange} />
       </div>
 
       <p className="text-[11px] text-[var(--aw-text-4)] mb-3">
-        Attach .xlsx or .pptx files specific to this skill only — for context shared across every skill in the project, use Project Documents above.
+        Attach .xlsx, .pptx, .md, or .txt files specific to this skill only — for context shared across every skill in the project, use Project Documents above.
       </p>
 
       {lastError && (

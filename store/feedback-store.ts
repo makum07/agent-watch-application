@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { FeedbackItem, ImprovementCycle, FeedbackCategory, StreamEntry, DetectedSkill } from '@/types/feedback';
+import type { FeedbackItem, ImprovementCycle, FeedbackCategory, StreamEntry } from '@/types/feedback';
 import type { SessionEvent, StreamEvent, ContentBlock } from '@/types/events';
 import { DEFAULT_CLAUDE_CLI_MODEL, type ClaudeCliModel } from '@/lib/claude-models';
 
@@ -14,7 +14,6 @@ interface FeedbackStore {
   isPanelOpen: boolean;
   lastError: string | null;
   lastCycle: ImprovementCycle | null;
-  autoDetectedSkills: DetectedSkill[];
   model: ClaudeCliModel;
 
   // Live streaming state for the active cycle
@@ -33,8 +32,8 @@ interface FeedbackStore {
   }) => Promise<FeedbackItem | null>;
   updateFeedback: (sessionId: string, itemId: string, updates: { text?: string; category?: FeedbackCategory }) => Promise<void>;
   deleteFeedback: (sessionId: string, itemId: string) => Promise<void>;
-  previewPrompt: (sessionId: string, skillIds?: string[]) => Promise<string | null>;
-  applyImprovements: (sessionId: string, customPrompt?: string, skillIds?: string[], skipPermissions?: boolean) => Promise<ImprovementCycle | null>;
+  previewPrompt: (sessionId: string) => Promise<string | null>;
+  applyImprovements: (sessionId: string, customPrompt?: string, skipPermissions?: boolean) => Promise<ImprovementCycle | null>;
   stopImprovements: (sessionId: string, cycleId: string) => Promise<void>;
   setModel: (model: ClaudeCliModel) => void;
   rewindCycle: (sessionId: string, cycleId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -59,7 +58,6 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   isPanelOpen: false,
   lastError: null,
   lastCycle: null,
-  autoDetectedSkills: [],
   model: DEFAULT_CLAUDE_CLI_MODEL,
   streamEntries: [],
   pendingApprovals: new Map(),
@@ -131,13 +129,11 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
-  previewPrompt: async (sessionId, skillIds = []) => {
+  previewPrompt: async (sessionId) => {
     try {
-      const qs = skillIds.length ? `?skills=${encodeURIComponent(skillIds.join(','))}` : '';
-      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements/preview${qs}`);
+      const res = await fetch(`/api/v2/sessions/${sessionId}/improvements/preview`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      set({ autoDetectedSkills: data.autoDetectedSkills ?? [] });
       return data.prompt as string;
     } catch (e) {
       set({ lastError: String(e) });
@@ -145,7 +141,7 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
     }
   },
 
-  applyImprovements: async (sessionId, customPrompt, skillIds, skipPermissions) => {
+  applyImprovements: async (sessionId, customPrompt, skipPermissions) => {
     set({ isApplying: true, lastError: null });
     try {
       const res = await fetch(`/api/v2/sessions/${sessionId}/improvements`, {
@@ -154,7 +150,6 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
         body: JSON.stringify({
           model: get().model,
           ...(customPrompt ? { customPrompt } : {}),
-          ...(skillIds?.length ? { skillIds } : {}),
           ...(skipPermissions ? { skipPermissions: true } : {}),
         }),
       });
@@ -336,7 +331,7 @@ export const useFeedbackStore = create<FeedbackStore>((set, get) => ({
   clearStream: () => set({ streamEntries: [], pendingApprovals: new Map() }),
   reset: () => set({
     items: [], cycles: [], isLoading: false, isApplying: false, isStopping: false,
-    isPanelOpen: false, lastError: null, lastCycle: null, autoDetectedSkills: [],
+    isPanelOpen: false, lastError: null, lastCycle: null,
     streamEntries: [], pendingApprovals: new Map(),
   }),
 }));

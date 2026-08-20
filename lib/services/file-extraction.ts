@@ -4,6 +4,8 @@ import JSZip from 'jszip';
 export const CONTEXT_FILE_MIME_TYPES: Record<string, string> = {
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.md': 'text/markdown',
+  '.txt': 'text/plain',
 };
 
 export const MAX_CONTEXT_FILE_SIZE = 25 * 1024 * 1024;
@@ -127,7 +129,15 @@ export async function extractContextFileText(
   const ext = getExtension(filename);
   const mimeType = CONTEXT_FILE_MIME_TYPES[ext];
   if (!mimeType) {
-    throw new FileExtractionError('Only .xlsx and .pptx files are supported.');
+    throw new FileExtractionError('Only .xlsx, .pptx, .md, and .txt files are supported.');
+  }
+
+  if (ext === '.md' || ext === '.txt') {
+    const text = buffer.toString('utf8').trim();
+    if (!text) {
+      throw new FileExtractionError('This file has no readable text.');
+    }
+    return { text, mimeType };
   }
 
   const isZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04;

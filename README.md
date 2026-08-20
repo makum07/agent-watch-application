@@ -440,7 +440,9 @@ The top-level skills page shows every registered skill as a card, organised by p
 
 Skills are discovered automatically from Claude Code session data — not configured manually. When a session uses a skill (slash command), AgentWatch records the invocation and builds the skill registry from actual usage.
 
-When you select a project in the sidebar, a **Project Documents** panel appears above the skill grid — attach a `.xlsx` or `.pptx` file once (e.g. a maturity-model assessment or a repo audit) and every skill in that project can draw on it during analysis, instead of re-uploading the same document per skill. A skill can still have its own additional documents on top of the project-wide ones, attached from its Overview tab.
+When you select a project in the sidebar, a **Project Documents** panel appears above the skill grid — attach a `.xlsx`, `.pptx`, `.md`, or `.txt` file once (e.g. a maturity-model assessment, a repo audit, or a prior evaluation report) and every skill in that project can draw on it during analysis, instead of re-uploading the same document per skill. A skill can still have its own additional documents on top of the project-wide ones, attached from its Overview tab.
+
+**Why it matters:** these documents are the yardstick AI-powered skill analysis measures against. Without one, analysis can only compare a skill to its own past runs. With an evaluation result attached — an AI-maturity model score, a repo audit, a prior assessment — the AI grounds its findings in that framework instead of generic advice: it cites the specific condition or finding the skill currently falls short of, and proposes changes aimed at closing that gap. Re-attach the latest evaluation after each round of fixes and skill analysis compounds over time — each cycle building on where the last one left off — steadily advancing the skill up the maturity model toward genuinely efficient AI usage across the software development lifecycle, instead of producing a one-off report.
 
 ![Skill dashboard to analyse a skill across sessions, with self-heal configuration](<UI screenshots/Skill dashboard to analyse the skill across the sessions and with option to configure the self heal(just ui created).png>)
 
@@ -607,7 +609,7 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **PreToolUse hook** | A Claude Code hook that fires before a tool executes; AgentWatch uses an HTTP hook to route Edit/Write permission requests to the browser |
 | **Cross-project skills** | Skills or agents defined in a different project than the one the session ran in; AgentWatch detects and grants access to these automatically |
 | **Skill analysis** | AI-powered cross-session analysis drawing on feedback, improvement cycle history, and optional context documents, producing a report of current status, findings & fixes, and growth opportunities |
-| **Context document** | An optional `.xlsx`/`.pptx` file (e.g. a maturity assessment or audit) attached at the project level (shared by every skill in that project) or the skill level, used as supplementary evidence during AI analysis |
+| **Context document** | An optional `.xlsx`, `.pptx`, `.md`, or `.txt` file (e.g. a maturity assessment or audit) attached at the project level (shared by every skill in that project) or the skill level, used as supplementary evidence during AI analysis |
 | **Growth opportunity** | A structural, non-bug-fix suggestion from skill analysis for how a skill could do more, or do it better, within the software development lifecycle |
 | **Session review page** | A session-wide view aggregating all feedback items, showing which are open and which have been addressed |
 | **Threshold alert** | A notification created when an active session's cost or duration exceeds a configured limit |

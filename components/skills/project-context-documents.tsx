@@ -67,11 +67,11 @@ export function ProjectContextDocuments({ project }: ProjectContextDocumentsProp
           {isUploadingProjectContext ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           {isUploadingProjectContext ? 'Uploading...' : 'Upload'}
         </button>
-        <input ref={inputRef} type="file" accept=".xlsx,.pptx" className="hidden" onChange={handleFileChange} />
+        <input ref={inputRef} type="file" accept=".xlsx,.pptx,.md,.txt" className="hidden" onChange={handleFileChange} />
       </div>
 
       <p className="text-[11px] text-[var(--aw-text-4)] mb-3">
-        Attach .xlsx or .pptx files once here — they&apos;re shared by every skill in{' '}
+        Attach .xlsx, .pptx, .md, or .txt files once here — they&apos;re shared by every skill in{' '}
         <span className="font-mono text-[var(--aw-text-2)]">{project}</span>, so you don&apos;t need to re-upload per skill.
       </p>
 

@@ -7,19 +7,11 @@ export interface FeedbackItem {
   agent_name: string | null;
 }
 
-// Fixed skills carry their content vendored inline (see skill-catalog.ts) so
-// they work regardless of the host's filesystem. Skills detected as actually
-// used by the session stay a path reference — Claude reads them live, which
-// needs a matching --add-dir Read grant.
-export type SkillRef =
-  | { kind: 'inline'; name: string; content: string }
-  | { kind: 'path'; name: string; dir: string };
-
 function formatCategory(c: string): string {
   return c.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-export function generateImprovementPrompt(sessionId: string, items: FeedbackItem[], skills: SkillRef[] = []): string {
+export function generateImprovementPrompt(sessionId: string, items: FeedbackItem[]): string {
   const byAgent = new Map<string, FeedbackItem[]>();
   for (const item of items) {
     if (!byAgent.has(item.agent_id)) byAgent.set(item.agent_id, []);
@@ -41,21 +33,6 @@ export function generateImprovementPrompt(sessionId: string, items: FeedbackItem
   lines.push(`\nSession: \`${sessionId}\``);
 
   lines.push(`\nYou are reviewing ${items.length} observation${items.length !== 1 ? 's' : ''} from a completed multi-agent workflow execution across ${byAgent.size} agent${byAgent.size !== 1 ? 's' : ''}. Find design weaknesses — gaps in the orchestrator's logic, an agent's reasoning contract, a skill definition, or a coordination mechanism that would make any agent fail similarly regardless of task — and propose changes that generalize: fixes that make the workflow more reliable on future executions, not ones tailored to this session's particular inputs or artifacts.\n`);
-
-  if (skills.length > 0) {
-    lines.push(`## Required Skills\n`);
-    lines.push(`Apply the following skill(s) as part of this review:\n`);
-    for (const s of skills) {
-      if (s.kind === 'inline') {
-        lines.push(`### ${s.name}\n`);
-        lines.push(s.content.trim());
-        lines.push('');
-      } else {
-        lines.push(`- **${s.name}** — read \`${s.dir}/SKILL.md\` and follow its guidance for this review.`);
-      }
-    }
-    lines.push('');
-  }
 
   for (const [cat, catItems] of sortedCategories) {
     lines.push(`### ${formatCategory(cat)} (${catItems.length})\n`);

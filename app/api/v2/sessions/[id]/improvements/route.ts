@@ -7,8 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { registerActiveCycle, unregisterActiveCycle, resolveApproval, waitForApproval } from '@/lib/hooks/permission-state';
 import { generateImprovementPrompt } from '@/lib/services/improvement-prompt';
-import { findExternalSkillDirsFromSession, findInvokedSkillsFromSession } from '@/lib/services/external-dirs';
-import { resolveSelectedSkills } from '@/lib/services/skill-catalog';
+import { findExternalSkillDirsFromSession } from '@/lib/services/external-dirs';
 import { applyEditLocally, isNativePermissionBlock } from '@/lib/services/direct-edit-apply';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 import {
@@ -597,8 +596,8 @@ export async function POST(
       return NextResponse.json({ ok: true, rewoundCycles: cyclesToRewind });
     }
 
-    // Allow an optional custom prompt, skill selection, and permission mode from the client
-    let body: { customPrompt?: string; skillIds?: string[]; skipPermissions?: boolean; model?: string } = {};
+    // Allow an optional custom prompt and permission mode from the client
+    let body: { customPrompt?: string; skipPermissions?: boolean; model?: string } = {};
     try { body = await req.json(); } catch { /* no body is fine */ }
     const skipPermissions = body.skipPermissions === true;
 
@@ -619,14 +618,8 @@ export async function POST(
     } catch { /* non-fatal */ }
 
     const projectCwd = resolveProjectCwd(db, sessionId);
-    const invokedSkills = jsonlPath ? findInvokedSkillsFromSession(jsonlPath) : [];
-    const selectedSkills = resolveSelectedSkills(body.skillIds ?? [], invokedSkills);
-
-    const externalSkillDirs = Array.from(new Set([
-      ...(jsonlPath ? findExternalSkillDirsFromSession(jsonlPath, projectCwd) : []),
-      ...selectedSkills.filter(s => s.kind === 'path').map(s => s.dir),
-    ]));
-    const prompt = body.customPrompt?.trim() || generateImprovementPrompt(sessionId, items, selectedSkills);
+    const externalSkillDirs = jsonlPath ? findExternalSkillDirsFromSession(jsonlPath, projectCwd) : [];
+    const prompt = body.customPrompt?.trim() || generateImprovementPrompt(sessionId, items);
     const cycleId = randomUUID();
     const now = Date.now();
 
