@@ -278,7 +278,7 @@ The features below are described in the order a user typically encounters them.
 
 Browse projects and the sessions inside them, instead of digging through terminal history. Each run is a real, openable thing with a title, size, cost, and timing. Sessions can be pinned, tagged, and annotated. Sessions are organised by project, so related runs are always grouped together.
 
-![Home page with sessions listed, grouped by project](<UI screenshots/Home page with session listed grouped by projects.png>)
+![Home page with sessions listed, grouped by project](<UI screenshots/home-page-project.png>)
 
 **Why it matters:** runs stop being throwaway terminal output and become a reviewable, searchable record.
 
@@ -294,13 +294,17 @@ The hierarchy can also be viewed as a **Sequence** (chronological) view, and exp
 
 The workspace is a flexible, multi-pane environment. Open any agent, artifact, timeline, analytics view, or context graph in its own pane. Split horizontally or vertically and compare anything side by side. Artifacts open **inside the pane** — no separate window or navigation needed — so you can view intermediate outputs while keeping the agent conversation in view. Your layout is automatically saved and restored as a **workspace snapshot**.
 
-![Session workspace with multi-pane support and in-pane artifact viewer](<UI screenshots/Session workspace with Multi pane support and in pane artifact viewer.png>)
+![Session workspace combining a vertical and horizontal pane split, real tool calls in the Conversation tabs, and an artifact open in-pane](<UI screenshots/Session workspace with Multi pane support and in pane artifact viewer.png>)
 
 **Why it matters:** instead of scrolling endlessly, you build a focused investigation layout tailored to what you need to understand.
 
 ### Agent Detail — the full record of one agent
 
 Open any agent to see its **Conversation**, the **Artifacts** it produced, the **Context** it received, the **Tools** it used, a **Summary**, and a **Feedback** tab. Health is shown honestly — a clean success looks different from "finished, but with errors or blocked actions."
+
+The **Context** tab shows exactly where an agent sits in the call graph: its invocation chain from the orchestrator down, which agents' outputs informed its prompt, which agent it in turn fed into, and the literal prompt text it received from its parent.
+
+![Agent Context tab showing invocation chain, informing agents, and prompt from parent](<UI screenshots/Agent Context tab showing invocation chain and prompt from parent.png>)
 
 **Why it matters:** you can trace a single agent's reasoning and outputs without losing the thread.
 
@@ -448,6 +452,8 @@ When you select a project in the sidebar, a **Project Documents** panel appears 
 | **Executions** | Paginated table of every execution: session, agent, timing, feedback count |
 | **Feedback** | Three views: by session, by category (bar chart + top agents breakdown), and full history (improvement cycles + analysis cycles + open/closed feedback items) |
 | **Analysis** | Choose a model and preview/edit the analysis prompt, trigger analysis, view live stream, stop a run in progress, and review cycle history — current status, findings & fixes, and growth opportunities |
+
+![Skill detail Overview tab, with self-healing config, skill metadata, and project/skill documents](<UI screenshots/Skill detail Overview tab with self-healing config, project and skill documents.png>)
 
 #### AI-powered skill analysis
 

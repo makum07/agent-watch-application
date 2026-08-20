@@ -37,6 +37,19 @@ export function findExternalSkillDirsFromSession(jsonlPath: string, projectCwd: 
         const resolved = path.resolve(unescaped);
         if (!resolved.startsWith(normalizedCwd)) {
           dirs.add(resolved);
+          // A skill only ever prints its own `.claude/skills/<name>` path into the
+          // transcript (via "Base directory for this skill: ..."); the sibling
+          // `.claude/agents` directory it delegates to is loaded internally by
+          // Claude Code and never appears as an absolute path anywhere in the
+          // transcript. Without this, --add-dir grants the skill directory but
+          // not the agent definitions it invokes, so edits to those agent files
+          // get silently blocked by Claude Code's own workspace-boundary check.
+          const claudeRootMatch = resolved.match(/^(.*\.claude)\\(?:skills|agents)(?:\\.*)?$/i);
+          if (claudeRootMatch) {
+            for (const sibling of ['skills', 'agents']) {
+              dirs.add(path.join(claudeRootMatch[1], sibling));
+            }
+          }
         }
       } catch { continue; }
     }

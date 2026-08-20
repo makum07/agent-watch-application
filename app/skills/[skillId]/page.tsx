@@ -112,7 +112,6 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-xl font-semibold text-[var(--aw-text-0)] font-mono">/{skill.name}</h1>
-            <span className="text-xs bg-[var(--aw-bg-2)] px-2 py-0.5 rounded text-[var(--aw-text-2)]">v{skill.version}</span>
           </div>
           <div className="text-sm text-[var(--aw-text-2)] font-mono">{skill.project}</div>
           {skill.description && (
@@ -167,10 +166,6 @@ export default function SkillDetailPage({ params }: { params: Promise<{ skillId:
                     <div className="flex justify-between">
                       <dt className="text-[var(--aw-text-2)]">Project</dt>
                       <dd className="text-[var(--aw-text-0)] font-mono">{skill.project}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-[var(--aw-text-2)]">Version</dt>
-                      <dd className="text-[var(--aw-text-0)]">{skill.version}</dd>
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-[var(--aw-text-2)]">Created</dt>

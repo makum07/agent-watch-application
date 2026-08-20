@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Zap, Clock, MessageSquare, Activity, HeartPulse, Layers } from 'lucide-react';
+import { Zap, Clock, MessageSquare, HeartPulse, Layers } from 'lucide-react';
 import { cn, formatDuration, shortenProjectPath, projectColorVar } from '@/lib/utils';
 import type { SkillSummary } from '@/types/skills';
 
@@ -54,16 +54,12 @@ export function SkillCard({ skill }: SkillCardProps) {
           <Stat icon={<Clock className="h-3 w-3" />} value={skill.avgDurationMs > 0 ? formatDuration(skill.avgDurationMs) : '—'} label="avg" />
         </div>
 
-        <div className="px-4 pb-3 flex items-center justify-between text-[11px] text-[var(--aw-text-3)] border-t border-[var(--aw-bg-2)] pt-2">
+        <div className="px-4 pb-3 flex items-center text-[11px] text-[var(--aw-text-3)] border-t border-[var(--aw-bg-2)] pt-2">
           <span>
             {skill.lastAnalysisAt
               ? `Last analyzed ${new Date(skill.lastAnalysisAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
               : 'Never analyzed'
             }
-          </span>
-          <span className="flex items-center gap-1">
-            <Activity className="h-3 w-3" />
-            v{skill.version}
           </span>
         </div>
       </div>
