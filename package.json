@@ -22,6 +22,7 @@
     "pretest": "node scripts/check-node-version.js",
     "test": "vitest",
     "db:reset": "node -e \"const fs=require('fs');const p=require('path').join(process.cwd(),'data','agentwatch.db');[p,p+'-wal',p+'-shm'].forEach(f=>{try{fs.unlinkSync(f);console.log('Deleted',f)}catch{}});console.log('DB reset — will recreate on next request')\"",
+    "pricing:sync": "tsx scripts/sync-model-pricing.ts",
     "rebuild-native": "npm rebuild better-sqlite3",
     "postinstall": "npm rebuild better-sqlite3"
   },

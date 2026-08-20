@@ -118,29 +118,6 @@ export function projectColorVar(name: string): string {
   return PROJECT_COLOR_VARS[hash % PROJECT_COLOR_VARS.length];
 }
 
-const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  fable:  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
-  opus:   { input:  5.00, output: 25.00, cacheWrite:  6.25, cacheRead: 0.50 },
-  sonnet: { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
-  haiku:  { input:  1.00, output:  5.00, cacheWrite:  1.25, cacheRead: 0.10 },
-};
-
-function modelTier(model: string): keyof typeof MODEL_PRICING {
-  const m = model.toLowerCase();
-  if (m.includes('fable'))  return 'fable';
-  if (m.includes('opus'))   return 'opus';
-  if (m.includes('haiku'))  return 'haiku';
-  return 'sonnet';
-}
-
-export function estimateAgentCost(usage: {
-  input: number; output: number; cacheCreation: number; cacheRead: number;
-}, model: string): number {
-  const p = MODEL_PRICING[modelTier(model)];
-  return (
-    usage.input         * p.input      / 1_000_000 +
-    usage.output        * p.output     / 1_000_000 +
-    usage.cacheCreation * p.cacheWrite / 1_000_000 +
-    usage.cacheRead     * p.cacheRead  / 1_000_000
-  );
-}
+// Model pricing lives in lib/pricing/ — import `estimateAgentCost` from
+// `@/lib/pricing/pricebank` in server code or `@/lib/pricing/pricing-core` in
+// client components (this file is bundled into both and must stay `fs`-free).

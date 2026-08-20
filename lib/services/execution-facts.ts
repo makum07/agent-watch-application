@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import type { Session, Agent } from '@/types/session';
 import type { ExecutionFacts, AgentFacts, AgentTypeGroup } from '@/types/analytics';
-import { estimateAgentCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricebank';
 import { getDatabase } from '@/lib/db/database';
 import { parseJsonlFile, resolveToolCalls } from '@/lib/parser/jsonl-parser';
 

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ingestSession } from '@/lib/services/session-ingester';
 import { analyzeSession, findCriticalPath } from '@/lib/services/debug-analyzer';
 import { computeExecutionFacts } from '@/lib/services/execution-facts';
-import { estimateAgentCost, formatTokens, formatDuration, formatCost } from '@/lib/utils';
+import { formatTokens, formatDuration, formatCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricebank';
 import type { Session, Agent } from '@/types/session';
 import type { DebugAlert } from '@/types/analytics';
 

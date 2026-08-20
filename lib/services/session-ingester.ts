@@ -17,7 +17,8 @@ import {
 import { correlateAgents, extractAiTitle } from '@/lib/parser/agent-correlator';
 import { extractArtifacts } from '@/lib/parser/artifact-extractor';
 import type { Session, Agent, SkillInvocation } from '@/types/session';
-import { estimateAgentCost, isPermissionDenial } from '@/lib/utils';
+import { isPermissionDenial } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricebank';
 import { registerSkillExecutions } from '@/lib/services/skill-registry';
 
 export interface DiscoveredSession {

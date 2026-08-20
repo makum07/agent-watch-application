@@ -61,6 +61,9 @@ data/*.db-wal
 data/skill-attachments/
 data/project-attachments/
 
+# live-synced model pricing cache (runtime data — see lib/pricing/default-pricing.json for the committed baseline)
+data/model-pricing.json
+
 # Claude Code internals
 .claude/worktrees/
 .claude/settings.local.json

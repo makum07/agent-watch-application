@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Zap } from 'lucide-react';
-import { formatTokens, formatDuration, formatCost, estimateAgentCost, cn } from '@/lib/utils';
+import { formatTokens, formatDuration, formatCost, cn } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricing-core';
 import { getStatusDisplay, getAgentDisplay } from '@/lib/agent-display';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkspaceStore } from '@/store/workspace-store';

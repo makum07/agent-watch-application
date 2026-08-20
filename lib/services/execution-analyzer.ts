@@ -16,7 +16,7 @@ import type {
   ExecutionFacts,
 } from '@/types/analytics';
 import { analyzeSession, findCriticalPath } from './debug-analyzer';
-import { estimateAgentCost } from '@/lib/utils';
+import { estimateAgentCost } from '@/lib/pricing/pricebank';
 import { getDatabase } from '@/lib/db/database';
 import { getWslDistro } from '@/lib/sources';
 import type { StreamEntry } from '@/types/feedback';
