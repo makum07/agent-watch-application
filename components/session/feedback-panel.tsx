@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   X, Trash2, Zap, Loader2, ChevronDown, ChevronRight,
   MessageSquare, AlertCircle, Pencil, Check, FileText, RotateCcw,
-  FileCode2,
+  FileCode2, Clock, ShieldAlert, ShieldCheck, ListChecks,
 } from 'lucide-react';
 import { useFeedbackStore } from '@/store/feedback-store';
 import { useSessionStore } from '@/store/session-store';
@@ -20,7 +20,7 @@ import {
 } from '@/components/shared/collapsible-stream-log';
 import { ModelSelect } from '@/components/shared/model-select';
 import { StopButton } from '@/components/shared/stop-button';
-import { cn } from '@/lib/utils';
+import { cn, formatDuration } from '@/lib/utils';
 import type { ImprovementCycle } from '@/types/feedback';
 
 interface FeedbackPanelProps {
@@ -501,10 +501,10 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
           )
         ) : (
           /* ── History tab ── */
-          <div className="p-3 space-y-2">
+          <div className="p-3 space-y-3">
             {/* History header */}
             {cycles.length > 0 && (
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between">
                 <span className="text-[11px] text-[var(--aw-text-4)]">
                   {cycles.length} cycle{cycles.length !== 1 ? 's' : ''}
                 </span>
@@ -649,6 +649,49 @@ interface CycleCardProps {
   onDeny: (requestId: string) => void;
 }
 
+// A small icon+text pill used in the cycle header's at-a-glance meta strip —
+// one shared shape so the summary reads as a single row instead of ad-hoc bits.
+function MetaChip({ icon, children, color }: { icon: React.ReactNode; children: React.ReactNode; color?: string }) {
+  return (
+    <span className="flex items-center gap-1 shrink-0" style={color ? { color } : undefined}>
+      <span className="shrink-0 [&>svg]:h-2.5 [&>svg]:w-2.5">{icon}</span>
+      <span className="whitespace-nowrap">{children}</span>
+    </span>
+  );
+}
+
+// Shared header for every collapsible sub-section inside an expanded cycle
+// (prompt, files, activity log) — one consistent shape instead of each
+// section inventing its own icon/label/count/chevron layout.
+function CycleSectionHeader({
+  icon, label, count, trailing, open, onToggle,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count?: number;
+  trailing?: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onToggle(); }}
+      className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-[var(--aw-bg-2)]/40 transition-colors text-left"
+    >
+      {open
+        ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+        : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />}
+      <span className="shrink-0 text-[var(--aw-text-3)] [&>svg]:h-3 [&>svg]:w-3">{icon}</span>
+      <span className="text-[11px] font-medium text-[var(--aw-text-1)]">{label}</span>
+      {count !== undefined && (
+        <span className="text-[10px] text-[var(--aw-text-4)]">({count})</span>
+      )}
+      <span className="flex-1" />
+      {trailing && <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{trailing}</span>}
+    </button>
+  );
+}
+
 function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind, onDelete, streamEntries, pendingApprovals, onApprove, onDeny }: CycleCardProps) {
   const [showPrompt, setShowPrompt] = useState(false);
   const s = STATUS_META[cycle.status] ?? STATUS_META.completed;
@@ -658,6 +701,24 @@ function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind,
   const date = new Date(cycle.createdAt).toLocaleDateString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
+
+  // At-a-glance stats so the collapsed row is informative on its own —
+  // you shouldn't have to expand a cycle just to see whether it did anything.
+  const touchedPaths = new Set<string>();
+  for (const c of cycle.fileChanges ?? []) touchedPaths.add(c.filePath);
+  for (const e of cycle.streamEntries ?? []) {
+    if (e.kind === 'tool_use' && e.toolInput?.file_path) touchedPaths.add(String(e.toolInput.file_path));
+  }
+  const totalAdd = (cycle.fileChanges ?? []).reduce((sum, c) => sum + c.additions, 0);
+  const totalDel = (cycle.fileChanges ?? []).reduce((sum, c) => sum + c.deletions, 0);
+  const durationMs = cycle.completedAt
+    ? new Date(cycle.completedAt).getTime() - new Date(cycle.createdAt).getTime()
+    : null;
+
+  const hasPrompt = cycle.generatedPrompt.length > 0;
+  const hasFileChanges = !!cycle.fileChanges?.length;
+  const hasTouchedFiles = !!cycle.streamEntries?.length;
+  const hasFallbackRefs = !hasFileChanges && !hasTouchedFiles && !!cycle.claudeResponse;
 
   return (
     <div
@@ -669,120 +730,180 @@ function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind,
             ? 'border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] ring-1 ring-[var(--aw-green)]/20'
             : 'border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)]',
       )}
-      style={{ borderLeftColor: s.color, borderLeftWidth: '3px' }}
     >
-      {/* ── Header row — actions reveal on hover instead of a permanent extra row ── */}
+      {/* ── Header — actions reveal on hover instead of a permanent extra row ── */}
       <div
         className={cn(
-          'group flex items-center gap-2 px-2.5 py-2',
-          canExpand && 'cursor-pointer hover:bg-[var(--aw-bg-2)]/40 transition-colors',
+          'group',
+          canExpand && 'cursor-pointer hover:bg-[var(--aw-bg-2)]/30 transition-colors',
         )}
         onClick={canExpand ? onToggle : undefined}
       >
-        <span className="text-[11px] font-bold text-[var(--aw-text-0)] shrink-0 w-6">#{cycle.cycleNumber}</span>
+        <div className="flex items-center gap-2 px-3 pt-2">
+          <span className="text-[11px] font-bold text-[var(--aw-text-0)] shrink-0">#{cycle.cycleNumber}</span>
 
-        <span
-          className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
-          style={{ color: s.color, background: `${s.color}18` }}
-        >
-          {s.label}
-        </span>
-
-        {isLatest && (
-          <span className="text-[9px] font-bold uppercase tracking-wider shrink-0" style={{ color: 'var(--aw-green)' }}>
-            Current
-          </span>
-        )}
-
-        <span className="flex-1" />
-
-        <span className="flex items-center gap-0.5 shrink-0">
-          {canRewind && (
-            <button
-              onClick={e => { e.stopPropagation(); onRewind(); }}
-              className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-orange)] hover:bg-[var(--aw-orange)]/10 transition-colors"
-              title="Rewind — restore conversation to before this cycle"
-            >
-              <RotateCcw className="h-3 w-3" />
-            </button>
-          )}
-          <button
-            onClick={e => { e.stopPropagation(); onDelete(); }}
-            className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-red-bright)] hover:bg-[var(--aw-red-bright)]/10 transition-colors"
-            title="Delete this cycle record"
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
+            style={{ color: s.color, background: `${s.color}18` }}
           >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </span>
+            {s.label}
+          </span>
 
-        <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{date}</span>
+          {isLatest && (
+            <span className="text-[9px] font-bold uppercase tracking-wider shrink-0" style={{ color: 'var(--aw-green)' }}>
+              Current
+            </span>
+          )}
 
+          <span className="flex-1" />
+
+          <span className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+            {canRewind && (
+              <button
+                onClick={e => { e.stopPropagation(); onRewind(); }}
+                className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-orange)] hover:bg-[var(--aw-orange)]/10 transition-colors"
+                title="Rewind — restore conversation to before this cycle"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-red-bright)] hover:bg-[var(--aw-red-bright)]/10 transition-colors"
+              title="Delete this cycle record"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </span>
+
+          <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{date}</span>
+
+          {canExpand && (
+            isExpanded
+              ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+              : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+          )}
+        </div>
+
+        {/* Meta strip — glanceable summary without expanding */}
         {canExpand && (
-          isExpanded
-            ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
-            : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+          <div className="flex items-center gap-3 px-3 pb-2 pt-1 text-[10px] text-[var(--aw-text-3)]">
+            <MetaChip icon={<ListChecks />}>
+              {cycle.feedbackIds.length} feedback item{cycle.feedbackIds.length !== 1 ? 's' : ''}
+            </MetaChip>
+            {touchedPaths.size > 0 && (
+              <MetaChip icon={<FileCode2 />}>
+                {touchedPaths.size} file{touchedPaths.size !== 1 ? 's' : ''}
+              </MetaChip>
+            )}
+            {(totalAdd > 0 || totalDel > 0) && (
+              <span className="flex items-center gap-1.5 font-mono shrink-0">
+                {totalAdd > 0 && <span className="text-[var(--aw-green)]">+{totalAdd}</span>}
+                {totalDel > 0 && <span className="text-[var(--aw-red-bright)]">−{totalDel}</span>}
+              </span>
+            )}
+            {durationMs !== null && durationMs > 0 && (
+              <MetaChip icon={<Clock />}>{formatDuration(durationMs)}</MetaChip>
+            )}
+            <span className="flex-1" />
+            <MetaChip
+              icon={cycle.permissionMode === 'skip' ? <ShieldAlert /> : <ShieldCheck />}
+              color={cycle.permissionMode === 'skip' ? 'var(--aw-orange)' : undefined}
+            >
+              {cycle.permissionMode === 'skip' ? 'Permissions skipped' : 'Edit review'}
+            </MetaChip>
+          </div>
         )}
       </div>
 
-      {/* ── Expanded content ── */}
+      {/* ── Expanded content — one consistent section shape throughout ── */}
       {isExpanded && canExpand && (
-        <div className="border-t border-[var(--aw-bg-2)]">
-          {/* Prompt toggle */}
-          <button
-            onClick={e => { e.stopPropagation(); setShowPrompt(v => !v); }}
-            className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
-          >
-            {showPrompt
-              ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-              : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-            Generated Prompt
-            <span className="text-[var(--aw-text-4)] ml-auto">{cycle.generatedPrompt.length.toLocaleString()} chars</span>
-          </button>
-          {showPrompt && (
-            <div className="px-2.5 pb-2.5">
-              <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-40 overflow-y-auto font-mono bg-[var(--aw-bg-0)] p-2 rounded border border-[var(--aw-bg-2)] leading-relaxed">
-                {cycle.generatedPrompt}
-              </pre>
+        <div className="border-t border-[var(--aw-bg-2)] divide-y divide-[var(--aw-bg-2)]">
+          {hasPrompt && (
+            <div>
+              <CycleSectionHeader
+                icon={<FileText />}
+                label="Generated Prompt"
+                open={showPrompt}
+                onToggle={() => setShowPrompt(v => !v)}
+                trailing={`${cycle.generatedPrompt.length.toLocaleString()} chars`}
+              />
+              {showPrompt && (
+                <div className="px-3 pb-3 bg-[var(--aw-bg-0)]/40">
+                  <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-40 overflow-y-auto font-mono bg-[var(--aw-bg-0)] p-2.5 rounded border border-[var(--aw-bg-2)] leading-relaxed">
+                    {cycle.generatedPrompt}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Files touched summary — extracted from stream entries */}
-          {cycle.streamEntries && cycle.streamEntries.length > 0 && (
-            <TouchedFilesSummary entries={cycle.streamEntries} sessionId={sessionId} />
+          {/* Files touched — extracted from stream entries (reads + writes) */}
+          {hasTouchedFiles && (
+            <TouchedFilesSummary entries={cycle.streamEntries!} sessionId={sessionId} />
           )}
 
-          {/* File changes (structured diff) */}
-          {cycle.fileChanges && cycle.fileChanges.length > 0 && (
-            <div className="border-t border-[var(--aw-bg-2)]">
-              <FileDiffViewer changes={cycle.fileChanges} sessionId={sessionId} />
-            </div>
+          {/* File changes — structured diff, the primary payload of a cycle */}
+          {hasFileChanges && (
+            <FileDiffViewer changes={cycle.fileChanges!} sessionId={sessionId} />
           )}
 
           {/* Fallback: extract file references from response when no structured data */}
-          {!cycle.fileChanges?.length && !cycle.streamEntries?.length && cycle.claudeResponse && (
-            <ReferencedFiles sessionId={sessionId} responseText={cycle.claudeResponse} />
+          {hasFallbackRefs && (
+            <ReferencedFiles sessionId={sessionId} responseText={cycle.claudeResponse!} />
           )}
 
           {/* Response — collapsible stream log (live or persisted) */}
-          <div className="border-t border-[var(--aw-bg-2)]">
-            <CycleResponseView
-              cycle={cycle}
-              sessionId={sessionId}
-              streamEntries={streamEntries}
-              pendingApprovals={pendingApprovals}
-              onApprove={onApprove}
-              onDeny={onDeny}
-            />
-          </div>
-
-          {cycle.completedAt && (
-            <div className="px-2.5 pb-2 text-[10px] text-[var(--aw-text-4)]">
-              Completed {new Date(cycle.completedAt).toLocaleString([], {
-                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-              })}
-            </div>
-          )}
+          <CycleResponseView
+            cycle={cycle}
+            sessionId={sessionId}
+            streamEntries={streamEntries}
+            pendingApprovals={pendingApprovals}
+            onApprove={onApprove}
+            onDeny={onDeny}
+          />
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── FileRow — shared row shape for any "path + badges, expand to view" list ──
+// (Files Touched, Files Referenced). Filename is the primary label; the full
+// path is a muted, independently-truncated subtitle so long paths never blow
+// out the row's layout the way a single truncate-flex-1 span can.
+
+function FileRow({
+  path, isExpanded, onToggle, sessionId, accentColor, badges,
+}: {
+  path: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  sessionId: string;
+  accentColor: string;
+  badges?: React.ReactNode;
+}) {
+  const fileName = path.split(/[/\\]/).pop() ?? path;
+
+  return (
+    <div className="rounded border overflow-hidden" style={{ borderColor: `${accentColor}30` }}>
+      <button
+        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left min-w-0"
+        onClick={onToggle}
+        title={path}
+      >
+        <FileCode2 className="h-3 w-3 shrink-0" style={{ color: accentColor }} />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[10px] font-medium text-[var(--aw-text-0)] truncate">{fileName}</span>
+          {path !== fileName && (
+            <span className="block text-[9px] font-mono text-[var(--aw-text-4)] truncate">{path}</span>
+          )}
+        </span>
+        <span className="flex items-center gap-1 shrink-0">{badges}</span>
+        <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+      </button>
+      {isExpanded && (
+        <FileContentViewer sessionId={sessionId} filePath={path} />
       )}
     </div>
   );
@@ -818,43 +939,41 @@ function TouchedFilesSummary({ entries, sessionId }: { entries: StreamEntry[]; s
   if (files.length === 0) return null;
 
   return (
-    <div className="border-t border-[var(--aw-bg-2)]">
-      <div className="px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-        <FileCode2 className="h-3 w-3" />
-        Files Touched ({files.length})
+    <div>
+      <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-[var(--aw-text-1)]">
+        <FileCode2 className="h-3 w-3 text-[var(--aw-text-3)]" />
+        Files Touched
+        <span className="text-[10px] text-[var(--aw-text-4)] font-normal">({files.length})</span>
       </div>
-      <div className="space-y-0.5 px-2.5 pb-2">
+      <div className="space-y-1 px-3 pb-3">
         {files.map(f => {
-          const fileName = f.path.split(/[/\\]/).pop() ?? f.path;
-          const isExpanded = expandedFile === f.path;
           const isWrite = f.toolName === 'Edit' || f.toolName === 'Write';
           const color = isWrite ? 'var(--aw-orange)' : 'var(--aw-blue-light)';
 
           return (
-            <div key={f.path} className="rounded border overflow-hidden" style={{ borderColor: `${color}30` }}>
-              <button
-                className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
-                onClick={() => setExpandedFile(isExpanded ? null : f.path)}
-              >
-                <FileCode2 className="h-3 w-3 shrink-0" style={{ color }} />
-                <span className="text-[10px] font-mono text-[var(--aw-text-1)] truncate flex-1">{f.path}</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0" style={{ color, background: `${color}15` }}>
-                  {f.toolName}
-                </span>
-                {f.approved !== undefined && (
-                  <span className={cn(
-                    'text-[9px] px-1.5 py-0.5 rounded shrink-0',
-                    f.approved ? 'text-[var(--aw-green)] bg-[var(--aw-green)]/10' : 'text-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/10',
-                  )}>
-                    {f.approved ? 'approved' : 'denied'}
+            <FileRow
+              key={f.path}
+              path={f.path}
+              sessionId={sessionId}
+              accentColor={color}
+              isExpanded={expandedFile === f.path}
+              onToggle={() => setExpandedFile(expandedFile === f.path ? null : f.path)}
+              badges={
+                <>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0" style={{ color, background: `${color}15` }}>
+                    {f.toolName}
                   </span>
-                )}
-                <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', isExpanded && 'rotate-90')} />
-              </button>
-              {isExpanded && (
-                <FileContentViewer sessionId={sessionId} filePath={f.path} />
-              )}
-            </div>
+                  {f.approved !== undefined && (
+                    <span className={cn(
+                      'text-[9px] px-1.5 py-0.5 rounded shrink-0',
+                      f.approved ? 'text-[var(--aw-green)] bg-[var(--aw-green)]/10' : 'text-[var(--aw-red-bright)] bg-[var(--aw-red-bright)]/10',
+                    )}>
+                      {f.approved ? 'approved' : 'denied'}
+                    </span>
+                  )}
+                </>
+              }
+            />
           );
         })}
       </div>
@@ -887,24 +1006,16 @@ function CycleResponseView({
     : cycle.streamEntries?.length ?? 0;
 
   return (
-    <>
-      <button
-        onClick={e => { e.stopPropagation(); setShowLog(v => !v); }}
-        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
-      >
-        {showLog
-          ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-          : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-        {label}
-        {entryCount > 0 && (
-          <span className="text-[var(--aw-text-4)] ml-1">({entryCount} events)</span>
-        )}
-        {cycle.status === 'applying' && (
-          <Loader2 className="h-2.5 w-2.5 animate-spin text-[var(--aw-blue)] ml-auto" />
-        )}
-      </button>
+    <div>
+      <CycleSectionHeader
+        icon={cycle.status === 'applying' ? <Loader2 className="animate-spin" /> : <MessageSquare />}
+        label={label}
+        open={showLog}
+        onToggle={() => setShowLog(v => !v)}
+        trailing={entryCount > 0 ? `${entryCount} event${entryCount !== 1 ? 's' : ''}` : undefined}
+      />
       {showLog && (
-        <div className="px-2.5 pb-2.5">
+        <div className="px-3 pb-3 bg-[var(--aw-bg-0)]/40">
           {cycle.status === 'applying' ? (
             <CollapsibleStreamLog
               entries={streamEntries}
@@ -928,7 +1039,7 @@ function CycleResponseView({
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -956,32 +1067,23 @@ function ReferencedFiles({ sessionId, responseText }: { sessionId: string; respo
   if (filePaths.length === 0) return null;
 
   return (
-    <div className="border-t border-[var(--aw-bg-2)]">
-      <div className="px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-        <FileCode2 className="h-3 w-3" />
-        Files Referenced ({filePaths.length})
+    <div>
+      <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-[var(--aw-text-1)]">
+        <FileCode2 className="h-3 w-3 text-[var(--aw-text-3)]" />
+        Files Referenced
+        <span className="text-[10px] text-[var(--aw-text-4)] font-normal">({filePaths.length})</span>
       </div>
-      <div className="space-y-0.5 px-2.5 pb-2">
-        {filePaths.map(fp => {
-          const fileName = fp.split(/[/\\]/).pop() ?? fp;
-          const isExpanded = expandedFile === fp;
-          return (
-            <div key={fp} className="rounded border border-[var(--aw-bg-2)] overflow-hidden">
-              <button
-                className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
-                onClick={() => setExpandedFile(isExpanded ? null : fp)}
-              >
-                <FileCode2 className="h-3 w-3 text-[var(--aw-blue-light)] shrink-0" />
-                <span className="text-[10px] font-mono text-[var(--aw-text-1)] truncate flex-1">{fp}</span>
-                <span className="text-[9px] text-[var(--aw-text-4)] shrink-0">{fileName}</span>
-                <ChevronRight className={cn('h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0 transition-transform', isExpanded && 'rotate-90')} />
-              </button>
-              {isExpanded && (
-                <FileContentViewer sessionId={sessionId} filePath={fp} />
-              )}
-            </div>
-          );
-        })}
+      <div className="space-y-1 px-3 pb-3">
+        {filePaths.map(fp => (
+          <FileRow
+            key={fp}
+            path={fp}
+            sessionId={sessionId}
+            accentColor="var(--aw-blue-light)"
+            isExpanded={expandedFile === fp}
+            onToggle={() => setExpandedFile(expandedFile === fp ? null : fp)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -1018,11 +1120,10 @@ function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; session
   return (
     <div>
       {/* Section header */}
-      <div className="flex items-center gap-2 px-2.5 py-1.5 bg-[var(--aw-bg-0)]">
-        <span className="text-[10px] font-semibold text-[var(--aw-text-2)] uppercase tracking-wide">
-          Files Changed
-        </span>
-        <span className="text-[10px] text-[var(--aw-text-4)]">{changes.length}</span>
+      <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-[var(--aw-text-1)]">
+        <FileCode2 className="h-3 w-3 text-[var(--aw-text-3)]" />
+        Files Changed
+        <span className="text-[10px] text-[var(--aw-text-4)] font-normal">({changes.length})</span>
         <span className="ml-auto flex items-center gap-1.5 text-[10px] font-mono">
           {totalAdd > 0 && <span className="text-[var(--aw-green)]">+{totalAdd}</span>}
           {totalDel > 0 && <span className="text-[var(--aw-red-bright)]">−{totalDel}</span>}
@@ -1030,7 +1131,7 @@ function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; session
       </div>
 
       {/* Per-file rows */}
-      <div className="divide-y divide-[var(--aw-bg-2)]">
+      <div className="mx-3 mb-3 rounded border border-[var(--aw-bg-2)] divide-y divide-[var(--aw-bg-2)] overflow-hidden">
         {changes.map(fc => {
           const isExpanded = expandedFiles.has(fc.filePath);
           const fileName = fc.filePath.split(/[/\\]/).pop() ?? fc.filePath;
@@ -1050,7 +1151,7 @@ function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; session
               {/* File header row */}
               <button
                 onClick={() => toggle(fc.filePath)}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[var(--aw-bg-1)] transition-colors text-left min-w-0"
               >
                 {isExpanded
                   ? <ChevronDown className="h-2.5 w-2.5 text-[var(--aw-text-4)] shrink-0" />
@@ -1064,8 +1165,15 @@ function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; session
                   {typeLabel}
                 </span>
 
-                {/* File name */}
-                <span className="text-[11px] font-semibold text-[var(--aw-text-0)] truncate flex-1">{fileName}</span>
+                {/* File name + path subtitle */}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[11px] font-semibold text-[var(--aw-text-0)] truncate">{fileName}</span>
+                  {!isExpanded && fc.filePath !== fileName && (
+                    <span className="block text-[9px] font-mono text-[var(--aw-text-4)] truncate" title={fc.filePath}>
+                      {fc.filePath}
+                    </span>
+                  )}
+                </span>
                 <span className="text-[9px] text-[var(--aw-text-4)] font-mono shrink-0">{lang}</span>
 
                 {/* +/- stats */}
@@ -1075,20 +1183,13 @@ function FileDiffViewer({ changes, sessionId }: { changes: FileChange[]; session
                 </span>
               </button>
 
-              {/* Full path (shown when collapsed, as a subtitle) */}
-              {!isExpanded && fc.filePath !== fileName && (
-                <div className="px-8 pb-1 text-[9px] text-[var(--aw-bg-3)] font-mono truncate">
-                  {fc.filePath}
-                </div>
-              )}
-
               {/* Expanded: diff or file view */}
               {isExpanded && (() => {
                 const mode = fileViewMode[fc.filePath] ?? 'diff';
                 return (
                   <div className="border-t border-[var(--aw-bg-2)]">
-                    <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--aw-bg-4)] border-b border-[var(--aw-bg-2)]">
-                      <span className="text-[9px] font-mono text-[var(--aw-text-4)] truncate flex-1">{fc.filePath}</span>
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--aw-bg-4)] border-b border-[var(--aw-bg-2)] min-w-0">
+                      <span className="text-[9px] font-mono text-[var(--aw-text-4)] truncate flex-1 min-w-0" title={fc.filePath}>{fc.filePath}</span>
                       <button
                         onClick={e => { e.stopPropagation(); setFileViewMode(prev => ({ ...prev, [fc.filePath]: mode === 'diff' ? 'file' : 'diff' })); }}
                         className={cn(
