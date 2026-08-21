@@ -3,11 +3,12 @@ import fs from 'fs';
 import { getDatabase } from '@/lib/db/database';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { FEEDBACK_CATEGORIES } from '@/types/feedback';
-import type { SkillSummary, SkillDetailData, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
+import type { SkillSummary, SkillDetailData, AnalysisRecommendation, SkillGrowthOpportunity, PhaseGrowthOpportunity } from '@/types/skills';
 import {
   getClaudeProjectsDir,
   listProjectDirs,
   getProjectDisplayName,
+  relativeToHome,
 } from '@/lib/parser/jsonl-parser';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 import {
@@ -82,23 +83,32 @@ function severityRank(level: string | undefined): number {
   }
 }
 
+// `projectDisplayName` here is `skill.project`, which session-ingester sets to
+// `realCwd ? relativeToHome(realCwd) : getProjectDisplayName(dirName)` (see
+// discoverSessions) — a real cwd, when one was found in the session's JSONL,
+// wins over the lossy dash-decoded directory name. Matching must replicate
+// that same precedence per directory, not just `getProjectDisplayName`, or a
+// project whose sessions do carry a real cwd (the common case) never matches
+// and this always falls through to null.
 function resolveSkillProjectCwd(projectDisplayName: string, sourceId?: string): string | null {
   try {
     const projectsDir = getClaudeProjectsDir(sourceId);
     const projectDirs = listProjectDirs(sourceId);
 
     for (const dirName of projectDirs) {
-      if (getProjectDisplayName(dirName) !== projectDisplayName) continue;
-
       const metaDir = path.join(projectsDir, dirName);
       const files = fs.readdirSync(metaDir)
         .filter((f: string) => f.endsWith('.jsonl') && !f.includes('subagent'));
 
+      let cwd: string | null = null;
       for (const file of files) {
-        const fp = path.join(metaDir, file);
-        const cwd = readCwdFromJsonl(fp);
-        if (cwd) return cwd;
+        cwd = readCwdFromJsonl(path.join(metaDir, file));
+        if (cwd) break;
       }
+
+      const displayName = cwd ? relativeToHome(cwd) : getProjectDisplayName(dirName);
+      if (displayName !== projectDisplayName) continue;
+      if (cwd) return cwd;
     }
   } catch { /* non-fatal */ }
   return null;
@@ -248,6 +258,7 @@ export function generateAnalysisPrompt(
   if (totalContextFiles > 0) {
     lines.push(`## Attached Context Documents (${totalContextFiles})\n`);
     lines.push(`The user attached the following document(s) as context. Some are pure background (glossaries, domain docs, specs) — use those only to inform your understanding of the skill's purpose, domain, or audience. If a document is itself an audit, assessment, maturity model, gap analysis, roadmap, or scorecard, route each entry relevant to this skill by what it actually is: an entry that corroborates a problem the execution/feedback history already shows happening now is a Finding; an entry describing a gap this skill could evolve to close (gap → capability this skill could develop → benefit) is a Growth Opportunity, but pick only the highest-value entries this skill can meaningfully influence — not every gap in the document; an entry that is neither yet is still worth naming in Current Status as where the skill stands against the framework. Cite specific entries inline wherever used (see **Output** for the exact style), not summarized in isolation.\n`);
+    lines.push(`Before treating any document entry as already resolved by this skill — and therefore leaving it out of Growth Opportunities — verify that specifically against the current skill definition file you read for this analysis (what it actually instructs the skill to do right now), not against whether a prior cycle already raised it, whether this cycle's execution history is silent on it, or how much time has passed since the document was produced. Absence from Prior Skill Analyses is not evidence of a fix. If the skill definition doesn't clearly show the gap closed, surface it again this cycle even if an earlier cycle also raised it — a genuinely unresolved gap does not get one mention and then silence.\n`);
 
     for (const file of detail.projectContextFiles) {
       lines.push(`### ${file.filename} — project-wide, shared across every skill in \`${skill.project}\`${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : ''}\n`);
@@ -327,6 +338,7 @@ export function generateAnalysisPrompt(
     );
     lines.push(`## Prior Skill Analyses (${detail.analysisCycles.length})\n`);
     lines.push(`For each recommendation below, trace what happened after it: previous problem → the fix that was proposed/applied → what the executions and feedback since then actually show. Classify the outcome as worked (the issue is gone in subsequent data), partially worked (reduced but not eliminated), failed (the same root cause still produces the same issue — treat this as a regression and surface it at higher severity than a first-time finding, since a prior fix already failed to hold), or not yet evaluable (too little execution volume since the fix to tell — say so as uncertainty, not as a resolved or open finding). When a fix failed, say why in mechanism terms — too narrow, covering only one path to the root cause, or addressing the symptom the fix was aimed at rather than the underlying dependency — not just that the issue recurred. Do not restate a prior finding purely to repeat it; restate it only when this trace shows something new about whether it held.\n`);
+    lines.push(`Execution/feedback volume since a prior fix is a slow, indirect signal — thin volume can look like "not yet evaluable" even when the fix was never actually applied. The current skill definition file you read for this analysis is the direct, immediate check: before classifying a prior recommendation as worked, partially worked, or not yet evaluable, confirm whether the proposed change is textually present in the definition now, regardless of whether the linked improvement cycle's status says completed, cancelled, or failed — a cycle marked completed can still have missed the intended edit, and one marked cancelled or failed is direct confirmation the fix never landed, not something to wait on more execution data to resolve. Never classify a fix as worked based on quiet execution/feedback history alone if the definition itself still shows the old behavior.\n`);
 
     for (const cycle of sortedAnalysis) {
       lines.push(`### Analysis #${cycle.cycleNumber} — ${formatDate(cycle.createdAt)}`);
@@ -464,9 +476,10 @@ export function generateAnalysisPrompt(
 
   lines.push(`## Output\n`);
   lines.push(`Every section must reach a useful conclusion supported by the available evidence — substantive prose where the history supports it, and an explicit statement of insufficient evidence where it doesn't, rather than speculation to fill space. This applies regardless of whether a context document is attached: a skill with no attached documents deserves an equally rigorous report, sourced from its definition, feedback, and execution history alone.\n`);
-  lines.push(`Write three sections, in this order:\n`);
+  lines.push(`Language: write every section, and every field value in the JSON below, in plain, everyday language that anyone reading this report can follow — regardless of their technical background or how familiar they are with this specific skill. The labels used to organize your reasoning above ("mechanism", "root cause", "structural cause", "SDLC contribution/impact", "self-correction signal", "affected component") describe how you structure your thinking — they are not words to drop into the prose as if they explain themselves. Describe what is actually happening in plain, specific terms rather than naming the abstract category it falls into. Simplifying the language must not mean dropping specifics — keep every timestamp, count, citation, and concrete detail the report already requires; say the same true, specific thing in plain words, not a vaguer version of it.\n`);
+  lines.push(`Write four sections, in this order:\n`);
   lines.push(`### 1. Current Status`);
-  lines.push(`A paragraph covering: the skill's health trend (improving, stable, degrading, or indeterminate — use indeterminate rather than stable when volume is too thin to support a trend) with evidence from the timestamps; how reliably it is being used (execution volume, recurrence of issues, whether fixes have held); and, if an attached document scores or audits this skill's domain, where it currently sits against that framework, including any relevant entry that named neither a Finding nor a Growth Opportunity. This is a status report someone could read without opening any recommendation.\n`);
+  lines.push(`Write 2-4 short paragraphs, separated by a blank line, not one dense block — this is a status report someone could read at a glance without opening any recommendation, so it needs visible breaks between ideas, not just topic changes mid-sentence. Cover, roughly one topic per paragraph: (1) the skill's health trend (improving, stable, degrading, or indeterminate — use indeterminate rather than stable when volume is too thin to support a trend) with evidence from the timestamps; (2) how reliably it is being used (execution volume, recurrence of issues, whether fixes have held); (3) if an attached document scores or audits this skill's domain, where it currently sits against that framework, including any relevant entry that named neither a Finding nor a Growth Opportunity. Skip any paragraph with nothing to say rather than padding it.\n`);
   lines.push(`### 2. Findings & Fixes`);
   lines.push(`Surface each meaningful finding from the reasoning in **Analysis Approach** above, each paired with a concrete fix. Explain the pattern like you're briefing someone who has not read the raw data — what is happening, the mechanism behind it, the evidence, your confidence, and, where a prior recommendation targeted the same area, whether it worked, partially worked, failed, or can't yet be evaluated. Prefer the smallest structural change that addresses the identified root cause over a broad rewrite; a recommendation should change the skill's behavior or reasoning mechanism, not add wording that merely restates an instruction the skill already contains. If nothing meaningful surfaces, say so directly; this section is allowed to be short when the history is clean.\n`);
   lines.push(`### 3. Growth Opportunities`);
@@ -474,14 +487,22 @@ export function generateAnalysisPrompt(
   lines.push(`With no such document, ground opportunities in the skill's own definition and SDLC potential instead. Either way, execution history plays a supporting role only: use it to validate that an opportunity is feasible, or to show where the skill has already demonstrated room to grow — not to re-surface a Findings & Fixes item under a new name. Look for ways this skill could become more self-verifying, more autonomous, and better connected to the rest of the SDLC (its inputs, its outputs, and what happens next) — only where genuinely grounded in what this skill does, not as a checklist to fill.`);
   lines.push(`Rank each opportunity high/medium/low by how much it would move this skill's reliability or SDLC contribution — this is required per opportunity, the same way severity is required per finding above.`);
   lines.push(`If nothing genuine applies, say so rather than inventing generic advice — an empty section is better than padding.\n`);
+  lines.push(`### 4. Phase-Level Growth Opportunities`);
+  lines.push(`This section is distinct from Growth Opportunities above and easy to conflate with it — keep them apart. Growth Opportunities asks what *this skill* can develop; this section asks what *the whole SDLC phase or domain this skill belongs to* still lacks, using an attached audit/maturity/gap-analysis/roadmap/scorecard as the primary source. Only write this section when such a document is attached and gives enough evidence to reason about the phase as a whole (e.g. a "Testing & QA" or "Code Review & Security" category with multiple conditions) — not merely because the skill exists. If no such document is attached, or it doesn't cover this skill's domain at the phase level, say so explicitly and leave the section empty; do not invent a phase framework that isn't in the evidence.`);
+  lines.push(`First identify which phase/domain in the document this skill belongs to (e.g. this skill's actions map it to "Testing & QA"). Then, for each opportunity, reason through this chain and make every link explicit, not just the endpoints: current skill → what this skill contributes to that phase today → the resulting phase capability once this skill's own Growth Opportunities (Section 3) are implemented → what the phase's audited conditions still mark as unmet or partial beyond that → why this specific skill cannot or should not be the thing that closes that remaining gap (wrong layer, wrong owner, requires infrastructure or a different skill/process entirely) → the concrete next capability, skill, process, or automation the team would need to build instead. This is a roadmap from where the skill's own improvements land to where the phase as a whole still falls short, not a second list of things this skill should do.`);
+  lines.push(`Do not restate a Section 3 Growth Opportunity here under a new name, and do not turn every unmet condition in the document into an entry — pick only the conditions that are relevant to this skill's phase and materially help the user understand what remains beyond this skill's responsibility. A gap in an unrelated phase (e.g. deployment conditions, when this skill is a testing skill) does not belong here even if the same document contains it.`);
+  lines.push(`Rank each opportunity high/medium/low by how much closing it would move the phase's overall maturity — this is about the phase's contribution, not this skill's own reliability (that ranking belongs to Section 3).`);
+  lines.push(`If nothing genuine applies — no audit document, or nothing in it reasons cleanly to a phase-level gap this skill doesn't own — say so directly rather than padding; an empty section is better than a forced one.\n`);
   lines.push(`### Citing attached documents`);
   lines.push(`Wherever any section above draws on an attached document, cite it inline the way you would in a written report — name the document and the specific entry, condition, sheet, or score it comes from (e.g. "per MaturityAssessment.xlsx, condition 3.2 (Not Met), ..."), woven into the sentence, not appended as a separate checklist. That specificity is what makes it verifiable that the document was actually read rather than skimmed for keywords — a vague reference like "the maturity assessment suggests improvements" is not acceptable. If an attached document contains no evidence relevant to this skill's analysis, do not force it into the report; briefly note this in Current Status only when useful for explaining the scope of the assessment.\n`);
   lines.push(`Do not make any changes to files. This is an analysis report only. Growth Opportunities are strategic and belong to the user's judgment, not \`fixPrompt\` — only Findings & Fixes recommendations that are safe, concrete file edits belong there. \`fixPrompt\` must be a single implementation prompt that addresses every entry in \`recommendations\` together, not just the first or highest-severity one, and it must scope its edits to this skill's own definition file (and, where relevant, its own bundled resources) — not to unrelated parts of the repository. It must preserve everything about the skill's existing behavior that the evidence didn't identify as part of the problem — no unrelated rewrites, restructuring, or speculative improvements pulled in from Growth Opportunities. If Findings & Fixes has nothing to report, \`fixPrompt\` should be omitted or empty.\n`);
   lines.push(`End with:\n`);
   lines.push('```json');
-  lines.push(`{"currentStatus": "...", "recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "...", "evidence": ["..."], "confidence": "high|medium|low", "selfCorrectionSignal": "..."}], "growthOpportunities": [{"title": "...", "currentState": "...", "targetState": "...", "rationale": "...", "sdlcImpact": "...", "suggestedChange": "...", "impact": "high|medium|low", "sourceDocument": "filename or null", "sourceEvidence": "specific entry, condition, score, sheet, or section, or null"}], "fixPrompt": "..."}`);
+  lines.push(`{"currentStatus": "...", "recommendations": [{"severity": "high|medium|low", "title": "...", "rootCause": "...", "affectedComponent": "...", "proposedChange": "...", "evidence": ["..."], "confidence": "high|medium|low", "selfCorrectionSignal": "..."}], "growthOpportunities": [{"title": "...", "currentState": "...", "targetState": "...", "rationale": "...", "sdlcImpact": "...", "suggestedChange": "...", "impact": "high|medium|low", "sourceDocument": "filename or null", "sourceEvidence": "specific entry, condition, score, sheet, or section, or null"}], "phaseGrowthOpportunities": [{"phase": "...", "title": "...", "currentContribution": "...", "afterSkillImprovements": "...", "remainingGap": "...", "whyOutOfScope": "...", "recommendedNextCapability": "...", "impact": "high|medium|low", "sourceDocument": "filename or null", "sourceEvidence": "specific entry, condition, score, sheet, or section, or null"}], "fixPrompt": "..."}`);
   lines.push('```');
+  lines.push(`\`currentStatus\` is not a separate, compressed summary of Section 1 — it IS Section 1's content, verbatim, and it is what actually gets shown to the user (the free-form write-up above it is discarded). It must keep the same 2-4 paragraph structure from the Current Status instructions, with a blank line (\`\\n\\n\` in the JSON string) between paragraphs — do not collapse it into one dense block just because it's a JSON string value.`);
   lines.push(`\`rootCause\` and \`proposedChange\` should each be a few sentences, matching the depth of the Current Status and Growth Opportunities prose above — not a fragment. \`rootCause\` should name the mechanism producing the symptom (including, if applicable, why an earlier fix in this area didn't hold), and \`proposedChange\` should make clear why this change addresses that mechanism rather than the surface symptom. \`evidence\` is a list of specific, citable data points backing the finding — timestamps, session IDs, counts, or a document citation in the inline style above; weight repeated evidence over an isolated instance. \`selfCorrectionSignal\` is a concrete, observable signal in future execution data that would confirm the fix held or reveal it didn't. \`impact\` on a growth opportunity is how much it would move this skill's reliability or SDLC contribution if pursued. \`sourceDocument\` is the filename it came from, or \`null\` if it came purely from the skill definition/execution history; when set, \`sourceEvidence\` names the specific entry, condition, or score within that document driving this opportunity — the structured counterpart to the inline citation in the prose above, or \`null\` if \`sourceDocument\` is \`null\`.`);
+  lines.push(`\`phaseGrowthOpportunities\` is the structured form of Section 4 — omit it (or leave it an empty array) whenever that section has nothing genuine to report. \`phase\` names the SDLC phase/domain from the attached document this entry belongs to (e.g. "Testing & QA"). \`currentContribution\` and \`afterSkillImprovements\` describe the bridge from this skill's present state to the phase capability it enables once its own Section 3 opportunities ship. \`remainingGap\` is what the phase's audited conditions still mark unmet or partial beyond that. \`whyOutOfScope\` explains concretely why this skill isn't the right owner for that gap. \`recommendedNextCapability\` names the next skill, process, or automation the team would need instead. \`impact\` ranks by how much closing the gap would move the phase's overall maturity, not this skill's own reliability. \`sourceDocument\`/\`sourceEvidence\` follow the same rule as in \`growthOpportunities\` and should not be \`null\` here — this section only exists when a phase-level audit document supports it.`);
 
   return lines.join('\n');
 }
@@ -602,6 +623,7 @@ export async function runSkillAnalysis(
     let fixPrompt: string | null = null;
     let currentStatus: string | null = null;
     let growthOpportunities: SkillGrowthOpportunity[] | null = null;
+    let phaseGrowthOpportunities: PhaseGrowthOpportunity[] | null = null;
     const parsed = extractJsonFence(fullResponse);
     if (parsed) {
       if (Array.isArray(parsed.recommendations)) {
@@ -616,6 +638,10 @@ export async function runSkillAnalysis(
       }
       if (Array.isArray(parsed.growthOpportunities)) {
         growthOpportunities = (parsed.growthOpportunities as SkillGrowthOpportunity[])
+          .sort((a, b) => severityRank(a.impact) - severityRank(b.impact));
+      }
+      if (Array.isArray(parsed.phaseGrowthOpportunities)) {
+        phaseGrowthOpportunities = (parsed.phaseGrowthOpportunities as PhaseGrowthOpportunity[])
           .sort((a, b) => severityRank(a.impact) - severityRank(b.impact));
       }
     }
@@ -638,6 +664,7 @@ export async function runSkillAnalysis(
       recommendations,
       currentStatus,
       growthOpportunities,
+      phaseGrowthOpportunities,
       status: finalStatus,
       streamEntries: log.entries.length > 0 ? log.entries : null,
     }, sourceId);

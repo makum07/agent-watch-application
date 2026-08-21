@@ -51,6 +51,7 @@ export interface SkillAnalysisCycle {
   recommendations: AnalysisRecommendation[] | null;
   currentStatus: string | null;
   growthOpportunities: SkillGrowthOpportunity[] | null;
+  phaseGrowthOpportunities: PhaseGrowthOpportunity[] | null;
   status: AnalysisStatus;
   createdAt: string;
   completedAt: string | null;
@@ -86,6 +87,32 @@ export interface SkillGrowthOpportunity {
   impact: 'high' | 'medium' | 'low';
   sourceDocument: string | null;
   /** The specific entry, condition, score, sheet, or section within sourceDocument this opportunity traces back to — preserves the audit-to-opportunity link structurally instead of only in prose. */
+  sourceEvidence: string | null;
+}
+
+// Forward-looking, phase-scoped counterpart to `SkillGrowthOpportunity` —
+// where that type asks "what can this skill itself develop," this one asks
+// "what does this skill's whole SDLC phase/domain still lack, once this
+// skill's own growth opportunities are realized." Populated only when an
+// attached audit/maturity document gives enough evidence to reason about the
+// phase as a whole, not just this skill's slice of it.
+export interface PhaseGrowthOpportunity {
+  /** The SDLC phase/domain this opportunity belongs to, e.g. "Testing & QA". */
+  phase: string;
+  title: string;
+  /** What this skill contributes to the phase today. */
+  currentContribution: string;
+  /** What the phase gains once this skill's own Growth Opportunities are implemented — the bridge from skill-level to phase-level. */
+  afterSkillImprovements: string;
+  /** What the phase still lacks per the audit/maturity document, beyond what this skill could ever cover. */
+  remainingGap: string;
+  /** Why this specific skill can't or shouldn't own that remaining gap. */
+  whyOutOfScope: string;
+  /** The next capability, skill, process, or automation the team would need to build to close the remaining gap. */
+  recommendedNextCapability: string;
+  impact: 'high' | 'medium' | 'low';
+  sourceDocument: string | null;
+  /** The specific entry, condition, score, sheet, or section within sourceDocument this opportunity traces back to. */
   sourceEvidence: string | null;
 }
 

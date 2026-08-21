@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   ChevronRight, Play, Check, X, AlertTriangle, Clock,
   Loader2, Trash2, FileText, Brain, Terminal, Wrench, Eye,
-  Activity, TrendingUp, Copy,
+  Activity, TrendingUp, Copy, Map as MapIcon,
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
@@ -12,7 +12,7 @@ import { ModelSelect } from '@/components/shared/model-select';
 import { StopButton } from '@/components/shared/stop-button';
 import { CopyableSessionId } from '@/components/shared/copyable-session-id';
 import { cn } from '@/lib/utils';
-import type { SkillAnalysisCycle, AnalysisRecommendation, SkillGrowthOpportunity } from '@/types/skills';
+import type { SkillAnalysisCycle, AnalysisRecommendation, SkillGrowthOpportunity, PhaseGrowthOpportunity } from '@/types/skills';
 import type { StreamEntry } from '@/types/feedback';
 
 interface AnalysisHistoryProps {
@@ -326,6 +326,7 @@ function CycleListItem({ cycle, isSelected, onSelect, onDelete }: {
   });
   const recCount = cycle.recommendations?.length ?? 0;
   const growthCount = cycle.growthOpportunities?.length ?? 0;
+  const phaseGrowthCount = cycle.phaseGrowthOpportunities?.length ?? 0;
 
   return (
     <div
@@ -337,35 +338,39 @@ function CycleListItem({ cycle, isSelected, onSelect, onDelete }: {
       style={{ borderLeftWidth: '3px', borderLeftColor: status.color }}
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-xs font-bold text-[var(--aw-text-0)]">#{cycle.cycleNumber}</span>
+        <span className="text-xs font-bold text-[var(--aw-text-0)] shrink-0">#{cycle.cycleNumber}</span>
         <span
-          className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded"
+          className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap"
           style={{ color: status.color, background: `${status.color}18` }}
         >
           {status.icon}
           {status.label}
         </span>
-        {cycle.model && (
-          <span
-            className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)]"
-            title="Model the CLI actually ran with"
-          >
-            {cycle.model}
-          </span>
-        )}
-        {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-opacity"
+          className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--aw-bg-3)] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-opacity shrink-0"
           title="Delete cycle"
         >
           <Trash2 className="h-3 w-3" />
         </button>
       </div>
-      <div className="text-[10px] text-[var(--aw-text-4)]">
+      <div className="text-[10px] text-[var(--aw-text-4)] truncate">
         {cycle.triggerType === 'auto_threshold' ? 'Auto' : 'Manual'} · {date}
       </div>
-      {(recCount > 0 || growthCount > 0) && (
+      {(cycle.model || cycle.cliSessionId) && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {cycle.model && (
+            <span
+              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] whitespace-nowrap shrink-0"
+              title="Model the CLI actually ran with"
+            >
+              {cycle.model}
+            </span>
+          )}
+          {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
+        </div>
+      )}
+      {(recCount > 0 || growthCount > 0 || phaseGrowthCount > 0) && (
         <div className="flex items-center gap-1.5">
           {recCount > 0 && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-purple-light)]/10 text-[var(--aw-purple-light)]">
@@ -375,6 +380,11 @@ function CycleListItem({ cycle, isSelected, onSelect, onDelete }: {
           {growthCount > 0 && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-green)]/10 text-[var(--aw-green)]">
               {growthCount} growth
+            </span>
+          )}
+          {phaseGrowthCount > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--aw-blue)]/10 text-[var(--aw-blue)]">
+              {phaseGrowthCount} phase
             </span>
           )}
         </div>
@@ -431,6 +441,7 @@ function CycleDetailPanel({
   const hasSummary = !!cycle.currentStatus
     || (cycle.recommendations?.length ?? 0) > 0
     || (cycle.growthOpportunities?.length ?? 0) > 0
+    || (cycle.phaseGrowthOpportunities?.length ?? 0) > 0
     || !!cycle.fixPrompt;
 
   const tabs: Array<{ key: DetailTab; label: string; show: boolean }> = [
@@ -557,8 +568,8 @@ function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPrompt
       </div>
 
       {cycle.currentStatus && (
-        <CalloutField label="Current Status" tone="purple" icon={<Activity className="h-2.5 w-2.5" />}>
-          <MarkdownRenderer content={cycle.currentStatus} size="sm" />
+        <CalloutField label="Current Status" tone="purple" icon={<Activity className="h-3 w-3" />} size="base">
+          <MarkdownRenderer content={cycle.currentStatus} size="base" />
         </CalloutField>
       )}
 
@@ -583,6 +594,20 @@ function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPrompt
           </div>
           <div className="space-y-2">
             {cycle.growthOpportunities.map((op, i) => <GrowthOpportunityCard key={i} op={op} />)}
+          </div>
+        </div>
+      )}
+
+      {cycle.phaseGrowthOpportunities && cycle.phaseGrowthOpportunities.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <MapIcon className="h-3 w-3 text-[var(--aw-blue)]" />
+            <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
+              Phase-Level Growth Opportunities ({cycle.phaseGrowthOpportunities.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {cycle.phaseGrowthOpportunities.map((op, i) => <PhaseGrowthOpportunityCard key={i} op={op} />)}
           </div>
         </div>
       )}
@@ -898,20 +923,21 @@ const CALLOUT_TONES: Record<'green' | 'purple', string> = {
   purple: 'var(--aw-purple-light)',
 };
 
-function CalloutField({ label, children, tone = 'green', icon }: {
+function CalloutField({ label, children, tone = 'green', icon, size = 'sm' }: {
   label: string;
   children: React.ReactNode;
   tone?: 'green' | 'purple';
   icon?: React.ReactNode;
+  size?: 'sm' | 'base';
 }) {
   const color = CALLOUT_TONES[tone];
   return (
-    <div className="rounded border p-2.5" style={{ borderColor: `${color}40`, background: `${color}0d` }}>
-      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color }}>
+    <div className="rounded-lg border p-3.5" style={{ borderColor: `${color}40`, background: `${color}0d` }}>
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color }}>
         {icon}
         {label}
       </div>
-      <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{children}</div>
+      <div className={cn(size === 'base' ? 'text-[13px]' : 'text-[11px]', 'text-[var(--aw-text-1)] leading-relaxed')}>{children}</div>
     </div>
   );
 }
@@ -1018,6 +1044,63 @@ function GrowthOpportunityCard({ op }: { op: SkillGrowthOpportunity }) {
           <Field label="Why it matters">{op.rationale}</Field>
           <Field label="SDLC impact">{op.sdlcImpact}</Field>
           <CalloutField label="Suggested change">{op.suggestedChange}</CalloutField>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Phase-Level Growth Opportunity Card ─────────────────────────────────────────
+
+function PhaseGrowthOpportunityCard({ op }: { op: PhaseGrowthOpportunity }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border-l-2 border-l-[var(--aw-blue)] bg-[var(--aw-blue)]/5 rounded-r overflow-hidden">
+      <button
+        className="w-full flex items-center gap-2 p-3 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        {op.impact && (
+          <span className="text-[10px] uppercase font-semibold tracking-wider text-[var(--aw-text-2)] shrink-0 w-14">
+            {op.impact}
+          </span>
+        )}
+        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-blue)]/15 text-[var(--aw-blue)] shrink-0">
+          {op.phase}
+        </span>
+        <span className="text-xs font-medium text-[var(--aw-text-0)] flex-1">{op.title}</span>
+        {op.sourceDocument && (
+          <span
+            className="text-[9px] text-[var(--aw-text-4)] font-mono shrink-0 truncate max-w-[140px]"
+            title={op.sourceEvidence ? `${op.sourceDocument} — ${op.sourceEvidence}` : op.sourceDocument}
+          >
+            {op.sourceDocument}
+          </span>
+        )}
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 pt-2.5 space-y-3 border-t border-[var(--aw-bg-2)]">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)] p-2.5">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-text-3)] mb-1">This skill contributes today</div>
+              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{op.currentContribution}</div>
+            </div>
+            <div className="rounded border border-[var(--aw-green)]/25 bg-[var(--aw-green)]/5 p-2.5">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-green)] mb-1">After this skill&apos;s growth opportunities</div>
+              <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{op.afterSkillImprovements}</div>
+            </div>
+          </div>
+
+          <div className="rounded border border-[var(--aw-orange-bright)]/25 bg-[var(--aw-orange-bright)]/5 p-2.5">
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--aw-orange-bright)] mb-1">Remaining phase gap</div>
+            <div className="text-[11px] text-[var(--aw-text-1)] leading-relaxed">{op.remainingGap}</div>
+          </div>
+
+          {op.sourceEvidence && <Field label="Source evidence">{op.sourceEvidence}</Field>}
+          <Field label="Why this skill can't own it">{op.whyOutOfScope}</Field>
+          <CalloutField label="Recommended next capability">{op.recommendedNextCapability}</CalloutField>
         </div>
       )}
     </div>
