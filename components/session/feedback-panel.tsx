@@ -20,6 +20,7 @@ import {
 } from '@/components/shared/collapsible-stream-log';
 import { ModelSelect } from '@/components/shared/model-select';
 import { StopButton } from '@/components/shared/stop-button';
+import { MetaChip, CycleSectionHeader } from '@/components/shared/cycle-section';
 import { cn, formatDuration } from '@/lib/utils';
 import type { ImprovementCycle } from '@/types/feedback';
 
@@ -647,49 +648,6 @@ interface CycleCardProps {
   pendingApprovals: Map<string, { toolName: string; toolInput: Record<string, unknown> }>;
   onApprove: (requestId: string) => void;
   onDeny: (requestId: string) => void;
-}
-
-// A small icon+text pill used in the cycle header's at-a-glance meta strip —
-// one shared shape so the summary reads as a single row instead of ad-hoc bits.
-function MetaChip({ icon, children, color }: { icon: React.ReactNode; children: React.ReactNode; color?: string }) {
-  return (
-    <span className="flex items-center gap-1 shrink-0" style={color ? { color } : undefined}>
-      <span className="shrink-0 [&>svg]:h-2.5 [&>svg]:w-2.5">{icon}</span>
-      <span className="whitespace-nowrap">{children}</span>
-    </span>
-  );
-}
-
-// Shared header for every collapsible sub-section inside an expanded cycle
-// (prompt, files, activity log) — one consistent shape instead of each
-// section inventing its own icon/label/count/chevron layout.
-function CycleSectionHeader({
-  icon, label, count, trailing, open, onToggle,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count?: number;
-  trailing?: React.ReactNode;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={e => { e.stopPropagation(); onToggle(); }}
-      className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-[var(--aw-bg-2)]/40 transition-colors text-left"
-    >
-      {open
-        ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
-        : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />}
-      <span className="shrink-0 text-[var(--aw-text-3)] [&>svg]:h-3 [&>svg]:w-3">{icon}</span>
-      <span className="text-[11px] font-medium text-[var(--aw-text-1)]">{label}</span>
-      {count !== undefined && (
-        <span className="text-[10px] text-[var(--aw-text-4)]">({count})</span>
-      )}
-      <span className="flex-1" />
-      {trailing && <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{trailing}</span>}
-    </button>
-  );
 }
 
 function CycleCard({ cycle, sessionId, isLatest, isExpanded, onToggle, onRewind, onDelete, streamEntries, pendingApprovals, onApprove, onDeny }: CycleCardProps) {
