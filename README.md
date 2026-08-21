@@ -196,6 +196,8 @@ npm install
 npm run dev:server
 ```
 
+(`npm run aw` is a shorter alias for the same command.)
+
 By default AgentWatch auto-detects your Claude data at `~/.claude` (macOS/Linux) or `%USERPROFILE%\.claude` (Windows) — no configuration needed for a standard install.
 
 **Step 2 — (Optional) Point to a non-standard Claude data path**
