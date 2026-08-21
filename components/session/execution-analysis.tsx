@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Sparkles, Play, Loader2, ChevronDown, ChevronRight,
-  Copy, Check, Trash2, Eye, EyeOff,
+  Copy, Check, Trash2, Eye, EyeOff, MessageSquarePlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useExecutionAnalysisStore } from '@/store/execution-analysis-store';
+import { useFeedbackStore } from '@/store/feedback-store';
+import { useSessionStore } from '@/store/session-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { CollapsibleStreamLog } from '@/components/shared/collapsible-stream-log';
@@ -15,6 +17,7 @@ import { StopButton } from '@/components/shared/stop-button';
 import { CopyableSessionId } from '@/components/shared/copyable-session-id';
 import type { SessionEvent } from '@/types/events';
 import type { ExecutionAnalysisCycle, ExecutionRecommendation } from '@/types/analytics';
+import { FEEDBACK_CATEGORIES, type FeedbackCategory } from '@/types/feedback';
 
 interface ExecutionAnalysisProps {
   sessionId: string;
@@ -398,7 +401,7 @@ function CycleCard({
               </h5>
               <div className="space-y-2">
                 {cycle.recommendations.map((rec, i) => (
-                  <AIRecommendationCard key={i} rec={rec} />
+                  <AIRecommendationCard key={i} rec={rec} sessionId={sessionId} />
                 ))}
               </div>
             </div>
@@ -423,7 +426,35 @@ function humanizeLabel(raw: string): string {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
+function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation; sessionId: string }) {
+  const addFeedback = useFeedbackStore(s => s.addFeedback);
+  const { agentMap } = useSessionStore();
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'adding' | 'added'>('idle');
+
+  const validCategory = FEEDBACK_CATEGORIES.some(c => c.value === rec.feedbackCategory)
+    ? (rec.feedbackCategory as FeedbackCategory)
+    : 'other';
+
+  // Resolved from the session's own agent data rather than trusting the
+  // model to echo a name back — the id is all it needs to get right.
+  const targetAgent = rec.agentId ? agentMap.get(rec.agentId) : undefined;
+  const targetAgentName = targetAgent
+    ? (targetAgent.description?.slice(0, 60) || targetAgent.subagentType || targetAgent.type)
+    : null;
+
+  const handleAddFeedback = async () => {
+    if (!rec.agentId || !rec.feedbackText || feedbackState !== 'idle') return;
+    setFeedbackState('adding');
+    const created = await addFeedback({
+      sessionId,
+      agentId: rec.agentId,
+      agentName: targetAgentName,
+      category: validCategory,
+      text: rec.feedbackText,
+    });
+    setFeedbackState(created ? 'added' : 'idle');
+  };
+
   const severityColors: Record<string, string> = {
     critical: 'text-[var(--aw-red)] bg-[var(--aw-red)]/10',
     high: 'text-[var(--aw-orange)] bg-[var(--aw-orange)]/10',
@@ -483,10 +514,44 @@ function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
         </p>
       )}
       {rec.evidence && (
-        <p className="text-[10px] text-[var(--aw-text-3)] mt-1 italic">{rec.evidence}</p>
+        Array.isArray(rec.evidence) ? (
+          <ul className="text-[10px] text-[var(--aw-text-3)] mt-1 italic list-disc list-inside space-y-0.5">
+            {rec.evidence.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        ) : (
+          <p className="text-[10px] text-[var(--aw-text-3)] mt-1 italic">{rec.evidence}</p>
+        )
       )}
       {rec.recommendation && (
         <p className="text-[10px] text-[var(--aw-blue)] mt-1">{rec.recommendation}</p>
+      )}
+      {rec.agentId && rec.feedbackText && (
+        <div className="mt-1.5 pt-1.5 border-t border-[var(--aw-bg-2)]">
+          {targetAgentName && (
+            <p className="text-[9px] text-[var(--aw-text-4)] mb-0.5">
+              Feedback for <span className="text-[var(--aw-text-2)] font-medium">{targetAgentName}</span>
+            </p>
+          )}
+          <div className="flex items-start gap-1.5">
+            <p className="text-[10px] text-[var(--aw-text-2)] flex-1">{rec.feedbackText}</p>
+            <button
+              onClick={handleAddFeedback}
+              disabled={feedbackState !== 'idle'}
+              className={cn(
+                'flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded shrink-0 transition-colors',
+                feedbackState === 'added'
+                  ? 'text-[var(--aw-green)]'
+                  : 'text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)]',
+              )}
+              title={`Add as feedback (${humanizeLabel(validCategory)})`}
+            >
+              {feedbackState === 'added'
+                ? <Check className="h-2.5 w-2.5" />
+                : <MessageSquarePlus className="h-2.5 w-2.5" />}
+              {feedbackState === 'added' ? 'Added' : feedbackState === 'adding' ? 'Adding…' : 'Add as Feedback'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

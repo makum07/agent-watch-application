@@ -1066,10 +1066,17 @@ export interface AnalysisPromptData {
   feedbackItems?: Array<Record<string, unknown>>;
   improvementCycles?: Array<Record<string, unknown>>;
   skillDefinitionPaths?: Map<string, string>;
+  agentDefinitionPaths?: Map<string, string>;
+  priorExecutionAnalyses?: Array<{
+    cycleNumber: number;
+    createdAt: string;
+    status: string;
+    recommendations: Array<{ severity: string; title: string }> | null;
+  }>;
 }
 
 export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): string {
-  const { session, projectDir, facts, agentJsonlPaths, agentJsonlStats, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths } = data;
+  const { session, projectDir, facts, agentJsonlPaths, agentJsonlStats, agentToolTimelines, artifacts, feedbackItems, improvementCycles, skillDefinitionPaths, agentDefinitionPaths, priorExecutionAnalyses } = data;
   const lines: string[] = [];
 
   const agentMap = new Map(session.agents.map(a => [a.id, a]));
@@ -1079,7 +1086,7 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
 
   lines.push(`# Session Analysis — ${session.project}\n`);
   lines.push(`You are analyzing a completed multi-agent session running as Claude Code inside \`${projectDir}\`. Your goal is to surface specific observations the user can quickly review and add as feedback — not to produce a comprehensive report.\n`);
-  lines.push(`Work through the agents listed under **Agents** below one at a time, top to bottom: read its definition file(s), then read its own conversation JSONL, judge it against **What Counts as a Finding** while that definition and conversation are still the only ones in view, then move to the next agent. Do not read ahead into a later agent's files, and do not batch reads across agents — a comparison made after skimming several agents' worth of files at once is unreliable.\n`);
+  lines.push(`Analyze agents independently in the order listed under **Agents** below. For each agent, read its definition and conversation before evaluating it against **What Counts as a Finding**, and do not use evidence from another agent to infer a finding for the current agent.\n`);
 
   // ── Session metadata ─────────────────────────────────────────────────
 
@@ -1117,11 +1124,11 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
   lines.push(`## What Counts as a Finding\n`);
   lines.push(`A finding is worth surfacing in either of these cases:\n`);
   lines.push(`1. **Violated instruction** — a specific instruction in a skill or agent definition was not followed, or the agent's output contradicts its defined responsibility.`);
-  lines.push(`2. **Missing guardrail** — the agent got stuck, thrashed, or wasted significant cost/time (e.g. repeatedly retrying a denied or failing operation through different tools instead of stopping and surfacing the blocker) and its definition has no instruction that would have prevented this. The absence of an instruction is itself the finding — don't require a violated rule to flag costly unproductive behavior.\n`);
-  lines.push(`For each one, establish:\n`);
-  lines.push(`- Which instruction was violated, or which guardrail is missing, in which definition file`);
-  lines.push(`- What the agent actually did (cite from the JSONL)`);
-  lines.push(`- Whether the deviation likely affected the result, and its cost/time impact if significant\n`);
+  lines.push(`2. **Missing guardrail** — a reasonable instruction in the definition could have prevented clearly avoidable, unproductive behavior. Report it only when one or more of these hold: the same failed action was repeated without new information; multiple tools were tried despite the same blocker remaining unchanged; the agent continued after an explicit terminal condition; the behavior consumed materially more tool calls/tokens/time without increasing progress; or the agent failed to surface a blocker that prevented completion. The absence of an instruction is itself the finding — don't require a violated rule to flag it, but don't flag ordinary inefficiency (e.g. a few exploratory searches before finding the right file) either.\n`);
+  lines.push(`Do not treat an unsuccessful task outcome as an agent or skill defect by itself. Distinguish the agent failing to follow its instructions from the agent correctly encountering an external blocker, missing input, unavailable resource, or inherently unsuccessful task — flag the former, not the latter, unless the definition lacked a reasonable guardrail for handling that situation.\n`);
+  lines.push(`The relevant definition may be the skill definition or the agent definition — identify which one actually contains the violated instruction or missing guardrail rather than attributing it to whichever is more convenient.\n`);
+  lines.push(`For each one, establish a chain from definition to proposed change: which instruction was violated or which guardrail is missing (name the definition file) → what the agent actually did (cite from the JSONL) → the impact, if the deviation likely affected the result or cost significant time/tokens → the specific change that would close the gap. A finding that skips a link in this chain — asserting impact without citing JSONL evidence, or proposing a change without a clear root cause — is not ready to report. "The agent should improve its error handling" is not this chain; "the agent definition says to stop after a permission denial, but the JSONL shows four subsequent attempts using different tools that produced the same denial, adding 18 seconds and 6 tool calls without changing the outcome — add an explicit stop-and-surface rule for repeated permission denials" is.\n`);
+  lines.push(`Prefer direct JSONL evidence from the agent's own actions, tool calls, and final output. Do not infer an instruction violation from metadata such as FAIL status, tool-error counts, cost, or duration alone — those flag where to look, but only the agent's actual actions and output establish what happened. A FAIL outcome does not by itself mean the agent violated its instructions, and high token usage does not by itself mean the execution was inefficient; confirm each against the JSONL before treating it as a finding.\n`);
   lines.push(`If an agent's behavior matches its definition and it didn't waste significant cost/time on unproductive retries, move on without writing anything for it. Do not flag general observations that aren't grounded in specific evidence from the JSONL.\n`);
 
   // ── AgentWatch supplementary data ────────────────────────────────────
@@ -1129,40 +1136,57 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
   // before the agent list so it's already known while judging each one,
   // rather than discovered afterward.
 
-  if ((feedbackItems && feedbackItems.length > 0) || (improvementCycles && improvementCycles.length > 0)) {
-    lines.push(`## Prior Context\n`);
-    lines.push(`This data is from AgentWatch — not in session JSONLs. Use as supplementary clues.\n`);
+  lines.push(`## Prior Context\n`);
+  lines.push(`This data is from AgentWatch — not in session JSONLs. Use as supplementary clues; an empty subsection below means there is genuinely nothing recorded, not that it was left out.\n`);
 
-    if (feedbackItems && feedbackItems.length > 0) {
-      lines.push(`**Feedback already recorded (${feedbackItems.length}) — do not duplicate:**`);
-      for (const fb of feedbackItems) {
-        lines.push(`- [${fb.category}] ${fb.text} *(${fb.agent_name || 'unknown'})*`);
-      }
-      lines.push('');
+  if (priorExecutionAnalyses && priorExecutionAnalyses.length > 0) {
+    lines.push(`**Prior AI analyses of this session (${priorExecutionAnalyses.length}):**`);
+    lines.push(`Check whether this session's own evidence still shows the problem behind each recommendation below. If it does, the recommendation was never acted on or didn't hold — say so rather than re-deriving it as if it were new. Restate a prior recommendation only when this pass shows something new about whether it still applies.`);
+    for (const cycle of priorExecutionAnalyses) {
+      const recs = cycle.recommendations;
+      const recSummary = recs && recs.length > 0
+        ? recs.map(r => `[${r.severity}] ${r.title}`).join('; ')
+        : 'no recommendations';
+      lines.push(`- Cycle #${cycle.cycleNumber} (${cycle.status}, ${formatDate(cycle.createdAt)}): ${recSummary}`);
     }
+    lines.push('');
+  } else {
+    lines.push(`**Prior AI analyses:** None — this is the first AI analysis of this session.\n`);
+  }
 
-    if (improvementCycles && improvementCycles.length > 0) {
-      // Collapse near-identical prompt previews (e.g. re-runs on the same
-      // feedback with no new observations) so repeats don't pad this
-      // section with copies that add no signal.
-      const seenPreviews = new Set<string>();
-      const dedupedCycles = improvementCycles.filter(cycle => {
-        const p = (cycle.generated_prompt as string | undefined)?.slice(0, 200) ?? '';
-        const key = p || `#${cycle.cycle_number}`;
-        if (seenPreviews.has(key)) return false;
-        seenPreviews.add(key);
-        return true;
-      });
-      const omitted = improvementCycles.length - dedupedCycles.length;
-
-      lines.push(`**Prior improvement cycles (${dedupedCycles.length}${omitted > 0 ? `, ${omitted} duplicate preview(s) omitted` : ''}):**`);
-      lines.push(`If a cycle below addressed an issue and this session shows the same failure pattern anyway, that is a regression worth flagging as high severity — do not suppress it just because it resembles something "already addressed." Only skip re-recommending fixes that are visibly absent from this session's failures.`);
-      for (const cycle of dedupedCycles) {
-        const p = cycle.generated_prompt as string | undefined;
-        lines.push(`- Cycle #${cycle.cycle_number} (${cycle.status})${p ? ': ' + p.slice(0, 200) + (p.length > 200 ? '…' : '') : ''}`);
-      }
-      lines.push('');
+  if (feedbackItems && feedbackItems.length > 0) {
+    lines.push(`**Feedback already recorded (${feedbackItems.length}) — do not duplicate:**`);
+    for (const fb of feedbackItems) {
+      lines.push(`- [${fb.category}] ${fb.text} *(${fb.agent_name || 'unknown'})*`);
     }
+    lines.push('');
+  } else {
+    lines.push(`**Feedback already recorded:** None.\n`);
+  }
+
+  if (improvementCycles && improvementCycles.length > 0) {
+    // Collapse near-identical prompt previews (e.g. re-runs on the same
+    // feedback with no new observations) so repeats don't pad this
+    // section with copies that add no signal.
+    const seenPreviews = new Set<string>();
+    const dedupedCycles = improvementCycles.filter(cycle => {
+      const p = (cycle.generated_prompt as string | undefined)?.slice(0, 200) ?? '';
+      const key = p || `#${cycle.cycle_number}`;
+      if (seenPreviews.has(key)) return false;
+      seenPreviews.add(key);
+      return true;
+    });
+    const omitted = improvementCycles.length - dedupedCycles.length;
+
+    lines.push(`**Prior improvement cycles (${dedupedCycles.length}${omitted > 0 ? `, ${omitted} duplicate preview(s) omitted` : ''}):**`);
+    lines.push(`If a cycle below addressed an issue and this session shows the same failure pattern anyway, that is a regression worth flagging as high severity — do not suppress it just because it resembles something "already addressed." Only skip re-recommending fixes that are visibly absent from this session's failures.`);
+    for (const cycle of dedupedCycles) {
+      const p = cycle.generated_prompt as string | undefined;
+      lines.push(`- Cycle #${cycle.cycle_number} (${cycle.status})${p ? ': ' + p.slice(0, 200) + (p.length > 200 ? '…' : '') : ''}`);
+    }
+    lines.push('');
+  } else {
+    lines.push(`**Prior improvement cycles:** None recorded for this session's skills.\n`);
   }
 
   // ── Execution tree ───────────────────────────────────────────────────
@@ -1230,7 +1254,9 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
       else lines.push(`${indent}  skill: ${si.skill} — find in .claude/skills/`);
     }
     if (agent.subagentType && agent.subagentType !== 'fork') {
-      lines.push(`${indent}  agent definition: ${agent.subagentType} — read in .claude/agents/${agent.subagentType}.md`);
+      const agentDefPath = agentDefinitionPaths?.get(agent.subagentType);
+      if (agentDefPath) lines.push(`${indent}  agent definition: \`${agentDefPath}\``);
+      else lines.push(`${indent}  agent definition: ${agent.subagentType} — find in .claude/agents/`);
     }
 
     // JSONL path — primary evidence for what the agent actually did. Line
@@ -1361,16 +1387,25 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
       count++;
     }
     lines.push('');
+  } else {
+    lines.push(`## Artifacts\n`);
+    lines.push(`None recorded for this session.\n`);
   }
 
   // ── Output ───────────────────────────────────────────────────────────
 
   lines.push(`## Output\n`);
   lines.push(`Write one short observation per finding — specific enough that the user can immediately decide whether to add it as feedback. Group by agent. Each observation should name the instruction that was not followed, describe what actually happened, and state whether it mattered.\n`);
+  lines.push(`Prefer the smallest number of high-confidence findings that materially matter. Do not report multiple recommendations for the same underlying root cause unless they require materially different fixes — when several observations are manifestations of the same definition-level problem, consolidate them into one recommendation and cite the strongest evidence.\n`);
   lines.push(`If no meaningful deviations were found, say so directly.\n`);
+  lines.push(`Do not make any changes to files. This is a read-only analysis report — findings and recommendations are for the user to review and act on, not for you to apply.\n`);
+  lines.push(`Classify each recommendation as either agent-scoped or cross-agent/session-wide:\n`);
+  lines.push(`- If the finding is attributable to one specific agent, set \`agentId\` — \`feedbackText\` and \`feedbackCategory\` are then required. \`feedbackText\` must be a concise, ready-to-paste reviewer note describing the concrete behavior that should change, in the way a reviewer would phrase it by hand — do not simply concatenate \`observation\` and \`rootCause\`. Set \`feedbackCategory\` to the single closest match from: missing_context, incorrect_assumption, hallucinated_conclusion, weak_validation, missing_edge_case, missing_artifact, missing_code_exploration, missing_test_coverage, workflow_improvement, agent_definition_gap, skill_definition_gap, tool_misuse, inefficient_execution, prompt_ambiguity, other.\n`);
+  lines.push(`- If the finding cannot reasonably be attributed to one agent, omit \`agentId\`, \`feedbackText\`, and \`feedbackCategory\` entirely. Do not force a cross-agent or architecture-wide finding into a single agent's feedback log.\n`);
   lines.push(`End with:\n`);
   lines.push('```json');
-  lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "category": "prompt|agent_type|workflow|permissions|cost|skill_design", "agentId": "optional", "observation": "...", "rootCause": "...", "evidence": "...", "confidence": "high|medium|low", "recommendation": "..."}]}`);
+  lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "category": "prompt|agent_type|workflow|permissions|cost|skill_design", "agentId": "set only if attributable to one agent", "observation": "...", "rootCause": "...", "evidence": ["..."], "confidence": "high|medium|low", "recommendation": "...", "feedbackText": "required if agentId is set, otherwise omit", "feedbackCategory": "required if agentId is set, otherwise omit — one of the categories listed above"}]}`);
+  lines.push(`\`evidence\` is a list of the specific, citable data points behind the finding — a definition instruction, a JSONL tool call or timestamp, a duration or count — not a single sentence restating the observation.`);
   lines.push('```');
 
   return lines.join('\n');
