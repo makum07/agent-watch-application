@@ -7,6 +7,7 @@ import { computeExecutionFacts } from '@/lib/services/execution-facts';
 import { parseJsonlFile, resolveToolCalls, decodeProjectPath } from '@/lib/parser/jsonl-parser';
 import { readCwdFromJsonl } from '@/lib/parser/session-cwd';
 import { resolveSessionSource } from '@/lib/api/resolve-source';
+import { getWslDistro } from '@/lib/sources';
 import { getWsServer } from '@/lib/websocket/ws-server';
 import { randomUUID } from 'crypto';
 import {
@@ -64,7 +65,7 @@ export async function GET(
       const session = ingestSession(sessionId, sourceId);
       if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
 
-      const promptData = buildPromptData(sessionId, session, db);
+      const promptData = buildPromptData(sessionId, session, db, sourceId);
       const prompt = generateExecutionAnalysisPrompt(promptData);
       return NextResponse.json({ prompt });
     }
@@ -113,7 +114,7 @@ export async function POST(
     ).get(sessionId) as { n: number | null };
     const cycleNumber = (row?.n ?? 0) + 1;
 
-    const promptData = buildPromptData(sessionId, session, db);
+    const promptData = buildPromptData(sessionId, session, db, sourceId);
     const prompt = customPrompt?.trim() || generateExecutionAnalysisPrompt(promptData);
 
     const cycleId = randomUUID();
@@ -126,7 +127,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length, model).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, model).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });
@@ -152,7 +153,7 @@ function statJsonl(filePath: string): { lines: number; sizeBytes: number } | nul
   }
 }
 
-function buildPromptData(sessionId: string, session: import('@/types/session').Session, db: ReturnType<typeof getDatabase>) {
+function buildPromptData(sessionId: string, session: import('@/types/session').Session, db: ReturnType<typeof getDatabase>, sourceId?: string) {
   const conv = db.prepare('SELECT file_path FROM conversations WHERE id = ?').get(sessionId) as
     | { file_path: string }
     | undefined;
@@ -257,6 +258,48 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
     }
   }
 
+  // Resolve agent (subagent-type) definition file paths server-side, the same
+  // way skill definitions are resolved above — otherwise the analyzing agent
+  // has to search for its own definition files, the exact failure mode that
+  // previously caused a skill-analysis run to spiral into aimless exploration.
+  // Skipped for WSL-sourced sessions since projectDir is a Linux path the
+  // Windows-side Node process can't fs.existsSync.
+  const agentDefinitionPaths = new Map<string, string>();
+  if (!getWslDistro(sourceId)) {
+    const subagentTypes = new Set(
+      session.agents.map(a => a.subagentType).filter((t): t is string => !!t && t !== 'fork')
+    );
+    const agentDirCandidates = [
+      path.join(projectDir, '.claude', 'agents'),
+      ...[...externalSkillDirs].filter(dir => path.basename(dir) === 'agents'),
+    ];
+    for (const subagentType of subagentTypes) {
+      for (const dir of agentDirCandidates) {
+        const candidate = path.join(dir, `${subagentType}.md`);
+        if (fs.existsSync(candidate)) {
+          agentDefinitionPaths.set(subagentType, candidate);
+          break;
+        }
+      }
+    }
+  }
+
+  // Prior AI analyses of this same session — queried before the new cycle
+  // row is inserted, so this only ever contains earlier runs. Lets the
+  // prompt trace whether a previous recommendation held instead of
+  // re-deriving it blind on every re-run.
+  const priorCycleRows = db.prepare(
+    'SELECT cycle_number, status, recommendations, created_at FROM execution_analysis_cycles WHERE session_id = ? ORDER BY cycle_number ASC'
+  ).all(sessionId) as Array<{ cycle_number: number; status: string; recommendations: string | null; created_at: number }>;
+  const priorExecutionAnalyses = priorCycleRows.length > 0
+    ? priorCycleRows.map(c => ({
+        cycleNumber: c.cycle_number,
+        createdAt: new Date(c.created_at).toISOString(),
+        status: c.status,
+        recommendations: c.recommendations ? JSON.parse(c.recommendations) : null,
+      }))
+    : undefined;
+
   return {
     session,
     projectDir,
@@ -269,6 +312,8 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
     feedbackItems,
     improvementCycles: improvementCycles.length > 0 ? improvementCycles : undefined,
     skillDefinitionPaths: skillDefinitionPaths.size > 0 ? skillDefinitionPaths : undefined,
+    agentDefinitionPaths: agentDefinitionPaths.size > 0 ? agentDefinitionPaths : undefined,
+    priorExecutionAnalyses,
   };
 }
 

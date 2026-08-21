@@ -81,6 +81,7 @@ function mapAnalysisCycleRow(row: Record<string, unknown>): SkillAnalysisCycle {
     recommendations: row.recommendations ? JSON.parse(row.recommendations as string) : null,
     currentStatus: (row.current_status as string) ?? null,
     growthOpportunities: row.growth_opportunities ? JSON.parse(row.growth_opportunities as string) : null,
+    phaseGrowthOpportunities: row.phase_growth_opportunities ? JSON.parse(row.phase_growth_opportunities as string) : null,
     status: (row.status as AnalysisStatus) ?? 'pending',
     createdAt: new Date(row.created_at as number).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at as number).toISOString() : null,
@@ -785,6 +786,7 @@ export function createAnalysisCycle(
     recommendations: null,
     currentStatus: null,
     growthOpportunities: null,
+    phaseGrowthOpportunities: null,
     status: 'analyzing',
     createdAt: new Date(now).toISOString(),
     completedAt: null,
@@ -796,7 +798,7 @@ export function createAnalysisCycle(
 
 export function updateAnalysisCycle(
   cycleId: string,
-  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'currentStatus' | 'growthOpportunities' | 'status' | 'streamEntries' | 'model' | 'cliSessionId'>>,
+  updates: Partial<Pick<SkillAnalysisCycle, 'analysisResponse' | 'fixPrompt' | 'recommendations' | 'currentStatus' | 'growthOpportunities' | 'phaseGrowthOpportunities' | 'status' | 'streamEntries' | 'model' | 'cliSessionId'>>,
   sourceId?: string
 ): void {
   const db = getDatabase(sourceId);
@@ -822,6 +824,10 @@ export function updateAnalysisCycle(
   if (updates.growthOpportunities !== undefined) {
     fields.push('growth_opportunities = ?');
     values.push(updates.growthOpportunities ? JSON.stringify(updates.growthOpportunities) : null);
+  }
+  if (updates.phaseGrowthOpportunities !== undefined) {
+    fields.push('phase_growth_opportunities = ?');
+    values.push(updates.phaseGrowthOpportunities ? JSON.stringify(updates.phaseGrowthOpportunities) : null);
   }
   if (updates.streamEntries !== undefined) {
     fields.push('stream_entries = ?');

@@ -485,6 +485,9 @@ function runMigrations(db: Database.Database) {
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'growth_opportunities')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN growth_opportunities TEXT;`);
   }
+  if (sacCols.length > 0 && !sacCols.find(c => c.name === 'phase_growth_opportunities')) {
+    db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN phase_growth_opportunities TEXT;`);
+  }
   if (sacCols.length > 0 && !sacCols.find(c => c.name === 'model')) {
     db.exec(`ALTER TABLE skill_analysis_cycles ADD COLUMN model TEXT;`);
   }

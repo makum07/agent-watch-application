@@ -330,10 +330,15 @@ export interface ExecutionRecommendation {
   observation?: string;
   rootCause?: string;
   recommendation?: string;
-  evidence?: string;
+  /** String on older stored cycles (pre-array-evidence prompt); array going forward. */
+  evidence?: string | string[];
   confidence?: 'high' | 'medium' | 'low';
   target?: string;
   finding?: string;
+  /** Ready-to-paste feedback text for `agentId`'s feedback log — set only when the finding traces to one specific agent. */
+  feedbackText?: string;
+  /** Closest match from `FeedbackCategory` (types/feedback.ts) — free-form model output, not guaranteed to be a valid value. */
+  feedbackCategory?: string;
 }
 
 export interface ExecutionAnalysisCycle {

@@ -3,18 +3,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Sparkles, Play, Loader2, ChevronDown, ChevronRight,
-  Copy, Check, Trash2, Eye, EyeOff,
+  Copy, Check, Trash2, Eye, EyeOff, MessageSquarePlus,
+  FileText, MessageSquare, Clock, ListChecks,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDuration } from '@/lib/utils';
 import { useExecutionAnalysisStore } from '@/store/execution-analysis-store';
+import { useFeedbackStore } from '@/store/feedback-store';
+import { useSessionStore } from '@/store/session-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import { CollapsibleStreamLog } from '@/components/shared/collapsible-stream-log';
 import { ModelSelect } from '@/components/shared/model-select';
 import { StopButton } from '@/components/shared/stop-button';
 import { CopyableSessionId } from '@/components/shared/copyable-session-id';
+import {
+  MetaChip, CycleSectionHeader, CycleSectionLabel, Field, CalloutField, SEVERITY_COLOR,
+} from '@/components/shared/cycle-section';
 import type { SessionEvent } from '@/types/events';
 import type { ExecutionAnalysisCycle, ExecutionRecommendation } from '@/types/analytics';
+import { FEEDBACK_CATEGORIES, type FeedbackCategory } from '@/types/feedback';
 
 interface ExecutionAnalysisProps {
   sessionId: string;
@@ -259,6 +266,18 @@ function CycleCard({
     ? liveStreamEntries.length
     : cycle.streamEntries?.length ?? 0;
 
+  // At-a-glance stats so the collapsed row is informative on its own —
+  // you shouldn't have to expand a cycle just to see what it found.
+  const recCount = cycle.recommendations?.length ?? 0;
+  const severityCounts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const r of cycle.recommendations ?? []) {
+    const sev = r.severity ?? 'medium';
+    severityCounts[sev] = (severityCounts[sev] ?? 0) + 1;
+  }
+  const durationMs = cycle.completedAt
+    ? new Date(cycle.completedAt).getTime() - new Date(cycle.createdAt).getTime()
+    : null;
+
   return (
     <div
       className={cn(
@@ -267,106 +286,118 @@ function CycleCard({
           ? 'border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)] ring-1 ring-[var(--aw-blue)]/20'
           : 'border-[var(--aw-bg-2)] bg-[var(--aw-bg-1)]',
       )}
-      style={{ borderLeftColor: s.color, borderLeftWidth: '3px' }}
     >
-      {/* Header row */}
+      {/* Header — actions reveal on hover instead of a permanent extra row */}
       <div
-        className="flex items-center gap-2 px-2.5 pt-2 pb-1.5 cursor-pointer hover:bg-[var(--aw-bg-2)]/40 transition-colors"
+        className="group cursor-pointer hover:bg-[var(--aw-bg-2)]/30 transition-colors"
         onClick={onToggle}
       >
-        <span className="text-[11px] font-bold text-[var(--aw-text-0)] shrink-0 w-6">#{cycle.cycleNumber}</span>
+        <div className="flex items-center gap-2 px-3 pt-2">
+          <span className="text-[11px] font-bold text-[var(--aw-text-0)] shrink-0">#{cycle.cycleNumber}</span>
 
-        <Sparkles className="h-3 w-3 text-[var(--aw-purple)] shrink-0" />
+          <Sparkles className="h-3 w-3 text-[var(--aw-purple)] shrink-0" />
 
-        <span
-          className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
-          style={{ color: s.color, background: `${s.color}18` }}
-        >
-          {s.label}
-        </span>
-
-        {cycle.model && (
           <span
-            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] shrink-0"
-            title="Model the CLI actually ran with"
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
+            style={{ color: s.color, background: `${s.color}18` }}
           >
-            {cycle.model}
+            {s.label}
           </span>
-        )}
 
-        {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
-
-        <span className="flex-1" />
-
-        <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{date}</span>
-
-        {isExpanded
-          ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
-          : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
-        }
-      </div>
-
-      {/* Action row */}
-      <div className="flex items-center gap-1 px-2 pb-2">
-        {cycle.analysisResponse && (
-          <button
-            onClick={e => { e.stopPropagation(); handleCopy(); }}
-            className="flex items-center gap-1 text-[10px] text-[var(--aw-text-2)] hover:text-[var(--aw-text-0)] transition-colors px-1.5 py-0.5 rounded hover:bg-[var(--aw-bg-2)]"
-          >
-            {copied ? <Check className="h-2.5 w-2.5 text-[var(--aw-green)]" /> : <Copy className="h-2.5 w-2.5" />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        )}
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="flex items-center gap-1 text-[10px] text-[var(--aw-text-4)] hover:text-[var(--aw-red-bright)] transition-colors px-1.5 py-0.5 rounded hover:bg-[var(--aw-red-bright)]/10 ml-auto"
-          title="Delete this cycle"
-        >
-          <Trash2 className="h-2.5 w-2.5" />
-        </button>
-      </div>
-
-      {/* Expanded content */}
-      {isExpanded && (
-        <div className="border-t border-[var(--aw-bg-2)]">
-          {/* Prompt toggle */}
-          <button
-            onClick={e => { e.stopPropagation(); setShowPrompt(v => !v); }}
-            className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
-          >
-            {showPrompt
-              ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-              : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-            Analysis Prompt
-            <span className="text-[var(--aw-text-4)] ml-auto">{cycle.analysisPrompt.length.toLocaleString()} chars</span>
-          </button>
-          {showPrompt && (
-            <div className="px-2.5 pb-2.5">
-              <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-40 overflow-y-auto font-mono bg-[var(--aw-bg-0)] p-2 rounded border border-[var(--aw-bg-2)] leading-relaxed">
-                {cycle.analysisPrompt}
-              </pre>
-            </div>
+          {cycle.model && (
+            <span
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aw-bg-3)] text-[var(--aw-text-2)] shrink-0"
+              title="Model the CLI actually ran with"
+            >
+              {cycle.model}
+            </span>
           )}
 
-          {/* Stream / Response log */}
-          <div className="border-t border-[var(--aw-bg-2)]">
+          {cycle.cliSessionId && <CopyableSessionId sessionId={cycle.cliSessionId} />}
+
+          <span className="flex-1" />
+
+          <span className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+            {cycle.analysisResponse && (
+              <button
+                onClick={e => { e.stopPropagation(); handleCopy(); }}
+                className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-text-0)] hover:bg-[var(--aw-bg-2)] transition-colors"
+                title="Copy response"
+              >
+                {copied ? <Check className="h-3 w-3 text-[var(--aw-green)]" /> : <Copy className="h-3 w-3" />}
+              </button>
+            )}
             <button
-              onClick={e => { e.stopPropagation(); setShowStream(v => !v); }}
-              className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-[var(--aw-text-2)] hover:bg-[var(--aw-bg-2)]/50 transition-colors text-left"
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              className="p-1 rounded text-[var(--aw-text-3)] hover:text-[var(--aw-red-bright)] hover:bg-[var(--aw-red-bright)]/10 transition-colors"
+              title="Delete this cycle"
             >
-              {showStream
-                ? <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-                : <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
-              {streamLabel}
-              {entryCount > 0 && (
-                <span className="text-[var(--aw-text-4)] ml-1">({entryCount} events)</span>
-              )}
-              {isLive && (
-                <Loader2 className="h-2.5 w-2.5 animate-spin text-[var(--aw-blue)] ml-auto" />
-              )}
+              <Trash2 className="h-3 w-3" />
             </button>
+          </span>
+
+          <span className="text-[10px] text-[var(--aw-text-4)] shrink-0">{date}</span>
+
+          {isExpanded
+            ? <ChevronDown className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+            : <ChevronRight className="h-3 w-3 text-[var(--aw-text-4)] shrink-0" />
+          }
+        </div>
+
+        {/* Meta strip — glanceable summary without expanding */}
+        <div className="flex items-center gap-3 px-3 pb-2 pt-1 text-[10px] text-[var(--aw-text-3)]">
+          {recCount > 0 ? (
+            <>
+              <MetaChip icon={<ListChecks />}>{recCount} recommendation{recCount !== 1 ? 's' : ''}</MetaChip>
+              {(['critical', 'high', 'medium', 'low'] as const).filter(sev => severityCounts[sev] > 0).map(sev => (
+                <span key={sev} className="font-mono shrink-0" style={{ color: SEVERITY_COLOR[sev] }}>
+                  {severityCounts[sev]} {sev}
+                </span>
+              ))}
+            </>
+          ) : cycle.status === 'completed' ? (
+            <MetaChip icon={<ListChecks />}>No recommendations</MetaChip>
+          ) : null}
+          {entryCount > 0 && (
+            <MetaChip icon={<MessageSquare />}>{entryCount} event{entryCount !== 1 ? 's' : ''}</MetaChip>
+          )}
+          {durationMs !== null && durationMs > 0 && (
+            <MetaChip icon={<Clock />}>{formatDuration(durationMs)}</MetaChip>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded content — one consistent section shape throughout */}
+      {isExpanded && (
+        <div className="border-t border-[var(--aw-bg-2)] divide-y divide-[var(--aw-bg-2)]">
+          <div>
+            <CycleSectionHeader
+              icon={<FileText />}
+              label="Analysis Prompt"
+              open={showPrompt}
+              onToggle={() => setShowPrompt(v => !v)}
+              trailing={`${cycle.analysisPrompt.length.toLocaleString()} chars`}
+            />
+            {showPrompt && (
+              <div className="px-3 pb-3 bg-[var(--aw-bg-0)]/40">
+                <pre className="text-[10px] text-[var(--aw-text-2)] whitespace-pre-wrap max-h-40 overflow-y-auto font-mono bg-[var(--aw-bg-0)] p-2.5 rounded border border-[var(--aw-bg-2)] leading-relaxed">
+                  {cycle.analysisPrompt}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Stream / Response log */}
+          <div>
+            <CycleSectionHeader
+              icon={isLive ? <Loader2 className="animate-spin" /> : <MessageSquare />}
+              label={streamLabel}
+              open={showStream}
+              onToggle={() => setShowStream(v => !v)}
+              trailing={entryCount > 0 ? `${entryCount} event${entryCount !== 1 ? 's' : ''}` : undefined}
+            />
             {showStream && (
-              <div className="px-2.5 pb-2.5">
+              <div className="px-3 pb-3 bg-[var(--aw-bg-0)]/40">
                 {isLive ? (
                   <CollapsibleStreamLog
                     entries={liveStreamEntries}
@@ -390,25 +421,15 @@ function CycleCard({
             )}
           </div>
 
-          {/* Recommendations */}
-          {cycle.recommendations && cycle.recommendations.length > 0 && (
-            <div className="border-t border-[var(--aw-bg-2)] p-3">
-              <h5 className="text-[10px] text-[var(--aw-text-2)] uppercase tracking-wide mb-2">
-                AI Recommendations ({cycle.recommendations.length})
-              </h5>
-              <div className="space-y-2">
-                {cycle.recommendations.map((rec, i) => (
-                  <AIRecommendationCard key={i} rec={rec} />
+          {/* Recommendations — the primary payload of a cycle, always shown when present */}
+          {recCount > 0 && (
+            <div>
+              <CycleSectionLabel icon={<ListChecks />} label="AI Recommendations" count={recCount} />
+              <div className="px-3 pb-3 space-y-1.5">
+                {cycle.recommendations!.map((rec, i) => (
+                  <AIRecommendationCard key={i} rec={rec} sessionId={sessionId} />
                 ))}
               </div>
-            </div>
-          )}
-
-          {cycle.completedAt && (
-            <div className="px-2.5 pb-2 text-[10px] text-[var(--aw-text-4)]">
-              Completed {new Date(cycle.completedAt).toLocaleString([], {
-                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-              })}
             </div>
           )}
         </div>
@@ -423,18 +444,40 @@ function humanizeLabel(raw: string): string {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
-  const severityColors: Record<string, string> = {
-    critical: 'text-[var(--aw-red)] bg-[var(--aw-red)]/10',
-    high: 'text-[var(--aw-orange)] bg-[var(--aw-orange)]/10',
-    medium: 'text-[var(--aw-yellow)] bg-[var(--aw-yellow)]/10',
-    low: 'text-[var(--aw-blue)] bg-[var(--aw-blue)]/10',
-  };
+const CONFIDENCE_COLOR: Record<string, string> = {
+  high: 'var(--aw-green)',
+  medium: 'var(--aw-yellow)',
+  low: 'var(--aw-text-4)',
+};
 
-  const confidenceColors: Record<string, string> = {
-    high: 'text-[var(--aw-green)]',
-    medium: 'text-[var(--aw-yellow)]',
-    low: 'text-[var(--aw-text-2)]',
+function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation; sessionId: string }) {
+  const addFeedback = useFeedbackStore(s => s.addFeedback);
+  const { agentMap } = useSessionStore();
+  const [expanded, setExpanded] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'adding' | 'added'>('idle');
+
+  const validCategory = FEEDBACK_CATEGORIES.some(c => c.value === rec.feedbackCategory)
+    ? (rec.feedbackCategory as FeedbackCategory)
+    : 'other';
+
+  // Resolved from the session's own agent data rather than trusting the
+  // model to echo a name back — the id is all it needs to get right.
+  const targetAgent = rec.agentId ? agentMap.get(rec.agentId) : undefined;
+  const targetAgentName = targetAgent
+    ? (targetAgent.description?.slice(0, 60) || targetAgent.subagentType || targetAgent.type)
+    : null;
+
+  const handleAddFeedback = async () => {
+    if (!rec.agentId || !rec.feedbackText || feedbackState !== 'idle') return;
+    setFeedbackState('adding');
+    const created = await addFeedback({
+      sessionId,
+      agentId: rec.agentId,
+      agentName: targetAgentName,
+      category: validCategory,
+      text: rec.feedbackText,
+    });
+    setFeedbackState(created ? 'added' : 'idle');
   };
 
   // The model's JSON is free-form text, not a validated schema — a
@@ -444,49 +487,97 @@ function AIRecommendationCard({ rec }: { rec: ExecutionRecommendation }) {
   // observed for otherwise-identical prompts). Fall back across both
   // rather than rendering a mostly-blank card.
   const severity = rec.severity || 'medium';
+  const severityColor = SEVERITY_COLOR[severity] ?? SEVERITY_COLOR.medium;
   const heading = rec.title || rec.target || 'Recommendation';
   const body = rec.observation || rec.finding;
-  // Only show target as its own tag when it isn't already standing in for
+  // Only show target as its own field when it isn't already standing in for
   // the heading above.
-  const showTargetTag = Boolean(rec.target && rec.title);
+  const showTarget = Boolean(rec.target && rec.title);
 
   return (
-    <div className="p-2 rounded border border-[var(--aw-bg-2)] bg-[var(--aw-bg-0)]">
-      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-        <span className={cn('text-[9px] px-1 py-0.5 rounded font-medium', severityColors[severity] || severityColors.medium)}>
-          {severity.toUpperCase()}
+    <div className="rounded-r border-l-2 overflow-hidden" style={{ borderLeftColor: severityColor, background: `${severityColor}0a` }}>
+      <button
+        className="w-full flex items-center gap-2 p-2.5 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <span className="text-[9px] uppercase font-semibold tracking-wider shrink-0 w-12" style={{ color: severityColor }}>
+          {severity}
         </span>
+        <span className="text-[11px] font-medium text-[var(--aw-text-0)] flex-1 min-w-0" title={heading}>{heading}</span>
         {rec.category && (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-2)]">
+          <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-3)] shrink-0">
             {humanizeLabel(rec.category)}
           </span>
         )}
-        {showTargetTag && (
-          <span
-            className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-3)] font-mono truncate max-w-[160px]"
-            title={rec.target}
-          >
-            {rec.target}
-          </span>
-        )}
         {rec.confidence && (
-          <span className={cn('text-[9px] ml-auto', confidenceColors[rec.confidence] || confidenceColors.medium)}>
-            {rec.confidence} confidence
+          <span
+            className="text-[9px] uppercase font-medium tracking-wider shrink-0"
+            style={{ color: CONFIDENCE_COLOR[rec.confidence] ?? CONFIDENCE_COLOR.medium }}
+            title="Confidence"
+          >
+            {rec.confidence}
           </span>
         )}
-      </div>
-      <p className="text-[11px] text-[var(--aw-text-0)] font-medium">{heading}</p>
-      {body && <p className="text-[10px] text-[var(--aw-text-2)] mt-1">{body}</p>}
-      {rec.rootCause && (
-        <p className="text-[10px] text-[var(--aw-text-3)] mt-1">
-          <span className="text-[var(--aw-text-4)]">Root cause: </span>{rec.rootCause}
-        </p>
-      )}
-      {rec.evidence && (
-        <p className="text-[10px] text-[var(--aw-text-3)] mt-1 italic">{rec.evidence}</p>
-      )}
-      {rec.recommendation && (
-        <p className="text-[10px] text-[var(--aw-blue)] mt-1">{rec.recommendation}</p>
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+
+      {expanded && (
+        <div className="px-2.5 pb-2.5 pt-1 space-y-2.5 border-t border-[var(--aw-bg-2)]">
+          {body && <Field label="Observation">{body}</Field>}
+          {rec.rootCause && <Field label="Root cause">{rec.rootCause}</Field>}
+          {showTarget && (
+            <Field label="Target">
+              <span className="font-mono text-[10px] text-[var(--aw-text-2)] bg-[var(--aw-bg-4)] px-1.5 py-0.5 rounded break-all">
+                {rec.target}
+              </span>
+            </Field>
+          )}
+          {rec.evidence && (
+            <Field label={Array.isArray(rec.evidence) ? `Evidence (${rec.evidence.length})` : 'Evidence'}>
+              {Array.isArray(rec.evidence) ? (
+                <ul className="space-y-1">
+                  {rec.evidence.map((e, i) => (
+                    <li key={i} className="pl-2 border-l-2 border-[var(--aw-bg-3)] italic">{e}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="italic">{rec.evidence}</span>
+              )}
+            </Field>
+          )}
+          {rec.recommendation && (
+            <CalloutField label="Recommendation">{rec.recommendation}</CalloutField>
+          )}
+
+          {rec.agentId && rec.feedbackText && (
+            <div className="rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)] p-2.5">
+              {targetAgentName && (
+                <p className="text-[9px] text-[var(--aw-text-4)] mb-1">
+                  Feedback for <span className="text-[var(--aw-text-2)] font-medium">{targetAgentName}</span>
+                </p>
+              )}
+              <div className="flex items-end gap-2">
+                <p className="text-[10px] text-[var(--aw-text-2)] flex-1 leading-relaxed">{rec.feedbackText}</p>
+                <button
+                  onClick={handleAddFeedback}
+                  disabled={feedbackState !== 'idle'}
+                  className={cn(
+                    'flex items-center gap-1 text-[10px] px-2 py-1 rounded shrink-0 font-medium transition-colors',
+                    feedbackState === 'added'
+                      ? 'bg-[var(--aw-green)]/15 text-[var(--aw-green)]'
+                      : 'bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  title={`Add as feedback (${humanizeLabel(validCategory)})`}
+                >
+                  {feedbackState === 'added'
+                    ? <Check className="h-3 w-3" />
+                    : <MessageSquarePlus className="h-3 w-3" />}
+                  {feedbackState === 'added' ? 'Added' : feedbackState === 'adding' ? 'Adding…' : 'Add as Feedback'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
