@@ -14,6 +14,8 @@
     "dev": "next dev -p 3456",
     "predev:server": "node scripts/check-node-version.js",
     "dev:server": "tsx server.ts",
+    "preaw": "node scripts/check-node-version.js",
+    "aw": "tsx server.ts",
     "prebuild": "node scripts/check-node-version.js",
     "build": "next build",
     "prestart": "node scripts/check-node-version.js",
