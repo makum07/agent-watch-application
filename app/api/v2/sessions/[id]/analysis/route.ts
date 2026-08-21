@@ -126,7 +126,7 @@ export async function POST(
     `).run(cycleId, sessionId, cycleNumber, prompt, now);
 
     setImmediate(() => {
-      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, session.agents.length, model).catch(err => {
+      runExecutionAnalysis(cycleId, sessionId, prompt, promptData.projectDir, promptData.externalSkillDirs, sourceId, model).catch(err => {
         console.error('Execution analysis failed:', err);
       });
     });

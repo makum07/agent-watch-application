@@ -85,6 +85,8 @@ export interface SkillGrowthOpportunity {
   suggestedChange: string;
   impact: 'high' | 'medium' | 'low';
   sourceDocument: string | null;
+  /** The specific entry, condition, score, sheet, or section within sourceDocument this opportunity traces back to — preserves the audit-to-opportunity link structurally instead of only in prose. */
+  sourceEvidence: string | null;
 }
 
 export interface SkillFeedbackAggregate {

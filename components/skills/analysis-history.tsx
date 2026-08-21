@@ -992,7 +992,10 @@ function GrowthOpportunityCard({ op }: { op: SkillGrowthOpportunity }) {
         )}
         <span className="text-xs font-medium text-[var(--aw-text-0)] flex-1">{op.title}</span>
         {op.sourceDocument && (
-          <span className="text-[9px] text-[var(--aw-text-4)] font-mono shrink-0 truncate max-w-[140px]" title={op.sourceDocument}>
+          <span
+            className="text-[9px] text-[var(--aw-text-4)] font-mono shrink-0 truncate max-w-[140px]"
+            title={op.sourceEvidence ? `${op.sourceDocument} — ${op.sourceEvidence}` : op.sourceDocument}
+          >
             {op.sourceDocument}
           </span>
         )}
@@ -1011,6 +1014,7 @@ function GrowthOpportunityCard({ op }: { op: SkillGrowthOpportunity }) {
             </div>
           </div>
 
+          {op.sourceEvidence && <Field label="Source evidence">{op.sourceEvidence}</Field>}
           <Field label="Why it matters">{op.rationale}</Field>
           <Field label="SDLC impact">{op.sdlcImpact}</Field>
           <CalloutField label="Suggested change">{op.suggestedChange}</CalloutField>

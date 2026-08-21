@@ -1480,10 +1480,6 @@ export function deleteExecutionAnalysisCycle(cycleId: string): void {
 
 // ─── Run AI Analysis ────────────────────────────────────────────────────
 
-const MIN_ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_ANALYSIS_TIMEOUT_MS = 45 * 60 * 1000;
-const PER_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
-
 export async function runExecutionAnalysis(
   cycleId: string,
   sessionId: string,
@@ -1491,7 +1487,6 @@ export async function runExecutionAnalysis(
   cwd?: string,
   externalSkillDirs: string[] = [],
   sourceId?: string,
-  agentCount = 1,
   model?: string,
 ): Promise<void> {
   const resolvedModel = sanitizeClaudeCliModel(model);
@@ -1517,22 +1512,16 @@ export async function runExecutionAnalysis(
       for (const entry of translateStreamEvent(event)) log.push(entry);
     }
 
-    // Scaled by agent count — a fixed 10 minutes isn't enough for the model
-    // to read+judge every agent one at a time on a large multi-agent session.
-    const ANALYSIS_TIMEOUT_MS = Math.min(
-      MAX_ANALYSIS_TIMEOUT_MS,
-      Math.max(MIN_ANALYSIS_TIMEOUT_MS, agentCount * PER_AGENT_TIMEOUT_MS),
-    );
-    const timeoutMinutes = Math.round(ANALYSIS_TIMEOUT_MS / 60000);
-
-    const { exitCode, timedOut, stderr, fullText: responseText, cancelled } = await runClaudeCliOneShot({
+    // No timeoutMs: duration scales with agent count and response depth
+    // rather than a fixed budget. The stop button (cancelJob, wired through
+    // `jobId` below) is the user's control for ending a run early.
+    const { exitCode, stderr, fullText: responseText, cancelled } = await runClaudeCliOneShot({
       prompt,
       cwd,
       model: resolvedModel,
       permission: { mode: 'skipPermissions' },
       externalDirs: externalSkillDirs,
       wslDistro: getWslDistro(sourceId),
-      timeoutMs: ANALYSIS_TIMEOUT_MS,
       onEvent: handleStreamEvent,
       jobId: cycleId,
     });
@@ -1549,28 +1538,13 @@ export async function runExecutionAnalysis(
     }
 
     // Salvages a partial recommendations block if the model had already
-    // written one before being cut off — a timeout/non-zero exit means the
-    // run didn't finish cleanly, but any usable findings it did produce
+    // written one before being cut off — a non-zero exit means the run
+    // didn't finish cleanly, but any usable findings it did produce
     // shouldn't be thrown away.
     const salvaged = extractJsonFence(responseText);
     const salvagedRecommendations = salvaged && Array.isArray(salvaged.recommendations)
       ? salvaged.recommendations as ExecutionRecommendation[]
       : null;
-
-    if (timedOut) {
-      log.push({ kind: 'system', text: `Analysis timed out after ${timeoutMinutes} minutes.` });
-      if (salvagedRecommendations) {
-        log.push({ kind: 'system', text: `Salvaged ${salvagedRecommendations.length} recommendation(s) from the partial response before the timeout.` });
-      }
-      updateExecutionAnalysisCycle(cycleId, {
-        status: 'failed',
-        analysisResponse: responseText || null,
-        recommendations: salvagedRecommendations,
-        streamEntries: log.entries.length > 0 ? log.entries : null,
-      }, sourceId);
-      broadcast('execution_analysis_failed', { error: `Analysis timed out after ${timeoutMinutes} minutes` });
-      return;
-    }
 
     if (exitCode !== 0) {
       const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;

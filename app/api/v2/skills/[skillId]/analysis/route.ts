@@ -57,7 +57,7 @@ export async function POST(
     }
 
     const cycleNumber = getNextCycleNumber(skillId, sourceId);
-    const prompt = customPrompt || generateAnalysisPrompt(detail.skill, detail);
+    const prompt = customPrompt || generatePromptPreview(skillId, sourceId) || generateAnalysisPrompt(detail.skill, detail);
 
     const sessionIds = [...new Set(detail.recentExecutions.map(e => e.sessionId))];
     const db = getDatabase(sourceId);
